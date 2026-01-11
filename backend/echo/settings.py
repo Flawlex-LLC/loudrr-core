@@ -165,3 +165,7 @@ ECHO_CONFIG = {
 
 # Encryption key for user IDs in redirect URLs
 ENCRYPTION_KEY = env("ENCRYPTION_KEY", default="change-me-32-byte-key-in-prod!!")
+
+# Allow async operations with Django ORM (required for python-telegram-bot)
+# See: https://docs.djangoproject.com/en/5.0/topics/async/#async-safety
+os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
