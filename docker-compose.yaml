@@ -14,8 +14,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # No host port - internal service only
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-loudrr}"]
       interval: 5s
@@ -27,8 +26,7 @@ services:
     image: redis:7-alpine
     container_name: loudrr-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # No host port - internal service only
     volumes:
       - redis_data:/data
     healthcheck:
@@ -45,7 +43,7 @@ services:
     container_name: loudrr-backend
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8080:8000"  # External 8080, internal 8000 (Coolify uses 8000)
     environment:
       - DEBUG=${DEBUG:-False}
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
