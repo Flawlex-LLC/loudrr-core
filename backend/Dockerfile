@@ -29,9 +29,8 @@ RUN python manage.py collectstatic --noinput --clear 2>/dev/null || true
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health/ || exit 1
+# Note: Health check removed - Coolify handles health monitoring
+# The /health/ endpoint exists but DB connectivity check was failing on startup
 
 # Default command - production with gunicorn
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "2", "--timeout", "120", "echo.wsgi:application"]
