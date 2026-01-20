@@ -377,3 +377,37 @@ ENCRYPTION_KEY = env("ENCRYPTION_KEY", default="change-me-32-byte-key-in-prod!!"
 # Allow async operations with Django ORM (required for python-telegram-bot)
 # See: https://docs.djangoproject.com/en/5.0/topics/async/#async-safety
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
+
+# Logging configuration - outputs errors to console for gunicorn to capture
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
