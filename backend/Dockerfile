@@ -29,8 +29,20 @@ RUN python manage.py collectstatic --noinput --clear 2>/dev/null || true
 # Expose port
 EXPOSE 8000
 
-# Note: Health check removed - Coolify handles health monitoring
-# The /health/ endpoint exists but DB connectivity check was failing on startup
+# Health check - uses lightweight endpoint, retries on failure
+# start-period gives app 40s to start before checking
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health/ || exit 1
 
-# Default command - production with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "2", "--timeout", "120", "echo.wsgi:application"]
+# Production gunicorn with full logging
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:8000", \
+    "--workers", "3", \
+    "--threads", "2", \
+    "--timeout", "120", \
+    "--access-logfile", "-", \
+    "--error-logfile", "-", \
+    "--capture-output", \
+    "--log-level", "info", \
+    "--access-logformat", "%(h)s %(l)s %(u)s %(t)s \"%(r)s\" %(s)s %(b)s \"%(f)s\" \"%(a)s\" %(D)s", \
+    "echo.wsgi:application"]
