@@ -11,22 +11,23 @@ Usage:
 from django.core.cache import cache
 
 
-def get_setting(key: str):
+def get_setting(key: str, default=None):
     """
     Get setting from database with caching.
 
-    Priority: Cache -> DB -> KeyError
+    Priority: Cache -> DB -> Default -> KeyError
 
     Cached for 5 minutes to avoid DB hits on every request.
 
     Args:
         key: Setting key (e.g., 'DAILY_EARN_CAP')
+        default: Default value if setting not found (optional)
 
     Returns:
         Setting value with proper type conversion
 
     Raises:
-        KeyError: If setting not found in database (run migrations)
+        KeyError: If setting not found and no default provided
     """
     # Try cache first
     cache_key = f'setting:{key}'
@@ -42,6 +43,8 @@ def get_setting(key: str):
         cache.set(cache_key, value, timeout=300)  # 5 min cache
         return value
     except SiteSetting.DoesNotExist:
+        if default is not None:
+            return default
         raise KeyError(f"Setting '{key}' not found in database. Run migrations.")
 
 
