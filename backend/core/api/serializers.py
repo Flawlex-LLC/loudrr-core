@@ -4,7 +4,17 @@ from core.models import User, Transaction, AuditLog
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Serializer for user profile."""
+    """
+    Serializer for user profile.
+
+    DECIMAL KARMA: Credits fields use DecimalField with coerce_to_string=False
+    so they serialize as numbers (e.g., 150.25) not strings.
+    """
+
+    # Override credit fields to serialize as numbers, not strings
+    credits = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    total_credits_earned = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    total_credits_spent = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
 
     tier_multiplier = serializers.SerializerMethodField()
     streak_multiplier = serializers.SerializerMethodField()
@@ -34,31 +44,37 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_tier_multiplier(self, obj):
-        return obj.get_tier_multiplier()
+        return float(obj.tier_multiplier)
 
     def get_streak_multiplier(self, obj):
         return obj.get_streak_multiplier()
 
     def get_combined_multiplier(self, obj):
-        return obj.get_tier_multiplier() * obj.get_streak_multiplier()
+        return float(obj.tier_multiplier) * obj.get_streak_multiplier()
 
 
 class BalanceSerializer(serializers.Serializer):
-    """Serializer for balance response."""
+    """
+    Serializer for balance response.
 
-    credits = serializers.IntegerField()
-    daily_earned = serializers.IntegerField()
-    daily_remaining = serializers.IntegerField()
-    weekly_purchased = serializers.IntegerField()
-    weekly_purchase_remaining = serializers.IntegerField()
+    DECIMAL KARMA: All credit values use DecimalField.
+    """
+
+    credits = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    daily_earned = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    daily_remaining = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
 
 
 class UserStatsSerializer(serializers.Serializer):
-    """Serializer for user stats."""
+    """
+    Serializer for user stats.
 
-    credits = serializers.IntegerField()
-    total_earned = serializers.IntegerField()
-    total_spent = serializers.IntegerField()
+    DECIMAL KARMA: Credit values use DecimalField.
+    """
+
+    credits = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    total_earned = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    total_spent = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
     total_engagements = serializers.IntegerField()
     total_posts = serializers.IntegerField()
     current_streak = serializers.IntegerField()
@@ -71,7 +87,15 @@ class UserStatsSerializer(serializers.Serializer):
 
 
 class TransactionSerializer(serializers.ModelSerializer):
-    """Serializer for transactions."""
+    """
+    Serializer for transactions.
+
+    DECIMAL KARMA: Amount and balance_after use DecimalField.
+    """
+
+    # Override to serialize as numbers, not strings
+    amount = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
+    balance_after = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False)
 
     class Meta:
         model = Transaction
@@ -97,7 +121,7 @@ class LeaderboardEntrySerializer(serializers.Serializer):
     engagements = serializers.IntegerField()
     tier = serializers.CharField()
     streak = serializers.IntegerField()
-    credits_earned = serializers.IntegerField(required=False)
+    credits_earned = serializers.DecimalField(max_digits=12, decimal_places=4, coerce_to_string=False, required=False)
     improvement = serializers.FloatField(required=False)
 
 

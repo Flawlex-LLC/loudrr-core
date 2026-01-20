@@ -4,6 +4,10 @@ djangorestframework>=3.14,<4.0
 django-cors-headers>=4.3,<5.0
 django-environ>=0.11,<1.0
 
+# Admin UI
+django-jazzmin>=3.0,<4.0
+django-auditlog>=3.0,<4.0
+
 # Database
 psycopg[binary]>=3.1,<4.0
 dnspython>=2.4,<3.0
@@ -25,6 +29,8 @@ PyJWT>=2.8,<3.0
 # Utilities
 python-dateutil>=2.8,<3.0
 requests>=2.31,<3.0
+Pillow>=10.0,<11.0
+numpy>=1.26,<2.0
 
 # Development
 black>=24.0,<25.0

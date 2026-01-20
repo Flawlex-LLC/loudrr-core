@@ -29,9 +29,9 @@ def get_user_stats(user: User) -> Dict[str, Any]:
         "current_streak": user.current_streak,
         "longest_streak": user.longest_streak,
         "tier": user.tier,
-        "tier_multiplier": user.get_tier_multiplier(),
+        "tier_multiplier": user.tier_multiplier,
         "streak_multiplier": user.get_streak_multiplier(),
-        "combined_multiplier": user.get_tier_multiplier() * user.get_streak_multiplier(),
+        "combined_multiplier": user.tier_multiplier * user.get_streak_multiplier(),
         "rank": get_user_rank(user),
     }
 

@@ -1,142 +1,285 @@
-# ECHO Bot - Deployment Guide
+# Loudrr Deployment Guide - Hetzner + Coolify
 
-## Deploying Telegram Bot to Hetzner with Coolify
+## Overview
 
-Since Telegram API is blocked locally, we'll deploy just the bot to your Hetzner server while keeping development local.
+This guide covers deploying Loudrr (full stack) to a Hetzner server using Coolify.
 
-### Prerequisites
+## Architecture
 
-1. Hetzner server with Coolify installed
-2. Git repository (GitHub/GitLab) to push your code
-3. Supabase database URL (already configured)
-4. Telegram bot token (already configured)
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HETZNER SERVER                           │
+│                                                             │
+│  ┌────────────┐  ┌────────────┐  ┌───────────────────────┐ │
+│  │  Frontend  │  │  Backend   │  │    Telegram Bot       │ │
+│  │  (Next.js) │  │  (Django)  │  │    (Python)           │ │
+│  │  :3000     │  │  :8000     │  │    Long-running       │ │
+│  └────────────┘  └────────────┘  └───────────────────────┘ │
+│        │               │                    │              │
+│  ┌─────┴───────────────┴────────────────────┘              │
+│  │                                                         │
+│  │  ┌────────────┐  ┌────────────┐                        │
+│  │  │ PostgreSQL │  │   Redis    │                        │
+│  │  │   :5432    │  │   :6379    │                        │
+│  │  └────────────┘  └────────────┘                        │
+│  │                                                         │
+│  └─────────────────────────────────────────────────────────│
+│                     Coolify (Traefik)                      │
+│                   SSL/Reverse Proxy                        │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Step 1: Push Code to Git Repository
+## Prerequisites
+
+1. **Hetzner Server**: Minimum CX21 (2 vCPU, 4GB RAM, 40GB SSD) - €5.18/month
+2. **Domain**: Two subdomains:
+   - `api.loudrr.com` → Backend
+   - `app.loudrr.com` → Frontend
+3. **Coolify**: Installed on your Hetzner server
+
+---
+
+## Step 1: Install Coolify on Hetzner
+
+SSH into your Hetzner server:
 
 ```bash
-cd c:\Users\mamoo\projects\reply-community-bot
-git init
-git add .
-git commit -m "Initial ECHO bot setup"
-git remote add origin <your-git-repo-url>
-git push -u origin main
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
 ```
 
-### Step 2: Configure Coolify
+Access Coolify at `http://your-server-ip:8000` and complete setup.
 
-1. Log into your Coolify dashboard
-2. Create a new application
-3. Select "Git Repository" as source
-4. Connect your repository
-5. Set build pack to "Dockerfile"
-6. Point to root directory (Dockerfile is in root)
+---
 
-### Step 3: Set Environment Variables in Coolify
+## Step 2: Add Git Repository
 
-Add these environment variables in Coolify:
+In Coolify:
+1. **Sources** → **Add New Source**
+2. Connect your GitHub/GitLab account
+3. Select the `reply-community-bot` repository
 
-```env
-# Django
-SECRET_KEY=your-production-secret-key-here
+---
+
+## Step 3: Create Services in Coolify
+
+### 3.1 PostgreSQL Database
+
+1. **Services** → **Add New Service** → **Database** → **PostgreSQL**
+2. Configure:
+   - **Name**: `loudrr-db`
+   - **Database**: `loudrr`
+   - **Username**: `loudrr`
+   - **Password**: (generate secure password)
+3. Note the internal URL: `postgresql://loudrr:password@loudrr-db:5432/loudrr`
+
+### 3.2 Redis
+
+1. **Services** → **Add New Service** → **Database** → **Redis**
+2. **Name**: `loudrr-redis`
+3. Internal URL: `redis://loudrr-redis:6379`
+
+### 3.3 Backend (Django API)
+
+1. **Applications** → **Add New Application**
+2. **Build Pack**: Dockerfile
+3. **Dockerfile Location**: `backend/Dockerfile`
+4. **Domain**: `api.loudrr.com`
+5. **Port**: `8000`
+
+**Environment Variables**:
+```
+SECRET_KEY=<generate-with-python>
 DEBUG=False
-ALLOWED_HOSTS=your-domain.com,your-server-ip
-DJANGO_SETTINGS_MODULE=echo.settings
-
-# Database (Supabase)
-DATABASE_URL=postgresql://postgres:qShQXGbylufkFpFY@db.ydptmgxwprydnwdjawqo.supabase.co:5432/postgres
-
-# Telegram Bot
-TELEGRAM_BOT_TOKEN=8502177179:AAH6Ec1naUJXg0zDXufiB3w3XsUDUu1rHJU
-
-# Encryption (generate a new 32-byte key for production)
-ENCRYPTION_KEY=your-32-byte-encryption-key-here
-
-# Redis (optional for now)
-REDIS_URL=redis://localhost:6379/0
-
-# CORS
-CORS_ALLOWED_ORIGINS=http://localhost:3000
+DATABASE_URL=postgresql://loudrr:password@loudrr-db:5432/loudrr
+REDIS_URL=redis://loudrr-redis:6379/0
+ALLOWED_HOSTS=api.loudrr.com
+CORS_ALLOWED_ORIGINS=https://app.loudrr.com,https://loudrr.com
+TELEGRAM_BOT_TOKEN=<your-token>
+TWEETSCOUT_API_KEY=<your-key>
+TWITTER_API_KEY=<your-key>
+MINIAPP_URL=https://app.loudrr.com
 ```
 
-**Important:** Generate a new SECRET_KEY and ENCRYPTION_KEY for production:
+### 3.4 Frontend (Next.js)
+
+1. **Applications** → **Add New Application**
+2. **Build Pack**: Dockerfile
+3. **Dockerfile Location**: `frontend/Dockerfile`
+4. **Domain**: `app.loudrr.com`
+5. **Port**: `3000`
+
+**Environment Variables**:
+```
+NEXT_PUBLIC_API_URL=https://api.loudrr.com
+```
+
+### 3.5 Telegram Bot (Background Worker)
+
+1. **Applications** → **Add New Application**
+2. **Dockerfile Location**: `backend/Dockerfile`
+3. **Custom Start Command**: `python manage.py run_telegram_bot`
+4. **No domain** (background process)
+
+Same environment variables as Backend.
+
+---
+
+## Step 4: Migrate Database from Supabase
+
+### Option A: pg_dump/pg_restore
+
+```bash
+# Export from Supabase
+pg_dump -h db.xxxx.supabase.co -U postgres -d postgres -F c -f backup.dump
+
+# Copy to Hetzner
+scp backup.dump root@your-server:/tmp/
+
+# Restore to Coolify PostgreSQL
+docker exec -i loudrr-db pg_restore -U loudrr -d loudrr --no-owner < /tmp/backup.dump
+```
+
+### Option B: Django dumpdata/loaddata
+
+```bash
+# Export (with Supabase connected)
+python manage.py dumpdata --natural-foreign --natural-primary -e contenttypes -e auth.Permission > backup.json
+
+# Import (on Hetzner)
+python manage.py loaddata backup.json
+```
+
+---
+
+## Step 5: Run Migrations
+
+In Coolify, use **Execute Command** on the backend container:
+
+```bash
+python manage.py migrate
+python manage.py createsuperuser
+```
+
+---
+
+## Step 6: DNS Configuration
+
+Add A records pointing to your Hetzner server IP:
+
+| Subdomain | Type | Value |
+|-----------|------|-------|
+| `api.loudrr.com` | A | `your-server-ip` |
+| `app.loudrr.com` | A | `your-server-ip` |
+
+Coolify automatically provisions SSL via Let's Encrypt.
+
+---
+
+## Step 7: Health Checks
+
+Verify deployment:
+- Backend: `https://api.loudrr.com/health/` → `{"status": "healthy"}`
+- Frontend: `https://app.loudrr.com` → App loads
+- Bot: `/start` command works in Telegram
+
+---
+
+## Environment Variables Reference
+
+| Variable | Service | Description |
+|----------|---------|-------------|
+| `SECRET_KEY` | Backend, Bot | Django secret |
+| `DATABASE_URL` | Backend, Bot | PostgreSQL URL |
+| `REDIS_URL` | Backend, Bot | Redis URL |
+| `ALLOWED_HOSTS` | Backend | API domains |
+| `CORS_ALLOWED_ORIGINS` | Backend | Frontend domains |
+| `TELEGRAM_BOT_TOKEN` | Backend, Bot | Bot token |
+| `TWEETSCOUT_API_KEY` | Backend, Bot | TweetScout key |
+| `TWITTER_API_KEY` | Backend, Bot | Twitter API key |
+| `MINIAPP_URL` | Backend, Bot | Frontend URL |
+| `NEXT_PUBLIC_API_URL` | Frontend | Backend URL |
+
+Generate keys:
 ```python
 # SECRET_KEY
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 
-# ENCRYPTION_KEY (32 bytes)
+# ENCRYPTION_KEY
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-### Step 4: Deploy
+---
 
-1. Click "Deploy" in Coolify
-2. Coolify will:
-   - Clone your repository
-   - Build the Docker image
-   - Run migrations automatically
-   - Start the Telegram bot
+## Monitoring
 
-### Step 5: Verify Deployment
+### Logs
+```bash
+docker logs -f loudrr-backend
+docker logs -f loudrr-frontend
+docker logs -f loudrr-bot
+```
 
-Check Coolify logs to ensure:
-- Migrations ran successfully
-- Bot connected to Telegram API
-- No errors in startup
+### Backups
+```bash
+# Automated PostgreSQL backup (add to crontab)
+0 2 * * * docker exec loudrr-db pg_dump -U loudrr loudrr > /backups/loudrr_$(date +\%Y\%m\%d).sql
+```
 
-Test the bot:
-1. Open Telegram
-2. Search for your bot
-3. Send `/start`
-4. You should get the welcome message
-
-### Step 6: Monitor
-
-- Check logs in Coolify dashboard
-- Monitor database in Supabase dashboard
-- Test all bot commands:
-  - `/start` - Onboarding
-  - `/balance` - Check credits
-  - `/feed` - Get posts to engage
-  - `/post` - Submit a post
-  - `/leaderboard` - Top engagers
-  - `/stats` - Your statistics
-
-## Local Development
-
-While the bot runs on Hetzner, continue development locally:
-
-1. Make changes to code locally
-2. Test with Django development server: `python manage.py runserver`
-3. Test database operations
-4. When ready, push to git: `git push origin main`
-5. Coolify will auto-deploy (if auto-deploy enabled) or manually trigger deploy
+---
 
 ## Troubleshooting
 
-### Bot not connecting to Telegram
-- Verify TELEGRAM_BOT_TOKEN in Coolify environment variables
-- Check Coolify logs for connection errors
-- Ensure Hetzner server has outbound internet access
+### Backend not starting
+- Check `docker logs loudrr-backend`
+- Verify DATABASE_URL is correct
+- Ensure PostgreSQL container is healthy
 
-### Database connection issues
-- Verify DATABASE_URL is correct in Coolify
-- Check Supabase connection limits
-- Ensure Supabase allows connections from Hetzner IP
+### CORS errors
+- Add frontend domain to `CORS_ALLOWED_ORIGINS`
+- Include both http and https variants
 
-### Migrations not running
-- Check Coolify build logs
-- Manually run: `docker exec <container-name> python manage.py migrate`
+### Bot not responding
+- Check `docker logs loudrr-bot`
+- Verify TELEGRAM_BOT_TOKEN
+- Ensure no webhook is configured (use polling)
+
+### Database connection refused
+- Verify PostgreSQL is running: `docker ps`
+- Check internal network connectivity
+- Verify credentials in DATABASE_URL
+
+---
+
+## Cost Comparison
+
+| Resource | Hetzner | Previous (Supabase+Vercel) |
+|----------|---------|---------------------------|
+| Server | €5-10/mo | - |
+| Database | Included | $25/mo (Supabase Pro) |
+| Frontend | Included | $20/mo (Vercel Pro) |
+| **Total** | **€5-10/mo** | **$45/mo** |
+
+---
+
+## Alternative: Docker Compose Deployment
+
+Instead of individual services, deploy everything via docker-compose:
+
+1. In Coolify, select **Docker Compose** build pack
+2. Point to `docker-compose.yml` in repo root
+3. Add environment variables in Coolify
+4. Deploy
+
+This starts all services (db, redis, backend, frontend, bot) together.
+
+---
 
 ## Next Steps
 
-1. **Test bot thoroughly** - All commands, error cases
-2. **Add Discord bot** - Phase 4
-3. **Monitor usage** - Supabase dashboard for data
-4. **Scale if needed** - Upgrade Hetzner resources
-
-## Rollback
-
-If deployment fails:
-1. Check previous deployment in Coolify
-2. Click "Rollback" to previous version
-3. Or fix locally and push again
+1. ✅ Deploy to Hetzner
+2. ✅ Migrate data from Supabase
+3. ✅ Configure SSL
+4. ✅ Test all features
+5. 🔲 Set up automated backups
+6. 🔲 Configure monitoring alerts
+7. 🔲 Update Telegram bot webhook URL (if using webhooks)

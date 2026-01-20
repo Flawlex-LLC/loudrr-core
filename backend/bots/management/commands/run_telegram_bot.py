@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Run the ECHO Telegram bot"
+    help = "Run the Loudrr Telegram bot"
 
     def handle(self, *args, **options):
-        self.stdout.write(self.style.SUCCESS("Starting ECHO Telegram bot..."))
+        self.stdout.write(self.style.SUCCESS("Starting Loudrr Telegram bot..."))
 
         if not settings.TELEGRAM_BOT_TOKEN:
             self.stdout.write(self.style.ERROR("TELEGRAM_BOT_TOKEN not configured"))

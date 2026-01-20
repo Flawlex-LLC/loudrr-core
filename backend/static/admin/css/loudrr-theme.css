@@ -1,0 +1,973 @@
+/*
+ * Loudrr Admin Theme - Clean Black & White
+ * Minimalist, no colors, pure contrast
+ */
+
+:root {
+    --bg-black: #000000;
+    --bg-dark: #0a0a0a;
+    --bg-card: #111111;
+    --bg-elevated: #1a1a1a;
+    --border: #2a2a2a;
+    --border-light: #3a3a3a;
+    --text-primary: #ffffff;
+    --text-secondary: #999999;
+    --text-muted: #666666;
+    --accent: #ffffff;
+    --accent-hover: #cccccc;
+}
+
+/* === DISABLE ALL ANIMATIONS === */
+*, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+}
+
+/* === GLOBAL === */
+body {
+    background-color: var(--bg-black) !important;
+    color: var(--text-primary) !important;
+}
+
+.content-wrapper {
+    background-color: var(--bg-black) !important;
+}
+
+/* All text white or muted */
+p, span, label, div, td, th, li, a {
+    color: var(--text-primary) !important;
+}
+
+.text-muted, .help-block, .helptext, small {
+    color: var(--text-muted) !important;
+}
+
+/* === NAVBAR === */
+.main-header.navbar {
+    background: var(--bg-dark) !important;
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.navbar-brand, .brand-text {
+    color: var(--text-primary) !important;
+    font-weight: bold !important;
+    letter-spacing: 1px !important;
+}
+
+.navbar-nav .nav-link {
+    color: var(--text-primary) !important;
+}
+
+/* === SIDEBAR === */
+.main-sidebar {
+    background: var(--bg-dark) !important;
+    border-right: 1px solid var(--border) !important;
+}
+
+.sidebar-dark-light .nav-sidebar > .nav-item > .nav-link.active,
+.sidebar-dark-warning .nav-sidebar > .nav-item > .nav-link.active {
+    background-color: var(--text-primary) !important;
+    color: var(--bg-black) !important;
+    font-weight: bold !important;
+    border-radius: 4px !important;
+    margin: 2px 8px !important;
+}
+
+.sidebar-dark-light .nav-sidebar > .nav-item > .nav-link:hover,
+.sidebar-dark-warning .nav-sidebar > .nav-item > .nav-link:hover {
+    background-color: var(--bg-elevated) !important;
+    border-radius: 4px !important;
+}
+
+.nav-sidebar .nav-link {
+    color: var(--text-secondary) !important;
+}
+
+.nav-sidebar .nav-link.active {
+    color: var(--bg-black) !important;
+}
+
+/* Sidebar icons */
+.nav-icon {
+    color: var(--text-secondary) !important;
+}
+
+.nav-link.active .nav-icon {
+    color: var(--bg-black) !important;
+}
+
+.nav-header {
+    color: var(--text-muted) !important;
+    text-transform: uppercase !important;
+    font-size: 0.7rem !important;
+    letter-spacing: 1px !important;
+}
+
+/* === CARDS === */
+.card {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+}
+
+.card-header {
+    background-color: var(--bg-dark) !important;
+    border-bottom: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+}
+
+.card-title {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+}
+
+.card-body {
+    color: var(--text-primary) !important;
+}
+
+/* === TABLES === */
+.table {
+    color: var(--text-primary) !important;
+    border-collapse: collapse !important;
+}
+
+.table thead th {
+    background-color: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    font-size: 0.7rem !important;
+    letter-spacing: 0.5px !important;
+    padding: 12px 16px !important;
+}
+
+.table tbody tr {
+    background-color: var(--bg-card) !important;
+}
+
+.table tbody tr:hover {
+    background-color: var(--bg-elevated) !important;
+}
+
+.table tbody tr:nth-child(even) {
+    background-color: var(--bg-dark) !important;
+}
+
+.table tbody tr:nth-child(even):hover {
+    background-color: var(--bg-elevated) !important;
+}
+
+.table td, .table th {
+    border: 1px solid var(--border) !important;
+    padding: 10px 14px !important;
+    vertical-align: middle !important;
+    color: var(--text-primary) !important;
+}
+
+/* Table links */
+.table a {
+    color: var(--text-primary) !important;
+    text-decoration: underline !important;
+}
+
+.table a:hover {
+    color: var(--text-secondary) !important;
+}
+
+/* === BUTTONS === */
+.btn-primary, .btn-success, .btn-info {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+    font-weight: 600 !important;
+    border-radius: 4px !important;
+}
+
+.btn-primary span, .btn-success span, .btn-info span,
+.btn-primary a, .btn-success a, .btn-info a {
+    color: #000000 !important;
+}
+
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active,
+.btn-success:hover, .btn-success:focus, .btn-success:active,
+.btn-info:hover, .btn-info:focus, .btn-info:active {
+    background-color: var(--accent-hover) !important;
+    border-color: var(--accent-hover) !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+}
+
+.btn-secondary, .btn-outline-light {
+    background-color: transparent !important;
+    border: 1px solid var(--border-light) !important;
+    color: var(--text-primary) !important;
+    border-radius: 4px !important;
+}
+
+.btn-secondary:hover, .btn-outline-light:hover {
+    background-color: var(--bg-elevated) !important;
+    border-color: var(--text-primary) !important;
+}
+
+.btn-dark {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+    border-radius: 4px !important;
+}
+
+.btn-light {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+    border-radius: 4px !important;
+}
+
+.btn-warning {
+    background-color: var(--text-secondary) !important;
+    border-color: var(--text-secondary) !important;
+    color: #000000 !important;
+    border-radius: 4px !important;
+}
+
+.btn-danger {
+    background-color: transparent !important;
+    border: 1px solid var(--text-secondary) !important;
+    color: var(--text-primary) !important;
+    border-radius: 4px !important;
+}
+
+.btn-danger:hover {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+/* Force black text on ALL white/light buttons */
+.btn[class*="btn-"] {
+    color: #000000 !important;
+}
+
+.btn-secondary, .btn-outline-light, .btn-danger {
+    color: var(--text-primary) !important;
+}
+
+a.btn, button.btn {
+    color: #000000 !important;
+}
+
+a.btn-secondary, a.btn-outline-light, a.btn-danger,
+button.btn-secondary, button.btn-outline-light, button.btn-danger {
+    color: var(--text-primary) !important;
+}
+
+/* === FORMS === */
+.form-control, .form-select, select, input[type="text"], input[type="number"], input[type="email"], input[type="password"], textarea {
+    background-color: var(--bg-dark) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 4px !important;
+    padding: 8px 12px !important;
+}
+
+.form-control:focus, .form-select:focus, select:focus, input:focus, textarea:focus {
+    border-color: var(--text-primary) !important;
+    box-shadow: none !important;
+    outline: none !important;
+    color: var(--text-primary) !important;
+}
+
+/* === DROPDOWNS === */
+select, .form-select, .form-control[type="select"] {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-dark) !important;
+}
+
+select option, .form-select option {
+    background-color: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Select2 styling */
+.select2-container--default .select2-selection--single,
+.select2-container--default .select2-selection--multiple {
+    background-color: var(--bg-dark) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    min-height: 38px !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__rendered,
+.select2-container--default .select2-selection--multiple .select2-selection__rendered {
+    color: var(--text-primary) !important;
+    line-height: 36px !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__placeholder {
+    color: var(--text-muted) !important;
+}
+
+.select2-container--default .select2-selection--single .select2-selection__arrow b {
+    border-color: var(--text-primary) transparent transparent transparent !important;
+}
+
+.select2-dropdown {
+    background-color: var(--bg-dark) !important;
+    border: 1px solid var(--border) !important;
+}
+
+.select2-search__field {
+    background-color: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+}
+
+.select2-results__option {
+    color: var(--text-primary) !important;
+    background-color: var(--bg-dark) !important;
+}
+
+.select2-results__option--highlighted,
+.select2-results__option--highlighted[aria-selected] {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+.select2-results__option[aria-selected="true"] {
+    background-color: var(--bg-elevated) !important;
+    color: var(--text-primary) !important;
+}
+
+/* === PAGINATION === */
+.pagination .page-link {
+    background-color: var(--bg-dark) !important;
+    border-color: var(--border) !important;
+    color: var(--text-primary) !important;
+    border-radius: 4px !important;
+    margin: 0 2px !important;
+}
+
+.pagination .page-item.active .page-link {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+.pagination .page-link:hover {
+    background-color: var(--bg-elevated) !important;
+    border-color: var(--text-primary) !important;
+}
+
+/* === BADGES === */
+.badge {
+    border-radius: 4px !important;
+    padding: 4px 8px !important;
+    font-weight: 500 !important;
+}
+
+.badge-primary, .bg-primary {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+.badge-success, .bg-success {
+    background-color: var(--text-secondary) !important;
+    color: #000000 !important;
+}
+
+.badge-warning, .bg-warning {
+    background-color: var(--text-secondary) !important;
+    color: #000000 !important;
+}
+
+.badge-danger, .bg-danger {
+    background-color: var(--text-muted) !important;
+    color: var(--text-primary) !important;
+}
+
+.badge-info, .bg-info {
+    background-color: var(--text-secondary) !important;
+    color: #000000 !important;
+}
+
+/* Ensure badge text is always readable */
+.badge, .badge * {
+    color: inherit !important;
+}
+
+/* === ALERTS === */
+.alert {
+    border-radius: 4px !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+    background-color: var(--bg-card) !important;
+}
+
+.alert-success {
+    border-left: 3px solid var(--text-primary) !important;
+}
+
+.alert-warning {
+    border-left: 3px solid var(--text-secondary) !important;
+}
+
+.alert-danger {
+    border-left: 3px solid var(--text-muted) !important;
+}
+
+.alert-info {
+    border-left: 3px solid var(--text-primary) !important;
+}
+
+/* === BREADCRUMB === */
+.breadcrumb {
+    background-color: transparent !important;
+    padding: 0 !important;
+}
+
+.breadcrumb-item a {
+    color: var(--text-secondary) !important;
+}
+
+.breadcrumb-item.active {
+    color: var(--text-primary) !important;
+}
+
+/* === MODALS === */
+.modal-content {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    color: var(--text-primary) !important;
+}
+
+.modal-header {
+    border-bottom: 1px solid var(--border) !important;
+    color: var(--text-primary) !important;
+}
+
+.modal-title {
+    color: var(--text-primary) !important;
+}
+
+.modal-footer {
+    border-top: 1px solid var(--border) !important;
+}
+
+.modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.9) !important;
+}
+
+/* === CONTENT HEADER === */
+.content-header h1 {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+}
+
+/* === FOOTER === */
+.main-footer {
+    background-color: var(--bg-dark) !important;
+    border-top: 1px solid var(--border) !important;
+    color: var(--text-muted) !important;
+}
+
+/* === LOGIN PAGE === */
+.login-page {
+    background: var(--bg-black) !important;
+}
+
+.login-box, .login-card-body {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    color: var(--text-primary) !important;
+}
+
+.login-logo a {
+    color: var(--text-primary) !important;
+    font-weight: bold !important;
+    letter-spacing: 2px !important;
+}
+
+/* === ADMIN ACTION BAR === */
+.changelist-form .actions {
+    background-color: var(--bg-dark) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    padding: 10px !important;
+    margin-bottom: 16px !important;
+}
+
+.changelist-form .actions label {
+    color: var(--text-primary) !important;
+}
+
+/* === CHECKBOX === */
+input[type="checkbox"] {
+    accent-color: var(--text-primary) !important;
+}
+
+/* === FIELDSETS === */
+fieldset {
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    background-color: var(--bg-card) !important;
+}
+
+fieldset legend {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    font-size: 0.8rem !important;
+    letter-spacing: 1px !important;
+}
+
+/* === ADMIN TABS === */
+.nav-tabs {
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.nav-tabs .nav-link {
+    color: var(--text-secondary) !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+    background-color: transparent !important;
+}
+
+.nav-tabs .nav-link.active {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+    border-bottom: 2px solid var(--text-primary) !important;
+    border-radius: 4px 4px 0 0 !important;
+}
+
+.nav-tabs .nav-link.active span,
+.nav-tabs .nav-link.active a {
+    color: #000000 !important;
+}
+
+.nav-tabs .nav-link:hover {
+    border-color: transparent !important;
+    border-bottom: 2px solid var(--text-muted) !important;
+}
+
+/* Jazzmin horizontal tabs */
+.nav-tabs-custom > .nav-tabs > li > a.active,
+.nav-tabs-custom > .nav-tabs > li.active > a {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+/* Pills navigation */
+.nav-pills .nav-link.active {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+.nav-pills .nav-link {
+    color: var(--text-secondary) !important;
+}
+
+/* === SCROLLBAR === */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* === LINK COLORS === */
+a {
+    color: var(--text-primary) !important;
+    text-decoration: underline !important;
+}
+
+a:hover {
+    color: var(--text-secondary) !important;
+}
+
+/* Sidebar links no underline */
+.nav-sidebar a {
+    text-decoration: none !important;
+}
+
+/* === INFO BOXES === */
+.info-box {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+    color: var(--text-primary) !important;
+}
+
+.info-box .info-box-text, .info-box .info-box-number {
+    color: var(--text-primary) !important;
+}
+
+.info-box-icon {
+    background-color: var(--bg-elevated) !important;
+    color: var(--text-primary) !important;
+}
+
+/* === SMALL BOX === */
+.small-box {
+    border-radius: 4px !important;
+    border: 1px solid var(--border) !important;
+    background-color: var(--bg-card) !important;
+}
+
+.small-box h3, .small-box p {
+    color: var(--text-primary) !important;
+}
+
+.small-box .icon {
+    color: var(--border-light) !important;
+}
+
+/* === REMOVE FOCUS OUTLINES === */
+*:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* === JAZZMIN SPECIFIC === */
+.sidebar .user-panel {
+    border-bottom: 1px solid var(--border) !important;
+}
+
+.sidebar .user-panel .info a {
+    color: var(--text-primary) !important;
+    text-decoration: none !important;
+}
+
+/* Dashboard cards */
+.card.card-primary:not(.card-outline) > .card-header {
+    background-color: var(--bg-elevated) !important;
+    color: var(--text-primary) !important;
+}
+
+/* Recent actions */
+#recent-actions-module {
+    background-color: var(--bg-card) !important;
+}
+
+#recent-actions-module h5 {
+    color: var(--text-primary) !important;
+}
+
+/* Object tools */
+.object-tools a {
+    background-color: var(--bg-elevated) !important;
+    color: var(--text-primary) !important;
+    border-radius: 4px !important;
+    border: 1px solid var(--border) !important;
+}
+
+.object-tools a:hover {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+/* Add/Change buttons */
+a.btn.btn-success, a.btn.btn-primary, a.btn.btn-info,
+.addlink, .changelink {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+/* Dashboard model buttons */
+.model-tools a {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+    border-radius: 4px !important;
+}
+
+.model-tools a:hover {
+    background-color: var(--accent-hover) !important;
+    border-color: var(--accent-hover) !important;
+    color: #000000 !important;
+}
+
+/* Dashboard app cards - Add/View buttons */
+.card .model-tools a,
+.card-body a.btn,
+.card-footer a.btn {
+    color: #000000 !important;
+}
+
+/* Jazzmin dashboard buttons */
+.dashboard-column a.btn,
+.app-list a.btn,
+#content-main a.btn {
+    color: #000000 !important;
+}
+
+/* Submit row buttons - Django admin form actions */
+.submit-row input[type="submit"],
+.submit-row button,
+.submit-row input.default,
+.submit-row input[name="_save"],
+.submit-row input[name="_addanother"],
+.submit-row input[name="_continue"] {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+    font-weight: 600 !important;
+    padding: 10px 20px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+}
+
+.submit-row input[type="submit"]:hover,
+.submit-row button:hover {
+    background-color: var(--accent-hover) !important;
+    color: #000000 !important;
+}
+
+/* Delete button exception - keep outlined */
+.submit-row .deletelink-box a,
+.submit-row a.deletelink {
+    background-color: transparent !important;
+    border: 1px solid var(--text-muted) !important;
+    color: var(--text-primary) !important;
+    padding: 10px 20px !important;
+    border-radius: 4px !important;
+}
+
+.submit-row .deletelink-box a:hover,
+.submit-row a.deletelink:hover {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+/* Jazzmin specific submit buttons */
+.card-footer .btn,
+.card-footer input[type="submit"],
+form .btn-primary,
+form .btn-success,
+form input[type="submit"] {
+    background-color: var(--text-primary) !important;
+    border-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+/* Ensure ALL submit inputs have visible text */
+input[type="submit"] {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+    border: none !important;
+    padding: 8px 16px !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+}
+
+/* Calendar widget */
+.calendar td, .calendar th {
+    color: var(--text-primary) !important;
+}
+
+.calendar td.selected a {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+.calendar td a:hover {
+    background-color: var(--text-primary) !important;
+    color: #000000 !important;
+}
+
+/* DateTime shortcuts */
+.datetime .links a {
+    color: var(--text-primary) !important;
+}
+
+/* === STATUS INDICATORS (grayscale) === */
+.status-active, .status-success {
+    color: var(--text-primary) !important;
+}
+
+.status-pending, .status-warning {
+    color: var(--text-secondary) !important;
+}
+
+.status-inactive, .status-danger {
+    color: var(--text-muted) !important;
+}
+
+/* === ACCENT OVERRIDE === */
+.accent-light .nav-sidebar > .nav-item > .nav-link.active {
+    background-color: var(--text-primary) !important;
+    color: var(--bg-black) !important;
+}
+
+/* Close button */
+.close, button.close {
+    color: var(--text-primary) !important;
+}
+
+/* Dropdown menus */
+.dropdown-menu {
+    background-color: var(--bg-dark) !important;
+    border: 1px solid var(--border) !important;
+}
+
+.dropdown-item {
+    color: var(--text-primary) !important;
+}
+
+.dropdown-item:hover {
+    background-color: var(--bg-elevated) !important;
+}
+
+/* Pre/code blocks */
+pre, code {
+    background-color: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+}
+
+/* === PERMISSIONS WIDGET (filter_horizontal) === */
+.selector {
+    width: 100% !important;
+}
+
+.selector .selector-available,
+.selector .selector-chosen {
+    width: 45% !important;
+    min-width: 300px !important;
+}
+
+.selector select {
+    width: 100% !important;
+    min-height: 300px !important;
+    height: auto !important;
+}
+
+.selector-available h2,
+.selector-chosen h2 {
+    background-color: var(--bg-elevated) !important;
+    color: var(--text-primary) !important;
+    padding: 8px 12px !important;
+    border: 1px solid var(--border) !important;
+}
+
+.selector .selector-filter {
+    background-color: var(--bg-dark) !important;
+    border: 1px solid var(--border) !important;
+    padding: 8px !important;
+}
+
+.selector .selector-filter input {
+    width: 100% !important;
+}
+
+.selector-chooser {
+    width: 6% !important;
+    min-width: 50px !important;
+}
+
+.selector-chooser li {
+    padding: 4px !important;
+}
+
+.selector-add, .selector-remove {
+    background-color: var(--bg-elevated) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 4px !important;
+}
+
+.selector-add:hover, .selector-remove:hover {
+    background-color: var(--text-primary) !important;
+}
+
+/* Make the whole permissions row wider */
+.form-row.field-permissions,
+.form-row.field-user_permissions {
+    width: 100% !important;
+}
+
+.form-row.field-permissions > div,
+.form-row.field-user_permissions > div {
+    width: 100% !important;
+    max-width: none !important;
+}
+
+/* === GLOBAL WHITE BACKGROUND = BLACK TEXT FIX === */
+/* Catch-all for any element with white/light background */
+[style*="background-color: rgb(255, 255, 255)"],
+[style*="background-color: white"],
+[style*="background: white"],
+[style*="background: rgb(255, 255, 255)"],
+.bg-white,
+.bg-light {
+    color: #000000 !important;
+}
+
+/* Any active/selected state with white bg */
+.active[class*="bg-"],
+.selected[class*="bg-"],
+[class*="active"]:not(.nav-link):not(.page-item) {
+    color: #000000 !important;
+}
+
+/* Ensure all btn text is readable */
+[class*="btn-"]:not(.btn-secondary):not(.btn-outline):not(.btn-danger) {
+    color: #000000 !important;
+}
+
+/* Links inside white buttons */
+.btn a, .btn span, .btn i {
+    color: inherit !important;
+}
+
+/* Sidebar active state */
+.nav-sidebar .nav-link.active,
+.nav-sidebar .nav-link.active * {
+    color: #000000 !important;
+}
+
+/* === LOGO STYLING === */
+/* Make logo background black/transparent */
+.brand-link .brand-image,
+.navbar-brand .brand-image,
+.brand-image,
+.brand-image-xl,
+.brand-image-xs,
+img.brand-image {
+    background-color: #000000 !important;
+    padding: 4px !important;
+    border-radius: 4px !important;
+    max-height: 40px !important;
+    width: auto !important;
+}
+
+/* Login page logo */
+.login-logo img,
+.login-box-msg img {
+    background-color: #000000 !important;
+    padding: 8px !important;
+    border-radius: 4px !important;
+    max-height: 60px !important;
+}
+
+/* Hide brand text when logo is present */
+.brand-link .brand-text {
+    display: none !important;
+}
+
+/* Navbar brand area */
+.brand-link {
+    padding: 8px 12px !important;
+}

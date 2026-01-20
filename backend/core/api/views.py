@@ -42,7 +42,7 @@ class BalanceView(APIView):
     """Get user's credit balance and limits."""
 
     def get(self, request):
-        """Get current balance and daily/weekly limits."""
+        """Get current balance and daily limits."""
         user = request.user
         credit_service = CreditService(user)
 
@@ -50,8 +50,6 @@ class BalanceView(APIView):
             "credits": user.credits,
             "daily_earned": user.daily_credits_earned,
             "daily_remaining": credit_service.get_daily_remaining(),
-            "weekly_purchased": user.weekly_credits_purchased,
-            "weekly_purchase_remaining": credit_service.get_weekly_purchase_remaining(),
         }
         serializer = BalanceSerializer(data)
         return Response(serializer.data)

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python manage.py:*)",
+      "Bash(cat:*)",
+      "WebSearch",
+      "Bash(python:*)",
+      "WebFetch(domain:twitterapi.io)",
+      "WebFetch(domain:docs.twitterapi.io)",
+      "WebFetch(domain:socialdata.gitbook.io)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
