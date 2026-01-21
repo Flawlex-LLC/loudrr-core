@@ -133,22 +133,24 @@ class TwitterVerificationService:
                 }
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"API error {e.response.status_code}: {e.response.text[:100]}")
+            # API errors (rate limit, server error, etc) - give benefit of the doubt
+            logger.warning(f"API error {e.response.status_code}, assuming passed: {e.response.text[:100]}")
             return {
-                "passed": False,
-                "reply_verified": False,
+                "passed": True,  # Benefit of the doubt on API errors
+                "reply_verified": True,
                 "like_verified": True,
                 "error": f"API error: {e.response.status_code}",
-                "skipped": False,
+                "skipped": True,  # Mark as skipped so we know it wasn't actually verified
             }
         except Exception as e:
-            logger.error(f"Verification error: {e}")
+            # Network errors, timeouts, etc - give benefit of the doubt
+            logger.warning(f"Verification error, assuming passed: {e}")
             return {
-                "passed": False,
-                "reply_verified": False,
+                "passed": True,  # Benefit of the doubt on errors
+                "reply_verified": True,
                 "like_verified": True,
                 "error": str(e),
-                "skipped": False,
+                "skipped": True,
             }
 
     def get_tweet_author(self, tweet_id: str) -> Optional[dict]:

@@ -22,7 +22,8 @@
 11. [Configuration](#11-configuration)
 12. [Security & Robustness](#12-security--robustness)
 13. [Development Setup](#13-development-setup)
-14. [Deployment](#14-deployment)
+14. [Deployment (Production)](#14-deployment-production)
+15. [Quick Reference](#15-quick-reference)
 
 ---
 
@@ -349,14 +350,33 @@ Cached settings with 5-minute TTL, cleared on admin save.
 
 ```python
 def get_setting(key: str, default=None):
-    """Get setting from cache or database."""
+    """
+    Get setting from cache or database.
+
+    Args:
+        key: Setting key (e.g., 'DAILY_EARN_CAP')
+        default: Default value if setting not found (optional)
+
+    Returns:
+        Setting value with proper type conversion, or default if not found
+
+    Raises:
+        KeyError: If setting not found and no default provided
+    """
     cache_key = f'setting:{key}'
     value = cache.get(cache_key)
-    if value is None:
-        setting = SiteSetting.objects.filter(key=key).first()
-        value = setting.typed_value if setting else ECHO_CONFIG.get(key, default)
+    if value is not None:
+        return value
+
+    try:
+        setting = SiteSetting.objects.get(key=key)
+        value = setting.get_value()
         cache.set(cache_key, value, 300)  # 5 min cache
-    return value
+        return value
+    except SiteSetting.DoesNotExist:
+        if default is not None:
+            return default
+        raise KeyError(f"Setting '{key}' not found")
 ```
 
 ### Twitter Verification Service (`core/services/twitter_verification.py`)
@@ -672,7 +692,7 @@ python -m venv venv
 venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 python manage.py migrate
-python manage.py runserver
+python manage.py runserver 8000
 ```
 
 ### Frontend
@@ -685,7 +705,7 @@ npm run dev
 ### Run Both + Bot
 ```bash
 # Terminal 1: Backend
-cd backend && python manage.py runserver
+cd backend && python manage.py runserver 8000
 
 # Terminal 2: Frontend
 cd frontend && npm run dev
@@ -696,7 +716,98 @@ cd backend && python manage.py run_telegram_bot
 
 ---
 
-## 14. Quick Reference
+## 14. Deployment (Production)
+
+### Infrastructure
+| Component | Service |
+|-----------|---------|
+| Server | Hetzner VPS |
+| Orchestration | Coolify (self-hosted) |
+| Database | Supabase PostgreSQL (external) |
+| Redis | Coolify managed service |
+| SSL | Let's Encrypt (auto via Traefik) |
+
+### Production URLs
+| Service | URL |
+|---------|-----|
+| Frontend (Mini App) | `https://app.loudrr.com` |
+| Backend API | `https://api.loudrr.com` |
+| Django Admin | `https://api.loudrr.com/loudrr-admin/` |
+| Health Check | `https://api.loudrr.com/health/` |
+
+### Coolify Services
+| Service | Watch Path | Description |
+|---------|------------|-------------|
+| `loudrr-backend` | `backend/**` | Django + Gunicorn |
+| `loudrr-frontend` | `frontend/**` | Next.js |
+| `loudrr-bot` | `backend/**` | Telegram bot |
+| Redis | - | Managed service |
+
+### Backend Dockerfile
+```dockerfile
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DJANGO_SETTINGS_MODULE=echo.settings
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y gcc libpq-dev curl && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir gunicorn
+
+COPY . .
+RUN python manage.py collectstatic --noinput --clear 2>/dev/null || true
+
+EXPOSE 8000
+
+# Health check with 40s startup grace period
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health/ || exit 1
+
+# Gunicorn with full logging
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "2", \
+    "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", \
+    "--capture-output", "--log-level", "info", "echo.wsgi:application"]
+```
+
+### Environment Variables (Production)
+```bash
+# Backend
+DEBUG=False
+SECRET_KEY=<secure-random-key>
+DATABASE_URL=postgresql://user:pass@host:5432/db  # Supabase Session Pooler
+REDIS_URL=redis://default:pass@redis-host:6379/0
+ALLOWED_HOSTS=api.loudrr.com
+CORS_ALLOWED_ORIGINS=https://app.loudrr.com
+TELEGRAM_BOT_TOKEN=<bot-token>
+TWEETSCOUT_API_KEY=<api-key>
+TWITTER_API_KEY=<api-key>
+MINIAPP_URL=https://app.loudrr.com
+
+# Frontend
+BACKEND_URL=https://api.loudrr.com
+NEXT_PUBLIC_API_URL=https://api.loudrr.com
+```
+
+### Create Superuser (Production)
+Run in Coolify terminal for backend container:
+```bash
+python manage.py createsuperuser
+```
+
+### Deployment Flow
+1. Push to `main` branch on GitHub
+2. Coolify auto-deploys services based on Watch Paths
+3. Backend rebuilds only when `backend/**` changes
+4. Frontend rebuilds only when `frontend/**` changes
+
+---
+
+## 15. Quick Reference
 
 ### Key Files
 

@@ -19,6 +19,7 @@ interface EngageData {
   // Queue-based claim history (like spot trading)
   claimHistory: ClaimBatch[];
   hasProcessingBatch: boolean;
+  isClaimLoading: boolean;
 }
 
 const STALE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
@@ -150,6 +151,7 @@ export default function MiniApp() {
     lastFetchedAt: null,
     claimHistory: [],
     hasProcessingBatch: false,
+    isClaimLoading: false,
   });
 
   useEffect(() => {
@@ -841,7 +843,7 @@ function EngageTab({
   settings: AppSettings | null;
 }) {
   // Extract state from lifted engageData
-  const { state, session, currentPostIndex, engagedPosts, error, result, lastFetchedAt, claimHistory, hasProcessingBatch } = engageData;
+  const { state, session, currentPostIndex, engagedPosts, error, result, lastFetchedAt, claimHistory, hasProcessingBatch, isClaimLoading } = engageData;
 
   // Helper to update specific fields
   const updateEngageData = (updates: Partial<EngageData>) => {
@@ -1165,6 +1167,11 @@ function EngageTab({
   const completeSession = async () => {
     // Queue-based verification (like spot trading)
 
+    // Prevent double-click
+    if (isClaimLoading) return;
+
+    updateEngageData({ isClaimLoading: true });
+
     try {
       hapticFeedback('medium');
 
@@ -1175,6 +1182,7 @@ function EngageTab({
         updateEngageData({
           state: 'error',
           error: data.message,
+          isClaimLoading: false,
         });
         hapticFeedback('error');
         return;
@@ -1196,6 +1204,7 @@ function EngageTab({
         currentPostIndex: 0,
         claimHistory: historyData?.batches || [],
         hasProcessingBatch: historyData?.has_processing || true,
+        isClaimLoading: false,
       });
 
       // Refresh posts to get fresh ones
@@ -1205,6 +1214,7 @@ function EngageTab({
       updateEngageData({
         state: 'error',
         error: err instanceof Error ? err.message : 'Failed to queue verification',
+        isClaimLoading: false,
       });
       hapticFeedback('error');
     }
@@ -1677,6 +1687,23 @@ function EngageTab({
               );
             })}
 
+            {/* "Come back later" card at the end */}
+            <div
+              className={`snap-center flex-shrink-0 transition-all duration-300 w-[80%] ${
+                currentPostIndex === (session?.posts?.length || 0)
+                  ? 'scale-100 opacity-100'
+                  : 'scale-95 opacity-50'
+              }`}
+            >
+              <div className="card-gold p-5 min-h-[160px] flex flex-col items-center justify-center text-center">
+                <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
+                  <ClockIcon className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">You're all caught up!</h3>
+                <p className="text-gray-400 text-sm">Come back later for more posts to engage with</p>
+              </div>
+            </div>
+
             {/* Right spacer for centering last card */}
             <div className="flex-shrink-0 w-[10%]" />
           </div>
@@ -1700,25 +1727,39 @@ function EngageTab({
           {/* Claim Rewards Button - always visible, active when 10+ engagements */}
           <button
             onClick={() => {
-              if (engagedPosts.size >= 10) {
+              if (engagedPosts.size >= 10 && !isClaimLoading && !hasProcessingBatch) {
                 hapticFeedback('medium');
                 completeSession();
-              } else {
+              } else if (engagedPosts.size < 10) {
                 hapticFeedback('error');
               }
             }}
-            disabled={engagedPosts.size < 10}
+            disabled={engagedPosts.size < 10 || isClaimLoading || hasProcessingBatch}
             className={`mt-4 w-full py-3 px-6 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
-              engagedPosts.size >= 10
+              engagedPosts.size >= 10 && !isClaimLoading && !hasProcessingBatch
                 ? 'gold-gradient-bg text-black shadow-lg shadow-[#FF6B00]/30 hover:shadow-[#FF6B00]/50 btn-glossy'
-                : 'bg-white/10 text-white/40 cursor-not-allowed'
+                : 'bg-white/10 text-white/40 cursor-not-allowed opacity-50'
             }`}
           >
-            <BoltIconFill className="w-5 h-5" />
-            {engagedPosts.size >= 10
-              ? `Claim ${engagedPosts.size} Rewards`
-              : `${engagedPosts.size}/10 to Claim`
-            }
+            {isClaimLoading ? (
+              <>
+                <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                Queuing...
+              </>
+            ) : hasProcessingBatch ? (
+              <>
+                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <BoltIconFill className="w-5 h-5" />
+                {engagedPosts.size >= 10
+                  ? `Claim ${engagedPosts.size} Rewards`
+                  : `${engagedPosts.size}/10 to Claim`
+                }
+              </>
+            )}
           </button>
 
           {/* Claim History - shows queued verification batches */}
@@ -1742,17 +1783,17 @@ function EngageTab({
                         </span>
                       )}
                       {batch.status === 'completed' && batch.credits_awarded !== null && batch.credits_awarded > 0 && (
-                        <span className="text-green-500 text-sm font-medium">
+                        <span className="text-[#FF6B00] text-sm font-medium">
                           +{Number(batch.credits_awarded).toFixed(2)} karma
                         </span>
                       )}
                       {batch.status === 'completed' && (batch.credits_awarded === null || batch.credits_awarded === 0) && (
-                        <span className="text-red-400 text-sm">
+                        <span className="text-gray-500 text-sm">
                           {batch.failed || 0} failed
                         </span>
                       )}
                       {batch.status === 'failed' && (
-                        <span className="text-red-400 text-sm">Error</span>
+                        <span className="text-gray-500 text-sm">Error</span>
                       )}
                     </div>
                   </div>
