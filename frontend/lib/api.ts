@@ -137,6 +137,7 @@ export interface CompleteResponse {
   new_balance?: number;
   daily_earned?: number;
   pending_count?: number;          // Remaining pending (failed verifications)
+  pending_post_ids?: string[];     // IDs of posts still pending verification
   verification_results?: Array<{
     post_id: string;
     passed: boolean;

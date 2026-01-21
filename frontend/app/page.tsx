@@ -51,7 +51,7 @@ function PixelLoader({ isComplete, size: sizeProp = 'default' }: { isComplete?: 
   const size = sizeMap[sizeProp];
   const dotSize = Math.max(2, Math.round(size / 18)); // Scale dot size with loader size
   return (
-    <div className="loader-container" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div className="loader-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <style>{`
         @keyframes circle-grow-${size} {
           0% {
@@ -1436,11 +1436,11 @@ function EngageTab({
               const maxAllowedIndex = currentPostIndexRef.current;
 
               if (newIndex > maxAllowedIndex) {
-                // Block forward scroll past unengaged posts - snap back
-                setTimeout(() => {
-                  const targetScroll = maxAllowedIndex * cardWidth + container.offsetWidth * 0.1;
-                  container.scrollTo({ left: targetScroll, behavior: 'smooth' });
-                }, 50);
+                // Block forward scroll - immediately snap back (no animation = feels like a wall)
+                isScrollingRef.current = true;
+                const targetScroll = maxAllowedIndex * cardWidth + container.offsetWidth * 0.1;
+                container.scrollTo({ left: targetScroll, behavior: 'instant' });
+                setTimeout(() => { isScrollingRef.current = false; }, 50);
               } else if (newIndex >= 0) {
                 // Allow scrolling backward to view engaged posts
                 // Only update visual state, NOT the max allowed index ref
