@@ -1036,10 +1036,12 @@ function EngageTab({
           requestAnimationFrame(() => {
             const container = carouselRef.current;
             if (container) {
+              isScrollingRef.current = true;
               const cardWidth = container.offsetWidth * 0.8;
               const spacerWidth = container.offsetWidth * 0.1;
               const targetScroll = spacerWidth + (firstUnengagedIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
               container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
+              setTimeout(() => { isScrollingRef.current = false; }, 100);
             }
           });
         }
@@ -1492,10 +1494,12 @@ function EngageTab({
                 updateEngageData({ currentPostIndex: newIndex });
                 const container = carouselRef.current;
                 if (container) {
+                  isScrollingRef.current = true;
                   const cardWidth = container.offsetWidth * 0.8;
                   const spacerWidth = container.offsetWidth * 0.1;
                   const targetScroll = spacerWidth + (newIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
                   container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+                  setTimeout(() => { isScrollingRef.current = false; }, 350);
                 }
               }
             }}
@@ -1521,10 +1525,12 @@ function EngageTab({
                 updateEngageData({ currentPostIndex: newIndex });
                 const container = carouselRef.current;
                 if (container) {
+                  isScrollingRef.current = true;
                   const cardWidth = container.offsetWidth * 0.8;
                   const spacerWidth = container.offsetWidth * 0.1;
                   const targetScroll = spacerWidth + (newIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
                   container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+                  setTimeout(() => { isScrollingRef.current = false; }, 350);
                 }
               }
             }}
@@ -1549,14 +1555,15 @@ function EngageTab({
 
               const container = e.currentTarget;
               const cardWidth = container.offsetWidth * 0.8;
-              const newIndex = Math.round((container.scrollLeft - container.offsetWidth * 0.1) / cardWidth);
+              const gap = 12;
+              const newIndex = Math.round((container.scrollLeft - container.offsetWidth * 0.1) / (cardWidth + gap));
               const maxAllowedIndex = currentPostIndexRef.current;
 
               if (newIndex > maxAllowedIndex) {
                 // Block forward scroll past unengaged posts
                 isScrollingRef.current = true;
                 const spacerWidth = container.offsetWidth * 0.1;
-                const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+                const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
                 container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
                 setTimeout(() => { isScrollingRef.current = false; }, 50);
               } else if (newIndex >= 0 && newIndex !== currentPostIndex) {
@@ -1695,7 +1702,9 @@ function EngageTab({
                   : 'scale-95 opacity-50'
               }`}
             >
-              <div className="card-gold p-5 min-h-[160px] flex flex-col items-center justify-center text-center">
+              <div className={`card-gold p-5 min-h-[160px] flex flex-col items-center justify-center text-center ${
+                currentPostIndex === (session?.posts?.length || 0) ? 'ring-2 ring-[#FF6B00]/50' : ''
+              }`}>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
                   <ClockIcon className="w-8 h-8 text-gray-400" />
                 </div>
@@ -1708,9 +1717,9 @@ function EngageTab({
             <div className="flex-shrink-0 w-[10%]" />
           </div>
 
-          {/* Scroll indicators */}
+          {/* Scroll indicators - includes all posts + "come back later" card */}
           <div className="flex justify-center gap-1.5 mt-3">
-            {session?.posts?.map((_, index) => (
+            {[...(session?.posts || []), { id: 'end-card' }].map((_, index) => (
               <div
                 key={index}
                 className={`h-1.5 rounded-full transition-all ${
