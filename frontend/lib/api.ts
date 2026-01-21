@@ -170,6 +170,36 @@ export interface AppSettings {
   post_cost_max: number;
 }
 
+export interface QueueClaimResponse {
+  success: boolean;
+  batch_id?: string;
+  status?: string;
+  position?: number;
+  engagement_count?: number;
+  message: string;
+  pending_count?: number;
+  remaining_seconds?: number;
+  error?: string;
+}
+
+export interface ClaimBatch {
+  id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  engagement_count: number;
+  passed: number | null;
+  failed: number | null;
+  credits_awarded: number | null;
+  message: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface ClaimHistoryResponse {
+  batches: ClaimBatch[];
+  pending_engagements: number;
+  has_processing: boolean;
+}
+
 export interface UserStats {
   user: {
     display_name: string;
@@ -283,4 +313,21 @@ export const api = {
         body: JSON.stringify({ x_username: xUsername }),
       }
     ),
+
+  /**
+   * Queue verification for async processing (instant response)
+   * Like spot trading - queues and returns immediately
+   */
+  queueClaim: () =>
+    apiRequest<QueueClaimResponse>('/session/queue-claim/', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  /**
+   * Get claim/verification history
+   * Returns recent batches with status and results
+   */
+  getClaimHistory: () =>
+    apiRequest<ClaimHistoryResponse>('/claims/history/'),
 };

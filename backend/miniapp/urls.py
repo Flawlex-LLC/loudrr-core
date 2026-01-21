@@ -18,4 +18,8 @@ urlpatterns = [
     path("session/click/", views.RecordClickView.as_view(), name="miniapp-record-click"),
     path("session/verify-return/", views.VerifyReturnView.as_view(), name="miniapp-verify-return"),
     path("session/complete/", views.CompleteSessionView.as_view(), name="miniapp-complete-session"),
+
+    # Queue-based verification (like spot trading)
+    path("session/queue-claim/", views.QueueClaimView.as_view(), name="miniapp-queue-claim"),
+    path("claims/history/", views.ClaimHistoryView.as_view(), name="miniapp-claim-history"),
 ]

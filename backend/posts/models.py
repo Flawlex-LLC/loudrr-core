@@ -529,6 +529,65 @@ class CampaignEntry(models.Model):
         return self.eligibility_snapshot.get('sponsored_xp', 0)
 
 
+class VerificationBatch(models.Model):
+    """
+    Queued verification batch for async processing.
+
+    Similar to spot trading orders - users can queue verifications
+    and continue engaging while verification processes in background.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        "core.User",
+        on_delete=models.CASCADE,
+        related_name="verification_batches",
+    )
+
+    # Engagements in this batch (stored as list of engagement IDs)
+    engagement_ids = models.JSONField(default=list, help_text="List of engagement UUIDs in this batch")
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    # Results (filled after verification completes)
+    passed = models.IntegerField(null=True, blank=True, help_text="Number of verifications passed")
+    failed = models.IntegerField(null=True, blank=True, help_text="Number of verifications failed")
+    credits_awarded = models.DecimalField(
+        max_digits=12,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="Total karma awarded"
+    )
+    message = models.TextField(blank=True, help_text="Result message for user")
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "verification_batches"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["status", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Batch {self.id} - {self.user} ({self.status})"
+
+
 # === Auditlog Registration ===
 # Track all changes to models (admin + API + any other source)
 from auditlog.registry import auditlog
@@ -538,3 +597,4 @@ auditlog.register(Engagement)
 auditlog.register(SponsoredPost)
 auditlog.register(Campaign)
 auditlog.register(CampaignEntry)
+auditlog.register(VerificationBatch)

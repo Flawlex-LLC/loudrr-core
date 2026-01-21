@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings } from '@/lib/api';
+import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse } from '@/lib/api';
 import { initTelegramWebApp, hapticFeedback, openLink } from '@/lib/telegram';
 
 type Tab = 'home' | 'engage' | 'campaigns' | 'earn';
@@ -16,6 +16,9 @@ interface EngageData {
   error: string | null;
   result: CompleteResponse | null;
   lastFetchedAt: number | null;
+  // Queue-based claim history (like spot trading)
+  claimHistory: ClaimBatch[];
+  hasProcessingBatch: boolean;
 }
 
 const STALE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
@@ -145,6 +148,8 @@ export default function MiniApp() {
     error: null,
     result: null,
     lastFetchedAt: null,
+    claimHistory: [],
+    hasProcessingBatch: false,
   });
 
   useEffect(() => {
@@ -644,7 +649,7 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
             {(user.available_posts || 0) > 0 ? (
               <p className="text-xs text-gray-500 mt-2">{user.available_posts} posts waiting for you</p>
             ) : (
-              <p className="text-xs text-[#FF6B00] mt-2">All caught up! Check back later</p>
+              <p className="text-xs text-[#FF6B00] mt-2">All caught up! Submit a post to earn more</p>
             )}
           </div>
         </div>
@@ -836,7 +841,7 @@ function EngageTab({
   settings: AppSettings | null;
 }) {
   // Extract state from lifted engageData
-  const { state, session, currentPostIndex, engagedPosts, error, result, lastFetchedAt } = engageData;
+  const { state, session, currentPostIndex, engagedPosts, error, result, lastFetchedAt, claimHistory, hasProcessingBatch } = engageData;
 
   // Helper to update specific fields
   const updateEngageData = (updates: Partial<EngageData>) => {
@@ -1126,37 +1131,80 @@ function EngageTab({
     }
   };
 
-  const completeSession = async () => {
-    // No session_token needed - verification is at user level
-
+  // Fetch claim history (for polling and initial load)
+  const fetchClaimHistory = async () => {
     try {
-      updateEngageData({ state: 'completing' });
-      hapticFeedback('medium');
-
-      const data = await api.completeSession();
-
-      // Update engagedPosts based on remaining pending engagements from server
-      // This includes failed verifications that need re-engagement
-      let newEngagedPosts = new Set<string>();
-      if (data.pending_post_ids && data.pending_post_ids.length > 0) {
-        newEngagedPosts = new Set(data.pending_post_ids);
-      }
-      engagedPostsRef.current = newEngagedPosts;
-
+      const data = await api.getClaimHistory();
       updateEngageData({
-        state: 'completed',
-        engagedPosts: newEngagedPosts,
-        result: data,
+        claimHistory: data.batches,
+        hasProcessingBatch: data.has_processing,
       });
-      onUserUpdate();
+      return data;
+    } catch (err) {
+      console.error('Failed to fetch claim history:', err);
+      return null;
+    }
+  };
 
-      if (data.success && data.credits_awarded > 0) {
+  // Poll for claim history updates when there's a processing batch
+  useEffect(() => {
+    if (!hasProcessingBatch) return;
+
+    const interval = setInterval(async () => {
+      const data = await fetchClaimHistory();
+      if (data && !data.has_processing) {
+        // Processing complete - refresh user data
+        onUserUpdate();
         hapticFeedback('success');
       }
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [hasProcessingBatch]);
+
+  const completeSession = async () => {
+    // Queue-based verification (like spot trading)
+
+    try {
+      hapticFeedback('medium');
+
+      const data = await api.queueClaim();
+
+      if (!data.success) {
+        // Show error (e.g., not enough engagements, time limit)
+        updateEngageData({
+          state: 'error',
+          error: data.message,
+        });
+        hapticFeedback('error');
+        return;
+      }
+
+      // Success - verification queued!
+      hapticFeedback('success');
+
+      // Clear engaged posts so user can continue with fresh posts
+      engagedPostsRef.current = new Set<string>();
+
+      // Fetch updated claim history to show the new batch
+      const historyData = await fetchClaimHistory();
+
+      // Go back to ready state so user can continue engaging
+      updateEngageData({
+        state: 'ready',
+        engagedPosts: new Set<string>(),
+        currentPostIndex: 0,
+        claimHistory: historyData?.batches || [],
+        hasProcessingBatch: historyData?.has_processing || true,
+      });
+
+      // Refresh posts to get fresh ones
+      startSession();
+
     } catch (err) {
       updateEngageData({
         state: 'error',
-        error: err instanceof Error ? err.message : 'Failed to complete session',
+        error: err instanceof Error ? err.message : 'Failed to queue verification',
       });
       hapticFeedback('error');
     }
@@ -1242,7 +1290,7 @@ function EngageTab({
   if (state === 'loading') {
     return (
       <div className="p-4 flex items-center justify-center min-h-[60vh]">
-        <PixelLoader size="sm" />
+        <PixelLoader />
       </div>
     );
   }
@@ -1281,8 +1329,9 @@ function EngageTab({
   // Completing state
   if (state === 'completing') {
     return (
-      <div className="p-4 flex items-center justify-center min-h-[60vh]">
-        <PixelLoader size="sm" />
+      <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
+        <PixelLoader />
+        <p className="text-gray-400 mt-4">Verifying your engagements...</p>
       </div>
     );
   }
@@ -1347,15 +1396,15 @@ function EngageTab({
                 </button>
               </>
             ) : (
-              // No credits / other
+              // No credits / other - could be failed verifications or no posts
               <>
                 <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-black/50 border border-[#FF6B00]/30 flex items-center justify-center">
                   <InfoIconFill className="w-12 h-12 text-[#FF6B00]" />
                 </div>
                 <h2 className="text-xl font-bold mb-2">{result?.message || 'Session Complete'}</h2>
-                <p className="text-gray-400 mb-8">Check back later for more posts</p>
+                <p className="text-gray-400 mb-8">Tap below to re-engage and earn karma</p>
                 <button onClick={startSession} className="btn-primary w-full">
-                  Try Again
+                  Start Engaging
                 </button>
               </>
             )}
@@ -1426,7 +1475,8 @@ function EngageTab({
         <div className="relative overflow-hidden">
           {/* Left navigation button */}
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               if (currentPostIndex > 0) {
                 const newIndex = currentPostIndex - 1;
                 updateEngageData({ currentPostIndex: newIndex });
@@ -1453,7 +1503,8 @@ function EngageTab({
 
           {/* Right navigation button */}
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               const maxAllowed = currentPostIndexRef.current;
               if (currentPostIndex < maxAllowed) {
                 const newIndex = currentPostIndex + 1;
@@ -1481,7 +1532,27 @@ function EngageTab({
 
           <div
             ref={carouselRef}
-            className="flex gap-3 overflow-x-scroll scrollbar-hide py-2 touch-none"
+            className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide py-2"
+            onScroll={(e) => {
+              // Skip if programmatic scrolling is in progress
+              if (isScrollingRef.current) return;
+
+              const container = e.currentTarget;
+              const cardWidth = container.offsetWidth * 0.8;
+              const newIndex = Math.round((container.scrollLeft - container.offsetWidth * 0.1) / cardWidth);
+              const maxAllowedIndex = currentPostIndexRef.current;
+
+              if (newIndex > maxAllowedIndex) {
+                // Block forward scroll past unengaged posts
+                isScrollingRef.current = true;
+                const spacerWidth = container.offsetWidth * 0.1;
+                const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+                container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
+                setTimeout(() => { isScrollingRef.current = false; }, 50);
+              } else if (newIndex >= 0 && newIndex !== currentPostIndex) {
+                updateEngageData({ currentPostIndex: newIndex });
+              }
+            }}
           >
             {/* Left spacer for centering first card */}
             <div className="flex-shrink-0 w-[10%]" />
@@ -1649,6 +1720,46 @@ function EngageTab({
               : `${engagedPosts.size}/10 to Claim`
             }
           </button>
+
+          {/* Claim History - shows queued verification batches */}
+          {claimHistory.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <h4 className="text-sm font-medium text-gray-400">Recent Claims</h4>
+              <div className="space-y-2 max-h-40 overflow-y-auto scrollbar-hide">
+                {claimHistory.slice(0, 5).map((batch) => (
+                  <div
+                    key={batch.id}
+                    className="flex items-center justify-between p-3 bg-white/5 rounded-lg"
+                  >
+                    <span className="text-xs text-gray-400">
+                      {new Date(batch.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {(batch.status === 'pending' || batch.status === 'processing') && (
+                        <span className="text-yellow-500 text-sm flex items-center gap-1">
+                          <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+                          Verifying {batch.engagement_count}...
+                        </span>
+                      )}
+                      {batch.status === 'completed' && batch.credits_awarded !== null && batch.credits_awarded > 0 && (
+                        <span className="text-green-500 text-sm font-medium">
+                          +{Number(batch.credits_awarded).toFixed(2)} karma
+                        </span>
+                      )}
+                      {batch.status === 'completed' && (batch.credits_awarded === null || batch.credits_awarded === 0) && (
+                        <span className="text-red-400 text-sm">
+                          {batch.failed || 0} failed
+                        </span>
+                      )}
+                      {batch.status === 'failed' && (
+                        <span className="text-red-400 text-sm">Error</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

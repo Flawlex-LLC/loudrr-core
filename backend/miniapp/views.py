@@ -1108,3 +1108,165 @@ class SettingsView(APIView):
             "post_cost_min": get_setting('POST_COST_MIN'),
             "post_cost_max": get_setting('POST_COST_MAX'),
         })
+
+
+class QueueClaimView(MiniAppAuthMixin, APIView):
+    """
+    Queue verification for async processing (instant response).
+
+    Like spot trading - queues the verification and returns immediately.
+    User can continue engaging while verification processes in background.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from posts.models import VerificationBatch
+        from posts.tasks import process_verification_batch
+        from core.services.settings import get_setting
+
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response(
+                {"error": "Invalid authentication"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # SECURITY: Require X account linked for verification
+        if not user.x_username:
+            return Response({
+                "success": False,
+                "error": "x_account_required",
+                "message": "Please link your X account before claiming rewards.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get minimum engagements to claim
+        min_to_claim = get_setting('MIN_ENGAGEMENTS_TO_CLAIM', 10)
+
+        # Get ALL unverified engagements for this user
+        pending_engagements = Engagement.objects.filter(
+            user=user,
+            verified=False,
+            credit_granted=False,
+        ).order_by('clicked_at')
+
+        pending_list = list(pending_engagements)
+
+        if len(pending_list) < min_to_claim:
+            return Response({
+                "success": False,
+                "message": f"Need {min_to_claim}+ engagements to claim. You have {len(pending_list)}.",
+                "pending_count": len(pending_list),
+            })
+
+        # ANTI-GAMING: Minimum session duration check
+        min_duration = get_setting('MIN_SESSION_DURATION_SECONDS', 150)
+        if min_duration > 0 and pending_list:
+            first_click_time = pending_list[0].clicked_at
+            elapsed_seconds = (timezone.now() - first_click_time).total_seconds()
+            if elapsed_seconds < min_duration:
+                remaining = int(min_duration - elapsed_seconds)
+                return Response({
+                    "success": False,
+                    "error": "insufficient_engagement_time",
+                    "message": f"Please wait {remaining} seconds before claiming.",
+                    "pending_count": len(pending_list),
+                    "remaining_seconds": remaining,
+                })
+
+        # Create verification batch
+        engagement_ids = [str(eng.id) for eng in pending_list]
+        batch = VerificationBatch.objects.create(
+            user=user,
+            engagement_ids=engagement_ids,
+            status=VerificationBatch.Status.PENDING,
+        )
+
+        # Queue the verification task
+        try:
+            process_verification_batch.delay(str(batch.id))
+        except Exception as e:
+            # Celery/Redis not available - mark batch failed and return error
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to queue verification task: {e}")
+            batch.status = VerificationBatch.Status.FAILED
+            batch.message = "Queue service unavailable"
+            batch.save(update_fields=['status', 'message'])
+            return Response({
+                "success": False,
+                "error": "queue_unavailable",
+                "message": "Verification queue unavailable. Please try again later.",
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        # Get position in queue (count of pending batches before this one)
+        queue_position = VerificationBatch.objects.filter(
+            status__in=['pending', 'processing'],
+            created_at__lt=batch.created_at,
+        ).count() + 1
+
+        return Response({
+            "success": True,
+            "batch_id": str(batch.id),
+            "status": "pending",
+            "position": queue_position,
+            "engagement_count": len(engagement_ids),
+            "message": "Verification queued! You can continue engaging.",
+        })
+
+
+class ClaimHistoryView(MiniAppAuthMixin, APIView):
+    """
+    Get claim/verification history for user.
+
+    Returns recent verification batches with status and results.
+    Similar to spot trading order history.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        from posts.models import VerificationBatch
+
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response(
+                {"error": "Invalid authentication"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Get recent batches (last 20)
+        batches = VerificationBatch.objects.filter(
+            user=user
+        ).order_by('-created_at')[:20]
+
+        # Check for any processing batches and refresh their status
+        # (in case Celery completed but client hasn't seen it yet)
+
+        batch_list = []
+        for batch in batches:
+            batch_list.append({
+                "id": str(batch.id),
+                "status": batch.status,
+                "engagement_count": len(batch.engagement_ids),
+                "passed": batch.passed,
+                "failed": batch.failed,
+                "credits_awarded": decimal_to_float(batch.credits_awarded) if batch.credits_awarded else None,
+                "message": batch.message,
+                "created_at": batch.created_at.isoformat(),
+                "completed_at": batch.completed_at.isoformat() if batch.completed_at else None,
+            })
+
+        # Also return current pending engagements count
+        pending_count = Engagement.objects.filter(
+            user=user,
+            verified=False,
+            credit_granted=False,
+        ).count()
+
+        # Check if any batch is still processing
+        has_processing = any(b["status"] in ["pending", "processing"] for b in batch_list)
+
+        return Response({
+            "batches": batch_list,
+            "pending_engagements": pending_count,
+            "has_processing": has_processing,
+        })
