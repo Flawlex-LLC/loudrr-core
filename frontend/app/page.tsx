@@ -1242,10 +1242,7 @@ function EngageTab({
   if (state === 'loading') {
     return (
       <div className="p-4 flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <PixelLoader size="sm" />
-          <p className="text-gray-400 mt-4">Finding posts...</p>
-        </div>
+        <PixelLoader size="sm" />
       </div>
     );
   }
@@ -1285,10 +1282,7 @@ function EngageTab({
   if (state === 'completing') {
     return (
       <div className="p-4 flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <PixelLoader size="sm" />
-          <p className="text-gray-400 mt-4">Verifying engagements...</p>
-        </div>
+        <PixelLoader size="sm" />
       </div>
     );
   }
@@ -1559,25 +1553,6 @@ function EngageTab({
                         <p className="text-sm text-gray-200 line-clamp-3 leading-relaxed">
                           {post.tweet_text}
                         </p>
-                      )}
-
-                      {/* Media preview */}
-                      {post.tweet_media && post.tweet_media.length > 0 && (
-                        <div className="flex gap-1 mt-1">
-                          {post.tweet_media.slice(0, 2).map((url, i) => (
-                            <img
-                              key={i}
-                              src={url}
-                              alt=""
-                              className="h-16 w-auto rounded-md object-cover max-w-[50%]"
-                            />
-                          ))}
-                          {post.tweet_media.length > 2 && (
-                            <div className="h-16 px-3 rounded-md bg-gray-800 flex items-center justify-center">
-                              <span className="text-xs text-gray-400">+{post.tweet_media.length - 2}</span>
-                            </div>
-                          )}
-                        </div>
                       )}
 
                       {/* Expiry indicator */}
