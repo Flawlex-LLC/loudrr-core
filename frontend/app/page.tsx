@@ -1481,31 +1481,7 @@ function EngageTab({
 
           <div
             ref={carouselRef}
-            className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide py-2"
-            onScroll={(e) => {
-              // Skip if programmatic scrolling is in progress
-              if (isScrollingRef.current) return;
-
-              const container = e.currentTarget;
-              const cardWidth = container.offsetWidth * 0.8;
-              const newIndex = Math.round((container.scrollLeft - container.offsetWidth * 0.1) / cardWidth);
-              // maxAllowedIndex tracks the furthest position (first unengaged post)
-              // This should NOT decrease when user scrolls back to view engaged posts
-              const maxAllowedIndex = currentPostIndexRef.current;
-
-              if (newIndex > maxAllowedIndex) {
-                // Block forward scroll - immediately snap back (no animation = feels like a wall)
-                isScrollingRef.current = true;
-                const spacerWidth = container.offsetWidth * 0.1;
-                const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
-                container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
-                setTimeout(() => { isScrollingRef.current = false; }, 50);
-              } else if (newIndex >= 0) {
-                // Allow scrolling backward to view engaged posts
-                // Only update visual state, NOT the max allowed index ref
-                updateEngageData({ currentPostIndex: newIndex });
-              }
-            }}
+            className="flex gap-3 overflow-x-scroll scrollbar-hide py-2 touch-none"
           >
             {/* Left spacer for centering first card */}
             <div className="flex-shrink-0 w-[10%]" />
