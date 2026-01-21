@@ -1034,6 +1034,19 @@ function EngageTab({
           currentPostIndex: firstUnengagedIndex,
           lastFetchedAt: Date.now(),
         });
+
+        // Scroll to first unengaged card after DOM renders
+        if (firstUnengagedIndex > 0) {
+          requestAnimationFrame(() => {
+            const container = carouselRef.current;
+            if (container) {
+              const cardWidth = container.offsetWidth * 0.8;
+              const spacerWidth = container.offsetWidth * 0.1;
+              const targetScroll = spacerWidth + (firstUnengagedIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+              container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
+            }
+          });
+        }
       } else {
         updateEngageData({
           session: data,
@@ -1071,7 +1084,7 @@ function EngageTab({
       hapticFeedback('light');
       await api.recordClick(post.id);
 
-      // Mark as engaged IMMEDIATELY (don't wait for return from X)
+      // Mark as engaged IMMEDIATELY
       const newEngaged = new Set(engagedPosts).add(post.id);
       engagedPostsRef.current = newEngaged;
 
@@ -1085,21 +1098,28 @@ function EngageTab({
         }
       }
 
-      // Update max scroll position
+      // Update refs
       currentPostIndexRef.current = nextIndex;
 
-      // Update state: mark engaged + advance to next card
+      // Direct DOM scroll - no React state dependency
+      const container = carouselRef.current;
+      if (container) {
+        const cardWidth = container.offsetWidth * 0.8;
+        const spacerWidth = container.offsetWidth * 0.1;
+        const targetScroll = spacerWidth + (nextIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+        container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+      }
+
+      // Update React state for UI (checkmarks, counter)
       setEngageData(prev => ({
         ...prev,
         engagedPosts: newEngaged,
         currentPostIndex: nextIndex,
       }));
 
-      // Open X link after scroll animation starts (100ms delay lets React commit state)
-      setTimeout(() => {
-        hapticFeedback('success');
-        openLink(getEngageUrl(post));
-      }, 100);
+      // Open link immediately - scroll already started via DOM
+      hapticFeedback('success');
+      openLink(getEngageUrl(post));
     } catch (err) {
       updateEngageData({ error: err instanceof Error ? err.message : 'Failed to record click' });
     }
@@ -1438,8 +1458,9 @@ function EngageTab({
               if (newIndex > maxAllowedIndex) {
                 // Block forward scroll - immediately snap back (no animation = feels like a wall)
                 isScrollingRef.current = true;
-                const targetScroll = maxAllowedIndex * cardWidth + container.offsetWidth * 0.1;
-                container.scrollTo({ left: targetScroll, behavior: 'instant' });
+                const spacerWidth = container.offsetWidth * 0.1;
+                const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+                container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
                 setTimeout(() => { isScrollingRef.current = false; }, 50);
               } else if (newIndex >= 0) {
                 // Allow scrolling backward to view engaged posts
