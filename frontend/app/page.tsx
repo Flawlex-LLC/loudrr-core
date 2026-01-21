@@ -895,22 +895,11 @@ function EngageTab({
   // It should NOT sync with currentPostIndex state (which is the visual position)
   // Only update it on: session start, return from X engagement
 
-  // Auto-scroll carousel when currentPostIndex changes
-  useEffect(() => {
-    if (carouselRef.current && session?.posts?.length) {
-      // Disable onScroll handler during programmatic scroll
-      isScrollingRef.current = true;
-      const container = carouselRef.current;
-      const cardWidth = container.offsetWidth * 0.8; // 80% card width
-      const spacerWidth = container.offsetWidth * 0.1; // 10% spacer
-      const targetScroll = spacerWidth + (currentPostIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
-      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
-      // Re-enable after animation
-      setTimeout(() => {
-        isScrollingRef.current = false;
-      }, 400);
-    }
-  }, [currentPostIndex, session?.posts?.length]);
+  // NOTE: Removed auto-scroll useEffect - all scrolling is now handled explicitly:
+  // - handleEngageClick: scrolls to next card on click
+  // - startSession: scrolls to first unengaged card on load
+  // - handleReturn: scrolls to next card when returning from X
+  // This avoids race conditions between multiple scroll triggers.
 
   // Auto-detect return from X and advance to first unengaged card
   useEffect(() => {
