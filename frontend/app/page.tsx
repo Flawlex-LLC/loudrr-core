@@ -280,10 +280,19 @@ export default function MiniApp() {
       />
 
       <div className="flex-1 overflow-y-auto pb-20 pt-14 scrollbar-content">
-        {activeTab === 'home' && <HomeTab user={user} onRefresh={loadUser} />}
-        {activeTab === 'engage' && <EngageTab user={user} onUserUpdate={loadUser} engageData={engageData} setEngageData={setEngageData} settings={settings} activeTab={activeTab} />}
-        {activeTab === 'campaigns' && <CampaignsTab />}
-        {activeTab === 'earn' && <EarnTab />}
+        {/* Use CSS display instead of conditional rendering to preserve DOM state (scroll position) */}
+        <div style={{ display: activeTab === 'home' ? 'block' : 'none' }}>
+          <HomeTab user={user} onRefresh={loadUser} />
+        </div>
+        <div style={{ display: activeTab === 'engage' ? 'block' : 'none' }}>
+          <EngageTab user={user} onUserUpdate={loadUser} engageData={engageData} setEngageData={setEngageData} settings={settings} activeTab={activeTab} />
+        </div>
+        <div style={{ display: activeTab === 'campaigns' ? 'block' : 'none' }}>
+          <CampaignsTab />
+        </div>
+        <div style={{ display: activeTab === 'earn' ? 'block' : 'none' }}>
+          <EarnTab />
+        </div>
       </div>
 
       {/* Bottom Tab Bar */}
@@ -867,6 +876,8 @@ function EngageTab({
   const engagedPostsRef = useRef<Set<string>>(new Set());
   const currentPostIndexRef = useRef(0);
   const isScrollingRef = useRef(false); // Flag to disable onScroll during programmatic scroll
+  const touchStartXRef = useRef<number>(0); // For touch scroll lock
+  const scrollStartRef = useRef<number>(0); // For touch scroll lock
 
   // Check if posts are stale (20+ minutes old)
   const isStale = lastFetchedAt && (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS);
@@ -1005,22 +1016,8 @@ function EngageTab({
     }
   }, [activeTab, state, user]);
 
-  // Sync carousel scroll position when returning to Engage tab (component remount)
-  useEffect(() => {
-    // Only sync if we have an existing session (not fresh load)
-    if (state === 'ready' && session?.posts?.length && carouselRef.current) {
-      // Use the persisted currentPostIndex from lifted state
-      const container = carouselRef.current;
-      const cardWidth = container.offsetWidth * 0.8;
-      const spacerWidth = container.offsetWidth * 0.1;
-      const targetScroll = spacerWidth + (currentPostIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
-
-      // Instant scroll (no animation) to restore position
-      isScrollingRef.current = true;
-      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
-      setTimeout(() => { isScrollingRef.current = false; }, 50);
-    }
-  }, []); // Empty deps = only on mount
+  // NOTE: Scroll sync useEffect removed - no longer needed since tabs use CSS display:none
+  // instead of conditional rendering. DOM element stays mounted, preserving scroll position.
 
   const startSession = async (skipPendingRestore = false) => {
     try {
@@ -1209,9 +1206,10 @@ function EngageTab({
       if (data && !data.has_processing) {
         // Processing complete - check for failures
         const recentBatch = data.batches?.[0];
-        if (recentBatch && recentBatch.failed > 0) {
+        const failedNum = recentBatch?.failed ?? 0;
+        if (failedNum > 0) {
           // Show failure popup so user knows some posts weren't engaged
-          setFailedCount(recentBatch.failed);
+          setFailedCount(failedNum);
           setShowFailurePopup(true);
           hapticFeedback('error');
         } else {
@@ -1331,7 +1329,7 @@ function EngageTab({
             <p className="text-gray-400 mb-8">
               Engage with posts to earn karma. Each engagement takes about 30 seconds.
             </p>
-            <button onClick={startSession} className="btn-primary w-full text-lg py-4">
+            <button onClick={() => startSession()} className="btn-primary w-full text-lg py-4">
               Start Engaging
             </button>
             <button
@@ -1376,7 +1374,7 @@ function EngageTab({
           </div>
           <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
           <p className="text-gray-400 mb-6">{error}</p>
-          <button onClick={startSession} className="btn-primary w-full">Try Again</button>
+          <button onClick={() => startSession()} className="btn-primary w-full">Try Again</button>
         </div>
       </div>
     );
@@ -1445,7 +1443,7 @@ function EngageTab({
                 <p className="text-sm text-red-400 mb-4">
                   -{result?.penalty_applied} karma penalty. Honesty score: {result?.honesty_score}
                 </p>
-                <button onClick={startSession} className="btn-primary w-full">
+                <button onClick={() => startSession()} className="btn-primary w-full">
                   Try Again
                 </button>
               </>
@@ -1462,7 +1460,7 @@ function EngageTab({
                     {result.passed} verified, {result.failed} need re-engagement
                   </p>
                 )}
-                <button onClick={startSession} className="btn-primary w-full">
+                <button onClick={() => startSession()} className="btn-primary w-full">
                   Engage More
                 </button>
               </>
@@ -1474,7 +1472,7 @@ function EngageTab({
                 </div>
                 <h2 className="text-xl font-bold mb-2">{result?.message || 'Session Complete'}</h2>
                 <p className="text-gray-400 mb-8">Tap below to re-engage and earn karma</p>
-                <button onClick={startSession} className="btn-primary w-full">
+                <button onClick={() => startSession()} className="btn-primary w-full">
                   Start Engaging
                 </button>
               </>
@@ -1618,6 +1616,32 @@ function EngageTab({
               overscrollBehaviorX: 'contain',  // Prevent momentum overshoot at boundaries
               scrollSnapStop: 'always',         // Force stop at each snap point
             }}
+            onTouchStart={(e) => {
+              // Record touch start position for scroll lock
+              touchStartXRef.current = e.touches[0].clientX;
+              scrollStartRef.current = carouselRef.current?.scrollLeft || 0;
+            }}
+            onTouchMove={(e) => {
+              // COMPLETE SCROLL LOCK: Prevent any forward scroll past max allowed
+              const container = carouselRef.current;
+              if (!container) return;
+
+              const deltaX = touchStartXRef.current - e.touches[0].clientX;  // Positive = scrolling right (forward)
+
+              // Calculate max allowed scroll position
+              const cardWidth = container.offsetWidth * 0.8;
+              const gap = 12;
+              const spacerWidth = container.offsetWidth * 0.1;
+              const maxAllowedIndex = currentPostIndexRef.current;
+              const maxAllowedScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
+
+              // If trying to scroll forward past max allowed, prevent it completely
+              const newScrollPos = scrollStartRef.current + deltaX;
+              if (newScrollPos > maxAllowedScroll + 5) {  // +5 for tiny tolerance
+                e.preventDefault();
+                container.scrollLeft = maxAllowedScroll;
+              }
+            }}
             onScroll={(e) => {
               // Skip if programmatic scrolling is in progress
               if (isScrollingRef.current) return;
@@ -1629,12 +1653,11 @@ function EngageTab({
               const newIndex = Math.round((container.scrollLeft - spacerWidth) / (cardWidth + gap));
               const maxAllowedIndex = currentPostIndexRef.current;
 
-              // LOCK: Block forward scroll past unengaged posts immediately
+              // LOCK: Block forward scroll past unengaged posts immediately (backup for non-touch)
               if (newIndex > maxAllowedIndex) {
                 isScrollingRef.current = true;
                 const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
                 container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
-                // Use requestAnimationFrame for faster unlock (tighter lock)
                 requestAnimationFrame(() => { isScrollingRef.current = false; });
                 return;
               }
