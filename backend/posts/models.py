@@ -190,7 +190,7 @@ class Engagement(models.Model):
 
     # Tracking
     clicked_at = models.DateTimeField(default=timezone.now)
-    credit_granted = models.BooleanField(default=True)
+    credit_granted = models.BooleanField(default=False)
 
     # Verification status
     verified = models.BooleanField(default=False)

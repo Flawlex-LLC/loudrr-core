@@ -1003,6 +1003,23 @@ function EngageTab({
     }
   }, [activeTab, state, user]);
 
+  // Sync carousel scroll position when returning to Engage tab (component remount)
+  useEffect(() => {
+    // Only sync if we have an existing session (not fresh load)
+    if (state === 'ready' && session?.posts?.length && carouselRef.current) {
+      // Use the persisted currentPostIndex from lifted state
+      const container = carouselRef.current;
+      const cardWidth = container.offsetWidth * 0.8;
+      const spacerWidth = container.offsetWidth * 0.1;
+      const targetScroll = spacerWidth + (currentPostIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+
+      // Instant scroll (no animation) to restore position
+      isScrollingRef.current = true;
+      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
+      setTimeout(() => { isScrollingRef.current = false; }, 50);
+    }
+  }, []); // Empty deps = only on mount
+
   const startSession = async () => {
     try {
       updateEngageData({ state: 'loading', error: null, result: null });
@@ -1585,12 +1602,13 @@ function EngageTab({
           <div
             ref={carouselRef}
             className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide py-2"
+            style={{
+              overscrollBehaviorX: 'contain',  // Prevent momentum overshoot at boundaries
+              scrollSnapStop: 'always',         // Force stop at each snap point
+            }}
             onScroll={(e) => {
               // Skip if programmatic scrolling is in progress
-              if (isScrollingRef.current) {
-                console.log('[Scroll] Skipped - programmatic scroll in progress');
-                return;
-              }
+              if (isScrollingRef.current) return;
 
               const container = e.currentTarget;
               const cardWidth = container.offsetWidth * 0.8;
@@ -1599,25 +1617,18 @@ function EngageTab({
               const newIndex = Math.round((container.scrollLeft - spacerWidth) / (cardWidth + gap));
               const maxAllowedIndex = currentPostIndexRef.current;
 
-              console.log('[Scroll] Event:', {
-                scrollLeft: Math.round(container.scrollLeft),
-                cardWidth: Math.round(cardWidth),
-                spacerWidth: Math.round(spacerWidth),
-                calculatedIndex: newIndex,
-                maxAllowedIndex,
-                currentPostIndex,
-                totalPosts: session?.posts?.length || 0,
-              });
-
+              // LOCK: Block forward scroll past unengaged posts immediately
               if (newIndex > maxAllowedIndex) {
-                // Block forward scroll past unengaged posts
-                console.log('[Scroll] BLOCKING - newIndex > maxAllowed, snapping back to', maxAllowedIndex);
                 isScrollingRef.current = true;
                 const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
                 container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
-                setTimeout(() => { isScrollingRef.current = false; }, 50);
-              } else if (newIndex >= 0 && newIndex !== currentPostIndex) {
-                console.log('[Scroll] Updating currentPostIndex from', currentPostIndex, 'to', newIndex);
+                // Use requestAnimationFrame for faster unlock (tighter lock)
+                requestAnimationFrame(() => { isScrollingRef.current = false; });
+                return;
+              }
+
+              // Normal scroll within bounds
+              if (newIndex >= 0 && newIndex !== currentPostIndex) {
                 updateEngageData({ currentPostIndex: newIndex });
               }
             }}

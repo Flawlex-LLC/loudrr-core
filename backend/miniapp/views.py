@@ -78,9 +78,15 @@ def validate_telegram_webapp_data(init_data: str) -> dict:
             hashlib.sha256
         ).hexdigest()
 
-        # Validate
+        # Validate HMAC
         if calculated_hash != received_hash:
             return None
+
+        # Check auth_date expiry (max 24 hours - Telegram recommendation)
+        import time
+        auth_date = int(parsed.get("auth_date", 0))
+        if auth_date and (time.time() - auth_date > 86400):
+            return None  # Expired init data
 
         # Parse user data
         if "user" in parsed:
@@ -634,9 +640,8 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
                 total_passed += 1
 
             else:
-                # FAIL: Keep pending - don't mark as verified
-                # User can re-engage with this post
-                # Don't save - engagement stays exactly as is
+                # FAIL: Delete engagement so user can re-engage fresh
+                eng.delete()
                 total_failed += 1
 
         # Update honesty score based on failure count (no karma penalty)
