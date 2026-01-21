@@ -281,7 +281,7 @@ export default function MiniApp() {
 
       <div className="flex-1 overflow-y-auto pb-20 pt-14 scrollbar-content">
         {activeTab === 'home' && <HomeTab user={user} onRefresh={loadUser} />}
-        {activeTab === 'engage' && <EngageTab user={user} onUserUpdate={loadUser} engageData={engageData} setEngageData={setEngageData} settings={settings} />}
+        {activeTab === 'engage' && <EngageTab user={user} onUserUpdate={loadUser} engageData={engageData} setEngageData={setEngageData} settings={settings} activeTab={activeTab} />}
         {activeTab === 'campaigns' && <CampaignsTab />}
         {activeTab === 'earn' && <EarnTab />}
       </div>
@@ -835,12 +835,14 @@ function EngageTab({
   engageData,
   setEngageData,
   settings,
+  activeTab,
 }: {
   user: User | null;
   onUserUpdate: () => void;
   engageData: EngageData;
   setEngageData: React.Dispatch<React.SetStateAction<EngageData>>;
   settings: AppSettings | null;
+  activeTab: string;
 }) {
   // Extract state from lifted engageData
   const { state, session, currentPostIndex, engagedPosts, error, result, lastFetchedAt, claimHistory, hasProcessingBatch, isClaimLoading } = engageData;
@@ -964,14 +966,18 @@ function EngageTab({
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
+      // Only run when Engage tab is active to prevent scroll reset during tab switches
+      if (document.visibilityState === 'visible' && activeTab === 'engage') {
         handleReturn();
       }
     };
 
     // Also listen for focus - handles desktop browser tab switching
     const handleFocus = () => {
-      handleReturn();
+      // Only run when Engage tab is active
+      if (activeTab === 'engage') {
+        handleReturn();
+      }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -981,7 +987,33 @@ function EngageTab({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [state, setEngageData]);
+  }, [state, setEngageData, activeTab]);
+
+  // Restore scroll position when component mounts or state becomes ready
+  // This fixes the bug where switching tabs and back loses scroll position
+  useEffect(() => {
+    if (state === 'ready' && currentPostIndex > 0 && session?.posts?.length) {
+      requestAnimationFrame(() => {
+        const container = carouselRef.current;
+        if (container) {
+          isScrollingRef.current = true;
+          const cardWidth = container.offsetWidth * 0.8;
+          const spacerWidth = container.offsetWidth * 0.1;
+          const targetScroll = spacerWidth + (currentPostIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+          console.log('[RestoreScroll] Restoring to index:', currentPostIndex, 'targetScroll:', Math.round(targetScroll));
+          container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
+          setTimeout(() => { isScrollingRef.current = false; }, 100);
+        }
+      });
+    }
+  }, []); // Run once on mount - currentPostIndex is already preserved in lifted state
+
+  // Reset isScrollingRef on unmount to prevent stuck state
+  useEffect(() => {
+    return () => {
+      isScrollingRef.current = false;
+    };
+  }, []);
 
   const startSession = async () => {
     try {
