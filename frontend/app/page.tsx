@@ -1424,6 +1424,61 @@ function EngageTab({
 
         {/* Card Carousel */}
         <div className="relative overflow-hidden">
+          {/* Left navigation button */}
+          <button
+            onClick={() => {
+              if (currentPostIndex > 0) {
+                const newIndex = currentPostIndex - 1;
+                updateEngageData({ currentPostIndex: newIndex });
+                const container = carouselRef.current;
+                if (container) {
+                  const cardWidth = container.offsetWidth * 0.8;
+                  const spacerWidth = container.offsetWidth * 0.1;
+                  const targetScroll = spacerWidth + (newIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+                  container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+                }
+              }
+            }}
+            disabled={currentPostIndex <= 0}
+            className={`absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+              currentPostIndex > 0
+                ? 'bg-black/60 text-white hover:bg-black/80'
+                : 'bg-black/20 text-gray-600 cursor-not-allowed'
+            }`}
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+
+          {/* Right navigation button */}
+          <button
+            onClick={() => {
+              const maxAllowed = currentPostIndexRef.current;
+              if (currentPostIndex < maxAllowed) {
+                const newIndex = currentPostIndex + 1;
+                updateEngageData({ currentPostIndex: newIndex });
+                const container = carouselRef.current;
+                if (container) {
+                  const cardWidth = container.offsetWidth * 0.8;
+                  const spacerWidth = container.offsetWidth * 0.1;
+                  const targetScroll = spacerWidth + (newIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
+                  container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+                }
+              }
+            }}
+            disabled={currentPostIndex >= currentPostIndexRef.current}
+            className={`absolute right-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+              currentPostIndex < currentPostIndexRef.current
+                ? 'bg-black/60 text-white hover:bg-black/80'
+                : 'bg-black/20 text-gray-600 cursor-not-allowed'
+            }`}
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
           <div
             ref={carouselRef}
             className="flex gap-3 overflow-x-auto snap-x snap-mandatory scrollbar-hide py-2"
