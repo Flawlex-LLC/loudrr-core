@@ -868,6 +868,7 @@ function EngageTab({
   const [refreshing, setRefreshing] = useState(false);
   const [showFailurePopup, setShowFailurePopup] = useState(false);
   const [failedCount, setFailedCount] = useState(0);
+  const [earnedKarma, setEarnedKarma] = useState(0); // Karma earned in the batch (shown in popup)
 
   // Refs
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -1204,17 +1205,17 @@ function EngageTab({
     const interval = setInterval(async () => {
       const data = await fetchClaimHistory();
       if (data && !data.has_processing) {
-        // Processing complete - check for failures
+        // Processing complete - check results
         const recentBatch = data.batches?.[0];
         const failedNum = recentBatch?.failed ?? 0;
-        if (failedNum > 0) {
-          // Show failure popup so user knows some posts weren't engaged
-          setFailedCount(failedNum);
-          setShowFailurePopup(true);
-          hapticFeedback('error');
-        } else {
-          hapticFeedback('success');
-        }
+        const creditsEarned = recentBatch?.credits_awarded ?? 0;
+
+        // Always show popup with results (earned + failed)
+        setFailedCount(failedNum);
+        setEarnedKarma(creditsEarned);
+        setShowFailurePopup(true);
+        hapticFeedback(failedNum > 0 ? 'error' : 'success');
+
         // Refresh user data (balance updated)
         onUserUpdate();
       }
@@ -1931,22 +1932,65 @@ function EngageTab({
         settings={settings}
       />
 
-      {/* Failure Popup - shown when verification has failed posts */}
+      {/* Verification Results Popup - shown when verification completes */}
       {showFailurePopup && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="card-base p-6 max-w-sm text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/20 flex items-center justify-center">
-              <InfoIconFill className="w-8 h-8 text-yellow-500" />
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-sm bg-black/95 border border-[#FF6B00]/30 rounded-2xl p-6 text-center shadow-2xl shadow-black/50">
+            {/* Icon */}
+            <div className={`w-20 h-20 mx-auto mb-4 rounded-full flex items-center justify-center ${
+              failedCount > 0 ? 'bg-yellow-500/20' : 'bg-[#FF6B00]/20'
+            }`}>
+              {failedCount > 0 ? (
+                <InfoIconFill className="w-10 h-10 text-yellow-500" />
+              ) : (
+                <CheckIconFill className="w-10 h-10 text-[#FF6B00]" />
+              )}
             </div>
-            <h3 className="text-xl font-bold mb-2">Verification Incomplete</h3>
-            <p className="text-gray-400 mb-6">
-              {failedCount} post{failedCount !== 1 ? 's' : ''} couldn't be verified.
-              They've been removed from your queue so you can re-engage with fresh posts.
-            </p>
+
+            {/* Title */}
+            <h3 className="text-xl font-bold mb-2">
+              {failedCount > 0 ? 'Verification Complete' : 'All Verified!'}
+            </h3>
+
+            {/* Earned Karma - always show if earned */}
+            {earnedKarma > 0 && (
+              <div className="mb-4">
+                <span className="text-3xl font-bold gold-gradient-text">+{formatKarma(earnedKarma)}</span>
+                <span className="text-gray-400 ml-2">karma earned</span>
+              </div>
+            )}
+
+            {/* Failed count message */}
+            {failedCount > 0 && (
+              <p className="text-gray-400 mb-4 text-sm">
+                {failedCount} post{failedCount !== 1 ? 's' : ''} couldn't be verified and {failedCount !== 1 ? 'have' : 'has'} been removed.
+              </p>
+            )}
+
+            {/* Continue button */}
             <button
-              onClick={() => {
+              onClick={async () => {
                 setShowFailurePopup(false);
-                startSession(true); // Fresh reload
+                // Light refresh - fetch new cards without full loading state
+                try {
+                  const data = await api.startSession();
+                  if (data.posts.length > 0) {
+                    engagedPostsRef.current = new Set<string>();
+                    currentPostIndexRef.current = 0;
+                    updateEngageData({
+                      session: data,
+                      engagedPosts: new Set<string>(),
+                      currentPostIndex: 0,
+                      lastFetchedAt: Date.now(),
+                    });
+                    // Scroll to first card
+                    if (carouselRef.current) {
+                      carouselRef.current.scrollTo({ left: 0, behavior: 'instant' });
+                    }
+                  }
+                } catch (err) {
+                  console.error('Failed to refresh cards:', err);
+                }
               }}
               className="btn-primary w-full"
             >
