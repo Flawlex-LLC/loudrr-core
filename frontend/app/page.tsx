@@ -1020,6 +1020,44 @@ function EngageTab({
   // NOTE: Scroll sync useEffect removed - no longer needed since tabs use CSS display:none
   // instead of conditional rendering. DOM element stays mounted, preserving scroll position.
 
+  // HARD SCROLL LOCK: Use native event listeners with passive: false to completely block forward scroll
+  useEffect(() => {
+    const container = carouselRef.current;
+    if (!container) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartXRef.current = e.touches[0].clientX;
+      scrollStartRef.current = container.scrollLeft;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const deltaX = touchStartXRef.current - e.touches[0].clientX; // Positive = scrolling right (forward)
+
+      // Calculate max allowed scroll position
+      const cardWidth = container.offsetWidth * 0.8;
+      const gap = 12;
+      const spacerWidth = container.offsetWidth * 0.1;
+      const maxAllowedIndex = currentPostIndexRef.current;
+      const maxAllowedScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
+
+      // If trying to scroll forward past max allowed, BLOCK completely
+      if (scrollStartRef.current + deltaX > maxAllowedScroll) {
+        e.preventDefault(); // This works because passive: false
+        e.stopPropagation();
+        container.scrollLeft = maxAllowedScroll;
+      }
+    };
+
+    // Add listeners with passive: false to enable preventDefault
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [state, session]); // Re-attach when session changes
+
   const startSession = async (skipPendingRestore = false) => {
     try {
       updateEngageData({ state: 'loading', error: null, result: null });
@@ -1616,32 +1654,6 @@ function EngageTab({
             style={{
               overscrollBehaviorX: 'contain',  // Prevent momentum overshoot at boundaries
               scrollSnapStop: 'always',         // Force stop at each snap point
-            }}
-            onTouchStart={(e) => {
-              // Record touch start position for scroll lock
-              touchStartXRef.current = e.touches[0].clientX;
-              scrollStartRef.current = carouselRef.current?.scrollLeft || 0;
-            }}
-            onTouchMove={(e) => {
-              // COMPLETE SCROLL LOCK: Prevent any forward scroll past max allowed
-              const container = carouselRef.current;
-              if (!container) return;
-
-              const deltaX = touchStartXRef.current - e.touches[0].clientX;  // Positive = scrolling right (forward)
-
-              // Calculate max allowed scroll position
-              const cardWidth = container.offsetWidth * 0.8;
-              const gap = 12;
-              const spacerWidth = container.offsetWidth * 0.1;
-              const maxAllowedIndex = currentPostIndexRef.current;
-              const maxAllowedScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
-
-              // If trying to scroll forward past max allowed, prevent it completely
-              const newScrollPos = scrollStartRef.current + deltaX;
-              if (newScrollPos > maxAllowedScroll + 5) {  // +5 for tiny tolerance
-                e.preventDefault();
-                container.scrollLeft = maxAllowedScroll;
-              }
             }}
             onScroll={(e) => {
               // Skip if programmatic scrolling is in progress
