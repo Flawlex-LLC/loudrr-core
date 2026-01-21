@@ -996,6 +996,13 @@ function EngageTab({
     };
   }, []);
 
+  // Auto-load posts when entering Engage tab (skip idle screen)
+  useEffect(() => {
+    if (activeTab === 'engage' && state === 'idle' && user) {
+      startSession();
+    }
+  }, [activeTab, state, user]);
+
   const startSession = async () => {
     try {
       updateEngageData({ state: 'loading', error: null, result: null });
