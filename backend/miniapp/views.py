@@ -173,7 +173,19 @@ def format_post_for_response(post, viewer_user) -> dict:
     Returns:
         dict with post data including X profile info
     """
+    from django.utils import timezone
+    from core.services.settings import get_setting
+
     author = post.user
+
+    # Calculate hours remaining until expiry
+    expiry_hours = get_setting('POST_EXPIRY_HOURS', 48)
+    if post.created_at:
+        elapsed = timezone.now() - post.created_at
+        elapsed_hours = elapsed.total_seconds() / 3600
+        hours_remaining = max(0, expiry_hours - elapsed_hours)
+    else:
+        hours_remaining = expiry_hours
 
     # Get X profile data if available
     x_profile = getattr(author, 'x_profile', None)
@@ -207,6 +219,7 @@ def format_post_for_response(post, viewer_user) -> dict:
         "tweet_author_avatar": post.tweet_author_avatar or None,
         "tweet_media": post.tweet_media or [],
         "tweet_created_at": post.tweet_created_at.isoformat() if post.tweet_created_at else None,
+        "hours_remaining": round(hours_remaining, 1),
     }
 
 
@@ -250,33 +263,15 @@ class StartSessionView(MiniAppAuthMixin, APIView):
             if eng.post.status == Post.Status.ACTIVE and eng.post.escrow > 0
         ]
 
-        # If user has 10+ pending, show verification card immediately
-        if pending_count >= 10:
-            posts_data = [format_post_for_response(post, user) for post in pending_posts[:10]]
-            return Response({
-                "posts": posts_data,
-                "pending_count": pending_count,
-                "pending_post_ids": [str(pid) for pid in pending_post_ids],
-                "show_verification": True,
-                "user": {
-                    "credits": decimal_to_float(user.credits),
-                    "daily_earned": decimal_to_float(user.daily_credits_earned),
-                    "daily_cap": settings.ECHO_CONFIG["DAILY_EARN_CAP"],
-                },
-            })
-
-        # Get fresh posts to fill remaining slots (excluding pending ones)
-        posts_needed = 10 - pending_count
+        # Get ALL fresh posts (excluding pending ones)
         fresh_posts = get_feed_posts(
             user,
-            limit=posts_needed,
+            limit=100,  # Reasonable upper limit
             exclude_post_ids=pending_post_ids,
-        ) if posts_needed > 0 else []
+        )
 
         # Combine: pending posts first (already clicked), then fresh posts (to engage)
-        # Ensure max 10 posts total
         all_posts = pending_posts + fresh_posts
-        all_posts = all_posts[:10]
 
         if not all_posts and pending_count == 0:
             return Response({
@@ -663,6 +658,15 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
         else:
             message = f"Earned {float(credits_awarded):.2f} karma for {total_passed} engagements. {total_failed} need re-engagement."
 
+        # Get remaining pending engagements (failed ones + any new ones)
+        remaining_pending = Engagement.objects.filter(
+            user=user,
+            verified=False,
+            credit_granted=False,
+        )
+        remaining_count = remaining_pending.count()
+        remaining_post_ids = list(remaining_pending.values_list('post_id', flat=True))
+
         return Response({
             "success": True,
             "message": message,
@@ -673,7 +677,8 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
             "new_balance": decimal_to_float(user.credits),
             "daily_earned": decimal_to_float(user.daily_credits_earned),
             "honesty_score": user.honesty_score,
-            "pending_count": total_failed,  # Failed ones stay pending
+            "pending_count": remaining_count,
+            "pending_post_ids": [str(pid) for pid in remaining_post_ids],
             "verification_results": verification_results,
         })
 

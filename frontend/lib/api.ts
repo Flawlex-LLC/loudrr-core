@@ -101,6 +101,7 @@ export interface Post {
   tweet_author_avatar?: string;
   tweet_media?: string[];
   tweet_created_at?: string;  // ISO date string
+  hours_remaining?: number;   // Hours until post expires
 }
 
 export interface SessionResponse {

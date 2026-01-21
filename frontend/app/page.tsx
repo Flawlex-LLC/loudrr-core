@@ -45,16 +45,19 @@ function formatKarma(value: number): string {
 }
 
 // Logo loader with expanding circle from right edge to full size
-function PixelLoader({ isComplete }: { isComplete: boolean; progress?: number }) {
-  const size = 72;
+function PixelLoader({ isComplete, size: sizeProp = 'default' }: { isComplete?: boolean; progress?: number; size?: 'default' | 'sm' | 'xs' }) {
+  // Size variants: default=72px, sm=32px, xs=20px
+  const sizeMap = { default: 72, sm: 32, xs: 20 };
+  const size = sizeMap[sizeProp];
+  const dotSize = Math.max(2, Math.round(size / 18)); // Scale dot size with loader size
   return (
-    <div className="loader-container">
+    <div className="loader-container" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
       <style>{`
-        @keyframes circle-grow {
+        @keyframes circle-grow-${size} {
           0% {
-            width: 4px;
-            height: 4px;
-            top: calc(50% - 2px);
+            width: ${dotSize}px;
+            height: ${dotSize}px;
+            top: calc(50% - ${dotSize / 2}px);
             right: 0;
             opacity: 0.6;
           }
@@ -111,7 +114,7 @@ function PixelLoader({ isComplete }: { isComplete: boolean; progress?: number })
                 borderRadius: '50%',
                 background: 'radial-gradient(circle, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.25) 50%, rgba(255,255,255,0.1) 100%)',
                 mixBlendMode: 'color',
-                animation: 'circle-grow 1.5s ease-out infinite',
+                animation: `circle-grow-${size} 1.5s ease-out infinite`,
               }}
             />
           </div>
@@ -1067,43 +1070,39 @@ function EngageTab({
     try {
       hapticFeedback('light');
       await api.recordClick(post.id);
-      // Set both state and ref (ref is used by visibility change handler)
-      clickedPostRef.current = post.id;
-      setClickedPost(post.id);
-      updateEngageData({ state: 'engaging' });
-      openLink(getEngageUrl(post));
+
+      // Mark as engaged IMMEDIATELY (don't wait for return from X)
+      const newEngaged = new Set(engagedPosts).add(post.id);
+      engagedPostsRef.current = newEngaged;
+
+      // Find next unengaged card
+      const posts = session?.posts || [];
+      let nextIndex = posts.length;
+      for (let i = 0; i < posts.length; i++) {
+        if (!newEngaged.has(posts[i].id)) {
+          nextIndex = i;
+          break;
+        }
+      }
+
+      // Update max scroll position
+      currentPostIndexRef.current = nextIndex;
+
+      // Update state: mark engaged + advance to next card
+      setEngageData(prev => ({
+        ...prev,
+        engagedPosts: newEngaged,
+        currentPostIndex: nextIndex,
+      }));
+
+      // Open X link after scroll animation starts (100ms delay lets React commit state)
+      setTimeout(() => {
+        hapticFeedback('success');
+        openLink(getEngageUrl(post));
+      }, 100);
     } catch (err) {
       updateEngageData({ error: err instanceof Error ? err.message : 'Failed to record click' });
     }
-  };
-
-  const handleReturnFromEngagement = () => {
-    const postId = clickedPostRef.current || clickedPost;
-    if (!postId) return;
-
-    // Mark post as engaged (update both ref and state)
-    const newEngaged = new Set(engagedPostsRef.current).add(postId);
-    engagedPostsRef.current = newEngaged;
-
-    // Clear clicked state
-    clickedPostRef.current = null;
-    setClickedPost(null);
-    hapticFeedback('success');
-
-    // Find first unengaged post and scroll to it
-    const posts = sessionRef.current?.posts || [];
-    let firstUnengagedIndex = posts.length; // Default to claim card
-    for (let i = 0; i < posts.length; i++) {
-      if (!newEngaged.has(posts[i].id)) {
-        firstUnengagedIndex = i;
-        break;
-      }
-    }
-    updateEngageData({
-      state: 'ready',
-      engagedPosts: newEngaged,
-      currentPostIndex: firstUnengagedIndex,
-    });
   };
 
   // Advance to next card with animation
@@ -1127,14 +1126,13 @@ function EngageTab({
 
       const data = await api.completeSession();
 
-      // Update engagedPosts based on server response (verified results)
-      let newEngagedPosts = engagedPosts;
-      if (data.verification_results) {
-        const passedPostIds = data.verification_results
-          .filter((r: { post_id: string; passed: boolean }) => r.passed)
-          .map((r: { post_id: string }) => r.post_id);
-        newEngagedPosts = new Set(passedPostIds);
+      // Update engagedPosts based on remaining pending engagements from server
+      // This includes failed verifications that need re-engagement
+      let newEngagedPosts = new Set<string>();
+      if (data.pending_post_ids && data.pending_post_ids.length > 0) {
+        newEngagedPosts = new Set(data.pending_post_ids);
       }
+      engagedPostsRef.current = newEngagedPosts;
 
       updateEngageData({
         state: 'completed',
@@ -1180,7 +1178,7 @@ function EngageTab({
           >
             {refreshing ? (
               <>
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <PixelLoader size="xs" />
                 Refreshing...
               </>
             ) : (
@@ -1236,8 +1234,8 @@ function EngageTab({
     return (
       <div className="p-4 flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full gold-gradient-bg animate-pulse" />
-          <p className="text-gray-400">Finding posts...</p>
+          <PixelLoader size="sm" />
+          <p className="text-gray-400 mt-4">Finding posts...</p>
         </div>
       </div>
     );
@@ -1279,8 +1277,8 @@ function EngageTab({
     return (
       <div className="p-4 flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full gold-gradient-bg glow-gold animate-spin" style={{ animationDuration: '2s' }} />
-          <p className="text-gray-400">Verifying engagements...</p>
+          <PixelLoader size="sm" />
+          <p className="text-gray-400 mt-4">Verifying engagements...</p>
         </div>
       </div>
     );
@@ -1462,7 +1460,11 @@ function EngageTab({
                 <div
                   key={post.id}
                   className={`snap-center flex-shrink-0 transition-all duration-300 w-[80%] ${
-                    isCenter ? 'scale-100 opacity-100' : 'scale-95 opacity-50'
+                    isCenter
+                      ? 'scale-100 opacity-100'
+                      : isEngaged
+                        ? 'scale-95 opacity-70'  // Engaged but not center - slightly brighter
+                        : 'scale-95 opacity-50'   // Not engaged, not center - dimmer
                   }`}
                   onClick={() => {
                     if (isCenter) {
@@ -1567,45 +1569,26 @@ function EngageTab({
                           )}
                         </div>
                       )}
+
+                      {/* Expiry indicator */}
+                      {post.hours_remaining !== undefined && (
+                        <div className="text-xs text-gray-500 mt-auto pt-2 flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          {post.hours_remaining > 1
+                            ? `${Math.round(post.hours_remaining)}h left`
+                            : post.hours_remaining > 0
+                              ? `${Math.round(post.hours_remaining * 60)}m left`
+                              : 'Expiring soon'
+                          }
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               );
             })}
-
-            {/* Check Back Later Card - shows if < 10 posts available */}
-            {(session?.posts?.length || 0) < 10 && (
-              <div
-                key="check-later-card"
-                className={`snap-center flex-shrink-0 transition-all duration-300 w-[80%] ${
-                  currentPostIndex === (session?.posts?.length || 0) ? 'scale-100 opacity-100' : 'scale-95 opacity-50'
-                }`}
-              >
-                <div className={`card-gold p-6 py-10 min-h-[180px] relative flex flex-col justify-center ${
-                  currentPostIndex === (session?.posts?.length || 0) ? 'ring-2 ring-[#FF6B00]/50' : ''
-                }`}>
-                  {/* Card content - matches post card layout */}
-                  <div className="flex items-center gap-4">
-                    {/* Icon in profile picture position */}
-                    <div className="relative flex-shrink-0">
-                      <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center">
-                        <ClockIcon className="w-8 h-8 text-[#FF6B00]" />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white text-lg">Check Back Later</h3>
-                      <p className="text-base text-gray-400 mt-0.5">
-                        {engagedPosts.size}/10 queued
-                      </p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Need 10 to claim karma
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
 
             {/* Right spacer for centering last card */}
             <div className="flex-shrink-0 w-[10%]" />
@@ -1625,31 +1608,31 @@ function EngageTab({
                 }`}
               />
             ))}
-            {/* Check back later indicator (if < 10 posts) */}
-            {(session?.posts?.length || 0) < 10 && (
-              <div
-                className={`h-1.5 rounded-full transition-all ${
-                  currentPostIndex === (session?.posts?.length || 0)
-                    ? 'w-6 bg-gray-500'
-                    : 'w-1.5 bg-gray-600'
-                }`}
-              />
-            )}
           </div>
 
-          {/* Claim Rewards Button - shows when 10+ engagements pending */}
-          {engagedPosts.size >= 10 && (
-            <button
-              onClick={() => {
+          {/* Claim Rewards Button - always visible, active when 10+ engagements */}
+          <button
+            onClick={() => {
+              if (engagedPosts.size >= 10) {
                 hapticFeedback('medium');
                 completeSession();
-              }}
-              className="mt-4 w-full py-3 px-6 rounded-xl gold-gradient-bg text-black font-semibold text-lg shadow-lg shadow-[#FF6B00]/30 hover:shadow-[#FF6B00]/50 transition-all flex items-center justify-center gap-2"
-            >
-              <BoltIconFill className="w-5 h-5" />
-              Claim {engagedPosts.size} Rewards
-            </button>
-          )}
+              } else {
+                hapticFeedback('error');
+              }
+            }}
+            disabled={engagedPosts.size < 10}
+            className={`mt-4 w-full py-3 px-6 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
+              engagedPosts.size >= 10
+                ? 'gold-gradient-bg text-black shadow-lg shadow-[#FF6B00]/30 hover:shadow-[#FF6B00]/50 btn-glossy'
+                : 'bg-white/10 text-white/40 cursor-not-allowed'
+            }`}
+          >
+            <BoltIconFill className="w-5 h-5" />
+            {engagedPosts.size >= 10
+              ? `Claim ${engagedPosts.size} Rewards`
+              : `${engagedPosts.size}/10 to Claim`
+            }
+          </button>
         </div>
       </div>
 
@@ -1958,7 +1941,7 @@ function StatsModal({
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="w-12 h-12 rounded-full gold-gradient-bg animate-pulse" />
+              <PixelLoader size="sm" />
             </div>
           ) : error || !stats ? (
             <div className="text-center py-12">

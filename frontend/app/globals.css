@@ -178,6 +178,24 @@ body {
   border-color: rgba(255, 107, 0, 0.3);
 }
 
+/* Glossy button overlay - static shine effect */
+.btn-glossy {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-glossy::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0) 100%);
+  pointer-events: none;
+  border-radius: 14px 14px 0 0;
+}
+
 /* Input styling */
 .input-field {
   background: rgba(255, 255, 255, 0.03);
