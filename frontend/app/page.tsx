@@ -989,25 +989,6 @@ function EngageTab({
     };
   }, [state, setEngageData, activeTab]);
 
-  // Restore scroll position when component mounts or state becomes ready
-  // This fixes the bug where switching tabs and back loses scroll position
-  useEffect(() => {
-    if (state === 'ready' && currentPostIndex > 0 && session?.posts?.length) {
-      requestAnimationFrame(() => {
-        const container = carouselRef.current;
-        if (container) {
-          isScrollingRef.current = true;
-          const cardWidth = container.offsetWidth * 0.8;
-          const spacerWidth = container.offsetWidth * 0.1;
-          const targetScroll = spacerWidth + (currentPostIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
-          console.log('[RestoreScroll] Restoring to index:', currentPostIndex, 'targetScroll:', Math.round(targetScroll));
-          container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
-          setTimeout(() => { isScrollingRef.current = false; }, 100);
-        }
-      });
-    }
-  }, []); // Run once on mount - currentPostIndex is already preserved in lifted state
-
   // Reset isScrollingRef on unmount to prevent stuck state
   useEffect(() => {
     return () => {
@@ -1112,11 +1093,18 @@ function EngageTab({
     // No session_token needed - engagements are tracked at user level
     if (engagedPosts.has(post.id)) return;
 
-    try {
-      hapticFeedback('light');
-      await api.recordClick(post.id);
+    // IMMEDIATE: Open link first - don't wait for anything
+    hapticFeedback('light');
+    openLink(getEngageUrl(post));
 
-      // Mark as engaged IMMEDIATELY
+    // Fire API call in background (don't wait)
+    api.recordClick(post.id).catch(err => {
+      console.error('[Engage] Failed to record click:', err);
+    });
+
+    // Small delay before updating UI (badge, scroll) - let redirect happen first
+    setTimeout(() => {
+      // Mark as engaged
       const newEngaged = new Set(engagedPosts).add(post.id);
       engagedPostsRef.current = newEngaged;
 
@@ -1154,12 +1142,8 @@ function EngageTab({
         currentPostIndex: nextIndex,
       }));
 
-      // Open link immediately - scroll already started via DOM
       hapticFeedback('success');
-      openLink(getEngageUrl(post));
-    } catch (err) {
-      updateEngageData({ error: err instanceof Error ? err.message : 'Failed to record click' });
-    }
+    }, 100); // 100ms delay - enough for redirect to start
   };
 
   // Advance to next card with animation
