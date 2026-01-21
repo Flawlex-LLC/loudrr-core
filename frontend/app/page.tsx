@@ -1698,10 +1698,10 @@ function EngageTab({
                               </span>
                             </div>
                           )}
-                          {/* Small tick on profile for engaged posts */}
+                          {/* Small clock on profile for pending (queued) posts */}
                           {isEngaged && (
                             <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-[#FF6B00] flex items-center justify-center border-2 border-black">
-                              <CheckIconFill className="w-3 h-3 text-black" />
+                              <ClockIcon className="w-3 h-3 text-black" />
                             </div>
                           )}
                         </div>
@@ -1814,7 +1814,7 @@ function EngageTab({
           >
             {isClaimLoading ? (
               <>
-                <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                <ClockIcon className="w-5 h-5" />
                 Queuing...
               </>
             ) : hasProcessingBatch ? (
