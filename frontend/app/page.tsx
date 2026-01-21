@@ -1289,24 +1289,31 @@ function EngageTab({
       // Success - verification queued!
       hapticFeedback('success');
 
-      // Clear engaged posts so user can continue with fresh posts
+      // Fetch updated claim history and fresh cards in parallel (background, no loading state)
+      const [historyData, sessionData] = await Promise.all([
+        fetchClaimHistory(),
+        api.startSession(),
+      ]);
+
+      // Update everything at once - no loading screen, just swap cards
       engagedPostsRef.current = new Set<string>();
+      currentPostIndexRef.current = 0;
 
-      // Fetch updated claim history to show the new batch
-      const historyData = await fetchClaimHistory();
-
-      // Go back to ready state so user can continue engaging
       updateEngageData({
         state: 'ready',
+        session: sessionData,
         engagedPosts: new Set<string>(),
         currentPostIndex: 0,
         claimHistory: historyData?.batches || [],
         hasProcessingBatch: historyData?.has_processing || true,
         isClaimLoading: false,
+        lastFetchedAt: Date.now(),
       });
 
-      // Refresh posts to get fresh ones (skip pending restore for clean slate)
-      startSession(true);
+      // Scroll carousel to first card
+      if (carouselRef.current) {
+        carouselRef.current.scrollTo({ left: 0, behavior: 'instant' });
+      }
 
     } catch (err) {
       updateEngageData({
