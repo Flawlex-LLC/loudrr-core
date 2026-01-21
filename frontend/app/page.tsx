@@ -1618,6 +1618,7 @@ function EngageTab({
                         : 'scale-95 opacity-50'   // Not engaged, not center - dimmer
                   }`}
                   onClick={() => {
+                    // Only center card is clickable - side cards do nothing
                     if (isCenter) {
                       if (isEngaged) {
                         // Already engaged - just open X link (no new click recorded)
@@ -1627,13 +1628,12 @@ function EngageTab({
                         // Not engaged - record click and open
                         handleEngageClick(post);
                       }
-                    } else if (canAccess) {
-                      updateEngageData({ currentPostIndex: index });
                     }
+                    // Side cards: no action - use nav buttons or swipe to scroll
                   }}
                 >
-                  <div className={`card-gold p-5 min-h-[160px] relative cursor-pointer transition-all flex flex-col justify-start ${
-                    isCenter ? 'ring-2 ring-[#FF6B00]/50' : ''
+                  <div className={`card-gold p-5 min-h-[160px] relative transition-all flex flex-col justify-start ${
+                    isCenter ? 'ring-2 ring-[#FF6B00]/50 cursor-pointer' : ''
                   }`}>
                     {/* Top right icons */}
                     <div className="absolute top-4 right-4 z-20 flex items-center gap-2">

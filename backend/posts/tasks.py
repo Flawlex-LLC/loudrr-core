@@ -221,7 +221,8 @@ def _run_verification(batch: VerificationBatch) -> dict:
             total_passed += 1
 
         else:
-            # FAIL: Keep pending - don't mark as verified
+            # FAIL: Delete engagement so user can re-engage fresh
+            eng.delete()
             total_failed += 1
 
     # Update honesty score based on failure count
