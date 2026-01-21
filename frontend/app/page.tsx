@@ -857,6 +857,8 @@ function EngageTab({
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [likeIntentEnabled, setLikeIntentEnabled] = useState(true); // Default ON
   const [refreshing, setRefreshing] = useState(false);
+  const [showFailurePopup, setShowFailurePopup] = useState(false);
+  const [failedCount, setFailedCount] = useState(0);
 
   // Refs
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -1020,14 +1022,15 @@ function EngageTab({
     }
   }, []); // Empty deps = only on mount
 
-  const startSession = async () => {
+  const startSession = async (skipPendingRestore = false) => {
     try {
       updateEngageData({ state: 'loading', error: null, result: null });
 
       const data = await api.startSession();
 
       // Check if user has 10+ pending engagements - show verification immediately
-      if (data.show_verification) {
+      // Skip this check if we're doing a fresh start after claim
+      if (data.show_verification && !skipPendingRestore) {
         const pendingSet = new Set(data.pending_post_ids || []);
         engagedPostsRef.current = pendingSet;
         currentPostIndexRef.current = data.posts.length;
@@ -1042,8 +1045,8 @@ function EngageTab({
       }
 
       if (data.posts.length > 0) {
-        // Use pending_post_ids to restore user's progress (persists across sessions!)
-        const pendingSet = new Set(data.pending_post_ids || []);
+        // Use pending_post_ids to restore progress, OR empty set for fresh start after claim
+        const pendingSet = skipPendingRestore ? new Set<string>() : new Set(data.pending_post_ids || []);
         engagedPostsRef.current = pendingSet;
 
         // Find first unengaged post (fresh posts are first in array)
@@ -1117,9 +1120,9 @@ function EngageTab({
     // No session_token needed - engagements are tracked at user level
     if (engagedPosts.has(post.id)) return;
 
-    // IMMEDIATE: Open link first - don't wait for anything
-    hapticFeedback('light');
+    // IMMEDIATE: Open link first - hyperlink speed, no delay
     openLink(getEngageUrl(post));
+    hapticFeedback('light'); // After link opens
 
     // Fire API call in background (don't wait)
     api.recordClick(post.id).catch(err => {
@@ -1204,9 +1207,18 @@ function EngageTab({
     const interval = setInterval(async () => {
       const data = await fetchClaimHistory();
       if (data && !data.has_processing) {
-        // Processing complete - refresh user data
+        // Processing complete - check for failures
+        const recentBatch = data.batches?.[0];
+        if (recentBatch && recentBatch.failed > 0) {
+          // Show failure popup so user knows some posts weren't engaged
+          setFailedCount(recentBatch.failed);
+          setShowFailurePopup(true);
+          hapticFeedback('error');
+        } else {
+          hapticFeedback('success');
+        }
+        // Refresh user data (balance updated)
         onUserUpdate();
-        hapticFeedback('success');
       }
     }, 5000); // Poll every 5 seconds
 
@@ -1256,8 +1268,8 @@ function EngageTab({
         isClaimLoading: false,
       });
 
-      // Refresh posts to get fresh ones
-      startSession();
+      // Refresh posts to get fresh ones (skip pending restore for clean slate)
+      startSession(true);
 
     } catch (err) {
       updateEngageData({
@@ -1651,19 +1663,21 @@ function EngageTab({
                         ? 'scale-95 opacity-70'  // Engaged but not center - slightly brighter
                         : 'scale-95 opacity-50'   // Not engaged, not center - dimmer
                   }`}
-                  onClick={() => {
-                    // Only center card is clickable - side cards do nothing
-                    if (isCenter) {
-                      if (isEngaged) {
-                        // Already engaged - just open X link (no new click recorded)
-                        hapticFeedback('light');
-                        openLink(getEngageUrl(post));
-                      } else {
-                        // Not engaged - record click and open
-                        handleEngageClick(post);
-                      }
+                  onMouseDown={(e) => {
+                    // Use onMouseDown for faster response (fires before onClick)
+                    // Only handle left click on center card for new engagements
+                    if (e.button === 0 && isCenter && !isEngaged) {
+                      e.preventDefault();
+                      handleEngageClick(post);
                     }
-                    // Side cards: no action - use nav buttons or swipe to scroll
+                  }}
+                  onClick={() => {
+                    // Handle already-engaged cards (re-open link) and side card prevention
+                    if (isCenter && isEngaged) {
+                      openLink(getEngageUrl(post));
+                      hapticFeedback('light');
+                    }
+                    // Side cards: no action
                   }}
                 >
                   <div className={`card-gold p-5 min-h-[160px] relative transition-all flex flex-col justify-start ${
@@ -1893,6 +1907,31 @@ function EngageTab({
         onUserUpdate={onUserUpdate}
         settings={settings}
       />
+
+      {/* Failure Popup - shown when verification has failed posts */}
+      {showFailurePopup && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="card-base p-6 max-w-sm text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/20 flex items-center justify-center">
+              <InfoIconFill className="w-8 h-8 text-yellow-500" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Verification Incomplete</h3>
+            <p className="text-gray-400 mb-6">
+              {failedCount} post{failedCount !== 1 ? 's' : ''} couldn't be verified.
+              They've been removed from your queue so you can re-engage with fresh posts.
+            </p>
+            <button
+              onClick={() => {
+                setShowFailurePopup(false);
+                startSession(true); // Fresh reload
+              }}
+              className="btn-primary w-full"
+            >
+              Continue Engaging
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
