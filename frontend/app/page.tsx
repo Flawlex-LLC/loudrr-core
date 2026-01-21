@@ -1236,7 +1236,7 @@ function EngageTab({
   // Mandatory refresh popup - shown when posts are 20+ minutes old
   if (showMandatoryRefresh) {
     return (
-      <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
+      <div className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden bg-black p-4">
         <div className="card-base p-6 text-center max-w-sm">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#FF6B00]/20 flex items-center justify-center">
             <svg className="w-8 h-8 text-[#FF6B00]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1270,7 +1270,7 @@ function EngageTab({
   if (state === 'idle') {
     return (
       <>
-        <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
+        <div className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden bg-black p-4">
           <div className="text-center max-w-sm">
             <div className="w-24 h-24 mx-auto mb-6 rounded-full gold-gradient-bg flex items-center justify-center glow-gold pulse-gold">
               <BoltIconFill className="w-12 h-12 text-black" />
@@ -1308,7 +1308,7 @@ function EngageTab({
   // Loading state
   if (state === 'loading') {
     return (
-      <div className="p-4 flex items-center justify-center min-h-[60vh]">
+      <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-black">
         <PixelLoader />
       </div>
     );
@@ -1317,7 +1317,7 @@ function EngageTab({
   // Error state
   if (state === 'error') {
     return (
-      <div className="p-4 flex items-center justify-center min-h-[60vh]">
+      <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-black p-4">
         <div className="text-center max-w-sm">
           <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-black/50 border border-[#FF6B00]/30 flex items-center justify-center">
             <XIconFill className="w-10 h-10 text-[#FF6B00]" />
@@ -1333,7 +1333,7 @@ function EngageTab({
   // Engaging state - user is on X, will auto-advance when they return
   if (state === 'engaging') {
     return (
-      <div className="p-4 flex items-center justify-center min-h-[60vh]">
+      <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-black p-4">
         <div className="text-center max-w-sm">
           <div className="w-20 h-20 mx-auto mb-6 rounded-full gold-gradient-bg pulse-gold glow-gold flex items-center justify-center">
             <XLogoIcon className="w-10 h-10 text-black" />
@@ -1348,7 +1348,7 @@ function EngageTab({
   // Completing state
   if (state === 'completing') {
     return (
-      <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
+      <div className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden bg-black">
         <PixelLoader />
         <p className="text-gray-400 mt-4">Verifying your engagements...</p>
       </div>
@@ -1363,7 +1363,7 @@ function EngageTab({
 
     return (
       <>
-        <div className="p-4 flex items-center justify-center min-h-[60vh]">
+        <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-black p-4">
           <div className="text-center max-w-sm slide-up">
             {isRetryRequired ? (
               // Retry required - verification failed first time
