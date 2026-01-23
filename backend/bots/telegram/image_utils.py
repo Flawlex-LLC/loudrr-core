@@ -681,3 +681,200 @@ def create_balance_card(
     output.seek(0)
 
     return output
+
+
+def create_waitlist_card(x_username: str) -> io.BytesIO:
+    """
+    Create waitlist confirmation card.
+
+    Simple, clean design with Loudrr branding.
+    Orange (#FF6B00) accents on dark background.
+    """
+    width, height = 800, 450
+    margin = 40
+    corner_radius = 24
+
+    # Colors - Orange theme matching app
+    orange = (255, 107, 0)  # #FF6B00
+    orange_dark = (200, 85, 0)
+    white = (255, 255, 255)
+    gray = (150, 150, 150)
+    card_bg = (18, 18, 20)
+    bg_dark = (10, 10, 12)
+
+    # Create image with dark background
+    img = Image.new('RGBA', (width, height), bg_dark)
+    draw = ImageDraw.Draw(img)
+
+    # Card with rounded corners
+    card_rect = (margin, margin, width - margin, height - margin)
+    draw.rounded_rectangle(card_rect, radius=corner_radius, fill=card_bg)
+
+    # Subtle orange border
+    draw.rounded_rectangle(card_rect, radius=corner_radius, outline=orange_dark, width=1)
+
+    # === CONTENT ===
+    left_x = margin + 48
+    center_x = width // 2
+
+    # Fonts
+    font_brand = get_font(28, bold=True)
+    font_title = get_font(36, bold=True)
+    font_username = get_font(28)
+    font_note = get_font(18)
+
+    # Loudrr brand at top
+    brand_text = "LOUDRR"
+    brand_bbox = draw.textbbox((0, 0), brand_text, font=font_brand)
+    brand_w = brand_bbox[2] - brand_bbox[0]
+    draw.text((center_x - brand_w // 2, margin + 50), brand_text, fill=orange, font=font_brand)
+
+    # Main message
+    title_text = "You're on the Waitlist!"
+    title_bbox = draw.textbbox((0, 0), title_text, font=font_title)
+    title_w = title_bbox[2] - title_bbox[0]
+    draw.text((center_x - title_w // 2, margin + 120), title_text, fill=white, font=font_title)
+
+    # X username with @ icon
+    username_text = f"@{x_username}"
+    username_bbox = draw.textbbox((0, 0), username_text, font=font_username)
+    username_w = username_bbox[2] - username_bbox[0]
+
+    # Orange pill background for username
+    pill_padding = 20
+    pill_left = center_x - username_w // 2 - pill_padding
+    pill_right = center_x + username_w // 2 + pill_padding
+    pill_top = margin + 190
+    pill_bottom = pill_top + 50
+
+    draw.rounded_rectangle(
+        [pill_left, pill_top, pill_right, pill_bottom],
+        radius=25, fill=(40, 25, 15), outline=orange, width=1
+    )
+
+    draw.text(
+        (center_x - username_w // 2, pill_top + 10),
+        username_text, fill=orange, font=font_username
+    )
+
+    # Note at bottom
+    note_text = "We'll notify you when you're in"
+    note_bbox = draw.textbbox((0, 0), note_text, font=font_note)
+    note_w = note_bbox[2] - note_bbox[0]
+    draw.text((center_x - note_w // 2, height - margin - 70), note_text, fill=gray, font=font_note)
+
+    # Save
+    output = io.BytesIO()
+    img.save(output, format='PNG', quality=95)
+    output.seek(0)
+    return output
+
+
+def create_approval_card(x_username: str) -> io.BytesIO:
+    """
+    Create approval notification card.
+
+    Celebratory design for approved waitlist entries.
+    """
+    width, height = 800, 500
+    margin = 40
+    corner_radius = 24
+
+    # Colors
+    orange = (255, 107, 0)  # #FF6B00
+    orange_bright = (255, 140, 50)
+    white = (255, 255, 255)
+    gray = (150, 150, 150)
+    card_bg = (18, 18, 20)
+    bg_dark = (10, 10, 12)
+
+    # Create image
+    img = Image.new('RGBA', (width, height), bg_dark)
+    draw = ImageDraw.Draw(img)
+
+    # Orange glow effect
+    glow = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    glow_draw = ImageDraw.Draw(glow)
+    for i in range(20, 0, -1):
+        alpha = int(15 * (1 - i / 20))
+        expand = i * 3
+        glow_draw.rounded_rectangle(
+            [margin - expand, margin - expand,
+             width - margin + expand, height - margin + expand],
+            radius=corner_radius + i,
+            fill=(255, 107, 0, alpha)
+        )
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=15))
+    img = Image.alpha_composite(img, glow)
+    draw = ImageDraw.Draw(img)
+
+    # Card background
+    card_rect = (margin, margin, width - margin, height - margin)
+    draw.rounded_rectangle(card_rect, radius=corner_radius, fill=card_bg)
+    draw.rounded_rectangle(card_rect, radius=corner_radius, outline=orange, width=2)
+
+    # === CONTENT ===
+    center_x = width // 2
+
+    # Fonts
+    font_brand = get_font(28, bold=True)
+    font_title = get_font(42, bold=True)
+    font_subtitle = get_font(24)
+    font_username = get_font(28)
+    font_note = get_font(18)
+
+    # Loudrr brand
+    brand_text = "LOUDRR"
+    brand_bbox = draw.textbbox((0, 0), brand_text, font=font_brand)
+    brand_w = brand_bbox[2] - brand_bbox[0]
+    draw.text((center_x - brand_w // 2, margin + 50), brand_text, fill=orange, font=font_brand)
+
+    # Main message
+    title_text = "Welcome!"
+    title_bbox = draw.textbbox((0, 0), title_text, font=font_title)
+    title_w = title_bbox[2] - title_bbox[0]
+    draw.text((center_x - title_w // 2, margin + 110), title_text, fill=white, font=font_title)
+
+    subtitle_text = "You've been approved"
+    subtitle_bbox = draw.textbbox((0, 0), subtitle_text, font=font_subtitle)
+    subtitle_w = subtitle_bbox[2] - subtitle_bbox[0]
+    draw.text((center_x - subtitle_w // 2, margin + 165), subtitle_text, fill=orange_bright, font=font_subtitle)
+
+    # X username
+    username_text = f"@{x_username}"
+    username_bbox = draw.textbbox((0, 0), username_text, font=font_username)
+    username_w = username_bbox[2] - username_bbox[0]
+
+    # Orange pill background
+    pill_padding = 20
+    pill_left = center_x - username_w // 2 - pill_padding
+    pill_right = center_x + username_w // 2 + pill_padding
+    pill_top = margin + 220
+    pill_bottom = pill_top + 50
+
+    draw.rounded_rectangle(
+        [pill_left, pill_top, pill_right, pill_bottom],
+        radius=25, fill=(40, 25, 15), outline=orange, width=1
+    )
+    draw.text(
+        (center_x - username_w // 2, pill_top + 10),
+        username_text, fill=orange, font=font_username
+    )
+
+    # Tagline
+    tagline_text = "Earn karma by engaging. Spend karma to grow."
+    tagline_bbox = draw.textbbox((0, 0), tagline_text, font=font_note)
+    tagline_w = tagline_bbox[2] - tagline_bbox[0]
+    draw.text((center_x - tagline_w // 2, height - margin - 90), tagline_text, fill=gray, font=font_note)
+
+    # CTA hint
+    cta_text = "Tap below to start"
+    cta_bbox = draw.textbbox((0, 0), cta_text, font=font_note)
+    cta_w = cta_bbox[2] - cta_bbox[0]
+    draw.text((center_x - cta_w // 2, height - margin - 55), cta_text, fill=white, font=font_note)
+
+    # Save
+    output = io.BytesIO()
+    img.save(output, format='PNG', quality=95)
+    output.seek(0)
+    return output

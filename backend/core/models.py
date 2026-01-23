@@ -48,8 +48,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     telegram_photo_url = models.URLField(max_length=500, blank=True)  # Profile photo from Telegram
     discord_id = models.BigIntegerField(unique=True, null=True, blank=True)
 
-    # X/Twitter info
-    x_username = models.CharField(max_length=50, blank=True)
+    # X/Twitter info (unique constraint skipped - duplicates exist in production)
+    x_username = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+
+    # Whitelist (for gated access)
+    is_whitelisted = models.BooleanField(default=False, db_index=True)
 
     # Admin login (optional, only for superusers)
     email = models.EmailField(unique=True, null=True, blank=True)
@@ -441,6 +444,66 @@ class SiteSetting(models.Model):
         super().save(*args, **kwargs)
 
 
+class WaitlistEntry(models.Model):
+    """
+    Waitlist entries for users wanting to join Loudrr.
+
+    Flow:
+    1. User enters email on landing page -> PENDING
+    2. User connects Telegram via deep link -> telegram_id linked
+    3. User submits X username via bot -> SUBMITTED
+    4. Admin approves -> APPROVED, User created
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending (email only)"
+        SUBMITTED = "submitted", "Submitted (waiting approval)"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    join_token = models.CharField(max_length=32, unique=True, db_index=True)
+
+    # Email (primary identifier from landing page)
+    email = models.EmailField(unique=True, db_index=True)
+    email_verified = models.BooleanField(default=False)
+    email_verification_token = models.CharField(max_length=32, blank=True)
+
+    # Telegram (from deep link)
+    telegram_id = models.BigIntegerField(null=True, blank=True, unique=True)
+    telegram_username = models.CharField(max_length=50, blank=True)
+    telegram_display_name = models.CharField(max_length=100, blank=True)
+
+    # X/Twitter (from bot popup)
+    x_username = models.CharField(max_length=50, blank=True, db_index=True)
+
+    # Status
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    # Approval
+    approved_at = models.DateTimeField(null=True, blank=True)
+    created_user = models.OneToOneField(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='waitlist_entry'
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "waitlist_entries"
+        ordering = ["-created_at"]
+        verbose_name = "Waitlist Entry"
+        verbose_name_plural = "Waitlist Entries"
+
+    def __str__(self):
+        return f"{self.email} ({self.status})"
+
+
 # === Auditlog Registration ===
 # Track all changes to models (admin + API + any other source)
 from auditlog.registry import auditlog
@@ -451,3 +514,4 @@ auditlog.register(AuditLog)  # Yes, audit the audit log too
 auditlog.register(XPTransaction)
 auditlog.register(XProfile)
 auditlog.register(SiteSetting)
+auditlog.register(WaitlistEntry)

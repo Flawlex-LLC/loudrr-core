@@ -9,6 +9,12 @@ urlpatterns = [
     # App settings (for frontend)
     path("settings/", views.SettingsView.as_view(), name="miniapp-settings"),
 
+    # Waitlist (public, no auth)
+    path("waitlist/submit/", views.WaitlistSubmitView.as_view(), name="waitlist-submit"),
+
+    # Onboarding
+    path("onboarding/complete/", views.CompleteOnboardingView.as_view(), name="onboarding-complete"),
+
     # Mini App API endpoints
     path("user/", views.UserInfoView.as_view(), name="miniapp-user"),
     path("user/stats/", views.UserStatsView.as_view(), name="miniapp-user-stats"),

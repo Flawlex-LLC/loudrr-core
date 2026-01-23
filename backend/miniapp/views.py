@@ -1,17 +1,21 @@
 """
 Mini App API views for Telegram Web App.
 
-Handles engagement sessions with:
-- Layer 1: Click tracking
-- Layer 2: Twitter API verification (100% of engagements)
-- Layer 3: Honesty score drops for failed verification (no karma penalty)
+ARCHITECTURE:
+- Phase 1: VerificationService - Twitter API calls (no DB locks)
+- Phase 2: SettlementService - Atomic DB writes (no external calls)
+
+This ensures:
+- No database locks held during slow network calls
+- Atomic escrow + credit transfers (savepoints per engagement)
+- If credit award fails, escrow is NOT deducted
+- Partial payment supported (user gets remaining escrow if < full amount)
 
 DECIMAL KARMA SYSTEM:
 - All credit values are Decimal internally
 - Convert to float for JSON responses
 - Frontend displays 2 decimal places
 """
-import math
 import hashlib
 import hmac
 import json
@@ -20,20 +24,17 @@ from urllib.parse import parse_qsl
 
 from django.conf import settings
 from django.db import transaction, IntegrityError
-from django.db.models import F
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.models import User
-from core.services.credits import CreditService, DailyCapReachedError
+from core.models import User, WaitlistEntry
+from core.services.credits import CreditService
 from core.services.posts import get_feed_posts
-from core.services.engagements import record_button_engagement
 from core.services.twitter_verification import twitter_verification
 from posts.models import Post, Engagement
-# Note: EngagementSession and SessionClick models removed (dead code)
 
 
 def decimal_to_float(value):
@@ -437,23 +438,27 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
     """
     Verify pending engagements and award credits (Claim Rewards).
 
-    SIMPLIFIED FLOW (100% verification):
-    1. Get ALL unverified Engagements for this user
-    2. Require minimum of 10 (configurable) to claim
-    3. Verify ALL via Twitter API ($0.00015 per verification)
-    4. Pass → mark complete, award karma
-    5. Fail → keep pending (stays in feed for re-engagement)
-    6. Update honesty score based on failure count (no karma penalty)
+    CLEAN ARCHITECTURE (two-phase):
+    Phase 1: VerificationService - API calls (no DB locks held)
+    Phase 2: SettlementService - Atomic DB writes (no external calls)
 
-    ROBUSTNESS:
-    - Locks posts in consistent order
-    - Uses F() expressions for atomic escrow decrement
-    - Handles idempotency via verified flag
+    This ensures:
+    - No database locks held during slow network calls
+    - Atomic escrow + credit transfers (savepoints per engagement)
+    - If credit award fails, escrow is NOT deducted
+    - Partial payment supported (user gets remaining escrow if < full amount)
+
+    FLOW:
+    1. Validate user and preconditions (no locks)
+    2. Get pending engagements (no locks)
+    3. Verify ALL via Twitter API (no locks - Phase 1)
+    4. Settle atomically via SettlementService (Phase 2)
+    5. Return results
     """
     permission_classes = [AllowAny]
 
-    @transaction.atomic
     def post(self, request):
+        # NOTE: No @transaction.atomic here - we handle it in phases
         user = self.get_user_from_request(request)
         if not user:
             return Response(
@@ -474,8 +479,8 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
         from core.services.settings import get_setting
         min_to_claim = get_setting('MIN_ENGAGEMENTS_TO_CLAIM', 10)
 
-        # Get ALL unverified engagements for this user (no batch limit)
-        pending_engagements = Engagement.objects.select_for_update().filter(
+        # Get pending engagements (NO LOCK - just reading for validation)
+        pending_engagements = Engagement.objects.filter(
             user=user,
             verified=False,
             credit_granted=False,
@@ -507,163 +512,44 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
                     "remaining_seconds": remaining,
                 })
 
-        # Lock posts in consistent order to prevent deadlocks
-        post_ids = sorted(set(eng.post_id for eng in pending_list))
-        posts_locked = {
-            p.pk: p for p in Post.objects.select_for_update().filter(
-                pk__in=post_ids
-            ).order_by('pk')
-        }
+        # =================================================================
+        # PHASE 1: Verify via Twitter API (NO database locks held)
+        # =================================================================
+        from core.services.verification import (
+            VerificationService, EngagementToVerify
+        )
 
-        # Verify ALL engagements (100% verification)
-        total_passed = 0
-        total_failed = 0
-        credits_awarded = Decimal('0')
-        verification_results = []
-
-        credit_service = CreditService(user)
-
-        # Get base credit amount
-        from core.services.tweet_score import calculate_engagement_karma
-        base_credit = Decimal(str(get_setting('CREDIT_PER_ENGAGEMENT', 1)))
-
+        # Prepare verification inputs
+        to_verify = []
         for eng in pending_list:
-            # Get tweet_id from post
             tweet_id = eng.post.tweet_id
             if not tweet_id:
                 tweet_id = twitter_verification.extract_tweet_id(eng.post.x_link)
+            to_verify.append(EngagementToVerify(
+                engagement_id=eng.pk,
+                post_id=eng.post_id,
+                tweet_id=tweet_id or "",
+            ))
 
-            # Verify via Twitter API
-            result = {"passed": True, "reply_verified": False, "skipped": True}
-            if tweet_id and user.x_username:
-                result = twitter_verification.verify_reply(
-                    tweet_id=tweet_id,
-                    x_username=user.x_username
-                )
-                # If API was skipped (no key), treat as passed
-                if result.get("skipped"):
-                    result["passed"] = True
+        # Call Twitter API for ALL engagements (no locks)
+        verification_service = VerificationService()
+        verification_results = verification_service.verify_engagements(
+            engagements=to_verify,
+            x_username=user.x_username,
+        )
 
-            passed = result.get("passed", False)
+        # =================================================================
+        # PHASE 2: Settle atomically (NO external API calls)
+        # =================================================================
+        from core.services.settlement import SettlementService
 
-            verification_results.append({
-                "post_id": str(eng.post_id),
-                "passed": passed,
-            })
+        settlement_service = SettlementService()
+        settlement_results = settlement_service.settle_engagements(
+            user_id=user.pk,
+            verification_results=verification_results.results,
+        )
 
-            if passed:
-                # PASS: Mark complete, award karma
-                eng.verified = True
-                eng.reply_verified = True
-                eng.like_verified = True
-                eng.verification_data = {
-                    "verified_at": timezone.now().isoformat(),
-                    "method": "twitter_api_advanced_search",
-                    "result": "passed",
-                    "tweet_id": tweet_id,
-                }
-
-                # Get locked post
-                post = posts_locked.get(eng.post_id)
-                if not post or post.status != Post.Status.ACTIVE or post.escrow <= 0:
-                    eng.credit_granted = False
-                    eng.save()
-                    total_passed += 1
-                    continue
-
-                # Check daily cap
-                if not credit_service.can_earn():
-                    eng.credit_granted = False
-                    eng.save()
-                    total_passed += 1
-                    continue
-
-                try:
-                    # Calculate karma with tier multiplier
-                    karma_amount, multiplier = calculate_engagement_karma(
-                        base_credit, user.tweetscout_score or 0
-                    )
-
-                    # Deduct escrow atomically BEFORE awarding credits
-                    updated = Post.objects.filter(
-                        pk=post.pk,
-                        escrow__gte=karma_amount
-                    ).update(escrow=F('escrow') - karma_amount)
-
-                    if not updated:
-                        # Escrow depleted - don't award
-                        eng.credit_granted = False
-                        eng.save()
-                        total_passed += 1
-                        continue
-
-                    # Award credit to user
-                    credit_service.earn(
-                        amount=karma_amount,
-                        reference_id=eng.id,
-                        reference_type="engagement",
-                        description=f"Engagement verified (x{multiplier})",
-                    )
-                    credits_awarded += karma_amount
-                    eng.credit_granted = True
-
-                    # Award XP for sponsored posts
-                    if post.is_sponsored:
-                        from core.services.xp import XPService, get_xp_for_sponsored_engagement
-                        xp_amount = get_xp_for_sponsored_engagement()
-                        xp_service = XPService(user)
-                        xp_service.earn_from_sponsored(
-                            amount=xp_amount,
-                            post_id=post.pk,
-                            description="Sponsored engagement reward",
-                        )
-
-                    # Check if post completed
-                    post.refresh_from_db()
-                    if post.escrow <= 0:
-                        Post.objects.filter(pk=post.pk).update(
-                            status=Post.Status.COMPLETED,
-                            completed_at=timezone.now()
-                        )
-
-                    # Update engagement stats
-                    User.objects.filter(pk=user.pk).update(
-                        total_engagements=F('total_engagements') + 1
-                    )
-
-                except DailyCapReachedError:
-                    eng.credit_granted = False
-                except Exception:
-                    eng.credit_granted = False
-
-                eng.save()
-                total_passed += 1
-
-            else:
-                # FAIL: Delete engagement so user can re-engage fresh
-                eng.delete()
-                total_failed += 1
-
-        # Update honesty score based on failure count (no karma penalty)
-        if total_failed > 0:
-            # Re-lock user for update
-            user = User.objects.select_for_update().get(pk=user.pk)
-
-            # Scale drop by failures: ceil(failures/2) -> 1-2 fails = -1, 3-4 = -2, etc.
-            drop = max(1, math.ceil(total_failed / 2))
-            user.honesty_score = max(0, user.honesty_score - drop)
-            user.save(update_fields=['honesty_score'])
-
-        # Refresh user
-        user.refresh_from_db()
-
-        # Build response message
-        if total_failed == 0:
-            message = f"Earned {float(credits_awarded):.2f} karma for {total_passed} engagements!"
-        else:
-            message = f"Earned {float(credits_awarded):.2f} karma for {total_passed} engagements. {total_failed} need re-engagement."
-
-        # Get remaining pending engagements (failed ones + any new ones)
+        # Get remaining pending engagements
         remaining_pending = Engagement.objects.filter(
             user=user,
             verified=False,
@@ -672,19 +558,27 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
         remaining_count = remaining_pending.count()
         remaining_post_ids = list(remaining_pending.values_list('post_id', flat=True))
 
+        # Format verification results for response
+        verification_response = [
+            {"post_id": str(r.post_id), "passed": r.passed}
+            for r in verification_results.results
+        ]
+
         return Response({
             "success": True,
-            "message": message,
-            "credits_awarded": float(credits_awarded),
-            "passed": total_passed,
-            "failed": total_failed,
-            "total_verified": total_passed,
-            "new_balance": decimal_to_float(user.credits),
-            "daily_earned": decimal_to_float(user.daily_credits_earned),
-            "honesty_score": user.honesty_score,
+            "message": settlement_results.message,
+            "credits_awarded": float(settlement_results.total_awarded),
+            "passed": settlement_results.total_passed,
+            "failed": settlement_results.total_failed,
+            "total_verified": settlement_results.total_passed,
+            "new_balance": float(settlement_results.new_balance),
+            "daily_earned": decimal_to_float(
+                User.objects.get(pk=user.pk).daily_credits_earned
+            ),
+            "honesty_score": settlement_results.new_honesty_score,
             "pending_count": remaining_count,
             "pending_post_ids": [str(pid) for pid in remaining_post_ids],
-            "verification_results": verification_results,
+            "verification_results": verification_response,
         })
 
 
@@ -729,6 +623,7 @@ class UserInfoView(MiniAppAuthMixin, APIView):
             "honesty_score": getattr(user, 'honesty_score', 10),
             "available_posts": available_posts,
             "engaged_today": engaged_today,
+            "is_whitelisted": getattr(user, 'is_whitelisted', True),
         })
 
 
@@ -1274,4 +1169,180 @@ class ClaimHistoryView(MiniAppAuthMixin, APIView):
             "batches": batch_list,
             "pending_engagements": pending_count,
             "has_processing": has_processing,
+        })
+
+
+# =============================================================================
+# WAITLIST SYSTEM
+# =============================================================================
+
+class WaitlistSubmitView(APIView):
+    """
+    Submit email to join waitlist (landing page).
+
+    Flow:
+    1. User submits email
+    2. Creates WaitlistEntry with join_token
+    3. Returns Telegram deep link URL
+    4. Frontend redirects to Telegram
+
+    Rate limited to prevent abuse.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        import secrets
+        import re
+
+        email = request.data.get('email', '').strip().lower()
+
+        # Validate email format
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not email or not re.match(email_regex, email):
+            return Response(
+                {"error": "Please enter a valid email address"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get bot username from settings
+        bot_username = getattr(settings, 'TELEGRAM_BOT_USERNAME', 'loudrr_bot')
+
+        # Check if email already on waitlist
+        try:
+            existing = WaitlistEntry.objects.get(email=email)
+            telegram_url = f"https://t.me/{bot_username}?start=join_{existing.join_token}"
+            return Response({
+                "success": True,
+                "telegram_url": telegram_url,
+                "message": "You're already on the waitlist! Open Telegram to continue.",
+            })
+        except WaitlistEntry.DoesNotExist:
+            pass
+
+        # Create new entry with unique token
+        join_token = secrets.token_urlsafe(16)
+
+        try:
+            entry = WaitlistEntry.objects.create(
+                email=email,
+                join_token=join_token,
+                status=WaitlistEntry.Status.PENDING,
+            )
+        except IntegrityError:
+            # Race condition - email was just created
+            entry = WaitlistEntry.objects.get(email=email)
+
+        telegram_url = f"https://t.me/{bot_username}?start=join_{entry.join_token}"
+
+        return Response({
+            "success": True,
+            "telegram_url": telegram_url,
+        })
+
+
+class CompleteOnboardingView(MiniAppAuthMixin, APIView):
+    """
+    Complete onboarding - fetch TweetScout and activate user.
+
+    Called when user clicks "Let's Go Loudrr" button.
+    This is when we actually call TweetScout API.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response(
+                {"error": "Invalid authentication"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # User must have X username linked (from waitlist flow)
+        if not user.x_username:
+            return Response(
+                {"error": "X account not linked"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Already onboarded? (tweetscout_score > 0 means already fetched)
+        if user.tweetscout_score > 0:
+            from core.services.tweet_score import get_tweet_score_tier
+            return Response({
+                "success": True,
+                "already_onboarded": True,
+                "tweetscout_score": user.tweetscout_score,
+                "tier": get_tweet_score_tier(user.tweetscout_score),
+            })
+
+        # Fetch TweetScout data NOW
+        from core.services.tweetscout import get_tweetscout_service
+        from core.services.tweet_score import get_tweet_score_tier
+        from core.models import XProfile
+
+        tweetscout = get_tweetscout_service()
+        tweetscout_data = tweetscout.get_user_data(user.x_username)
+
+        if not tweetscout_data:
+            # TweetScout unavailable - allow entry with default score
+            user.tweetscout_score = 0
+            user.tweetscout_last_updated = timezone.now()
+            user.save(update_fields=['tweetscout_score', 'tweetscout_last_updated'])
+            return Response({
+                "success": True,
+                "tweetscout_score": 0,
+                "tier": "anon",
+                "message": "Could not fetch X data. You can try again later.",
+            })
+
+        # Extract data - TweetScout returns flat dict with score at top level
+        info = tweetscout_data  # Flat dict containing all user info
+        score = tweetscout_data.get("score", 0) or 0
+
+        # Parse register_date
+        x_created_at = None
+        if info.get("register_date"):
+            try:
+                from datetime import datetime
+                x_created_at = datetime.strptime(
+                    info["register_date"], "%Y-%m-%d"
+                ).date()
+            except (ValueError, TypeError):
+                pass
+
+        # Create/update XProfile
+        XProfile.objects.update_or_create(
+            user=user,
+            defaults={
+                "x_user_id": str(info.get("id", "")),
+                "username": info.get("screen_name", user.x_username),
+                "display_name": info.get("name", ""),
+                "bio": info.get("description", "") or "",
+                "followers_count": info.get("followers_count", 0) or 0,
+                "following_count": info.get("friends_count", 0) or 0,
+                "tweets_count": info.get("tweets_count", 0) or 0,
+                "score": score,
+                "avatar_url": info.get("avatar", "") or "",
+                "banner_url": info.get("banner", "") or "",
+                "is_verified": bool(info.get("verified", False)),
+                "can_dm": bool(info.get("can_dm", False)),
+                "x_created_at": x_created_at,
+                "raw_tweetscout_data": tweetscout_data,
+            }
+        )
+
+        # Update User
+        user.tweetscout_score = score
+        user.tweetscout_last_updated = timezone.now()
+        user.save(update_fields=[
+            'tweetscout_score',
+            'tweetscout_last_updated',
+            'updated_at',
+        ])
+
+        return Response({
+            "success": True,
+            "tweetscout_score": score,
+            "tier": get_tweet_score_tier(score),
+            "followers_count": info.get("followers_count", 0),
+            "display_name": info.get("name", ""),
         })

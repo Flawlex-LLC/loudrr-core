@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.db.models import Sum, Count
 from django.utils.html import format_html
 
-from .models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction
+from .models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction, WaitlistEntry
 from .services.credits import CreditService
 from .services.xp import XPService
 
@@ -598,3 +598,160 @@ class XPTransactionAdmin(admin.ModelAdmin):
         )
     amount_display.short_description = "Amount"
     amount_display.admin_order_field = "amount"
+
+
+@admin.register(WaitlistEntry)
+class WaitlistEntryAdmin(admin.ModelAdmin):
+    """
+    Admin for waitlist entries.
+
+    Allows admins to approve/reject waitlist applications.
+    """
+    list_display = [
+        "email", "x_username_display", "telegram_username_display",
+        "status_display", "email_verified_display", "created_at",
+    ]
+    list_filter = ["status", "email_verified", "created_at"]
+    search_fields = ["email", "x_username", "telegram_username"]
+    ordering = ["-created_at"]
+    readonly_fields = [
+        "id", "join_token", "telegram_id", "telegram_username",
+        "telegram_display_name", "email_verified",
+        "created_at", "updated_at", "approved_at", "created_user",
+    ]
+    actions = ["approve_entries", "reject_entries"]
+
+    # Efficient loading
+    list_per_page = 50
+    show_full_result_count = False
+
+    fieldsets = (
+        ("Email", {"fields": ("email", "email_verified")}),
+        ("Telegram", {"fields": ("telegram_id", "telegram_username", "telegram_display_name")}),
+        ("X/Twitter", {"fields": ("x_username",)}),
+        ("Status", {"fields": ("status", "approved_at", "created_user")}),
+        ("Internal", {"fields": ("id", "join_token"), "classes": ("collapse",)}),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
+    )
+
+    def x_username_display(self, obj):
+        """Display X username with link."""
+        if obj.x_username:
+            return format_html(
+                '<a href="https://x.com/{}" target="_blank" style="color: #FF6B00;">@{}</a>',
+                obj.x_username, obj.x_username
+            )
+        return format_html('<span style="color: rgba(255,255,255,0.3);">-</span>')
+    x_username_display.short_description = "X Account"
+    x_username_display.admin_order_field = "x_username"
+
+    def telegram_username_display(self, obj):
+        """Display Telegram username."""
+        if obj.telegram_username:
+            return f"@{obj.telegram_username}"
+        return format_html('<span style="color: rgba(255,255,255,0.3);">-</span>')
+    telegram_username_display.short_description = "Telegram"
+    telegram_username_display.admin_order_field = "telegram_username"
+
+    def status_display(self, obj):
+        """Display status with color coding."""
+        status_colors = {
+            WaitlistEntry.Status.PENDING: ("rgba(255,255,255,0.5)", "Pending"),
+            WaitlistEntry.Status.SUBMITTED: ("#f39c12", "Submitted"),
+            WaitlistEntry.Status.APPROVED: ("#27ae60", "Approved"),
+            WaitlistEntry.Status.REJECTED: ("#e74c3c", "Rejected"),
+        }
+        color, label = status_colors.get(obj.status, ("white", obj.status))
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, label
+        )
+    status_display.short_description = "Status"
+    status_display.admin_order_field = "status"
+
+    def email_verified_display(self, obj):
+        """Display email verification status."""
+        if obj.email_verified:
+            return format_html('<span style="color: #27ae60;">✓</span>')
+        return format_html('<span style="color: rgba(255,255,255,0.3);">-</span>')
+    email_verified_display.short_description = "Email ✓"
+
+    @admin.action(description="✅ Approve selected entries")
+    def approve_entries(self, request, queryset):
+        """Approve selected waitlist entries and create users."""
+        from django.utils import timezone
+        from django.db import transaction as db_transaction
+
+        approved = 0
+        errors = []
+
+        for entry in queryset.filter(status=WaitlistEntry.Status.SUBMITTED):
+            try:
+                with db_transaction.atomic():
+                    # Validate entry has required data
+                    if not entry.telegram_id:
+                        errors.append(f"{entry.email}: No Telegram linked")
+                        continue
+                    if not entry.x_username:
+                        errors.append(f"{entry.email}: No X username")
+                        continue
+
+                    # Check if user already exists with this telegram_id
+                    if User.objects.filter(telegram_id=entry.telegram_id).exists():
+                        errors.append(f"{entry.email}: Telegram ID already registered")
+                        continue
+
+                    # Check if x_username already used
+                    if User.objects.filter(x_username__iexact=entry.x_username).exists():
+                        errors.append(f"{entry.email}: X username already registered")
+                        continue
+
+                    # Create user
+                    user = User.objects.create(
+                        telegram_id=entry.telegram_id,
+                        telegram_username=entry.telegram_username or "",
+                        display_name=entry.telegram_display_name or "",
+                        x_username=entry.x_username,
+                        is_whitelisted=True,
+                    )
+
+                    # Update entry
+                    entry.status = WaitlistEntry.Status.APPROVED
+                    entry.approved_at = timezone.now()
+                    entry.created_user = user
+                    entry.save(update_fields=['status', 'approved_at', 'created_user', 'updated_at'])
+
+                    # Send notification via Celery (if available)
+                    try:
+                        from bots.telegram.tasks import send_approval_notification_task
+                        send_approval_notification_task.delay(str(entry.id))
+                    except ImportError:
+                        # Celery task not available, send directly
+                        import asyncio
+                        from bots.telegram.notifications import send_approval_notification
+                        try:
+                            asyncio.get_event_loop().run_until_complete(
+                                send_approval_notification(entry)
+                            )
+                        except Exception:
+                            pass  # Notification failure shouldn't block approval
+
+                    log_admin_action(request, entry, f"Approved and created user {user.id}")
+                    approved += 1
+
+            except Exception as e:
+                errors.append(f"{entry.email}: {str(e)}")
+
+        if approved:
+            self.message_user(request, f"Approved {approved} entries.", messages.SUCCESS)
+        if errors:
+            for error in errors[:5]:  # Show first 5 errors
+                self.message_user(request, error, messages.WARNING)
+
+    @admin.action(description="❌ Reject selected entries")
+    def reject_entries(self, request, queryset):
+        """Reject selected waitlist entries."""
+        count = queryset.filter(status=WaitlistEntry.Status.SUBMITTED).update(
+            status=WaitlistEntry.Status.REJECTED
+        )
+        self.message_user(request, f"Rejected {count} entries.", messages.WARNING)

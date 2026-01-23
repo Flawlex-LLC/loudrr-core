@@ -1,11 +1,19 @@
 """
-Celery tasks for async verification processing.
+Celery tasks for async processing.
 
-Similar to spot trading order fills - users can queue verifications
-and continue engaging while verification processes in background.
+Tasks:
+- process_verification_batch: Async engagement verification
+- expire_old_posts: Periodic task to expire posts and refund escrow
+
+Architecture:
+- Verification uses VerificationService (API calls) + SettlementService (atomic DB)
+- Expiry is idempotent and batched for reliability
 """
+import logging
 import math
+from datetime import timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from celery import shared_task
 from django.db import transaction
@@ -17,7 +25,11 @@ from core.services.credits import CreditService, DailyCapReachedError
 from core.services.settings import get_setting
 from core.services.tweet_score import calculate_engagement_karma
 from core.services.twitter_verification import twitter_verification
+from core.services.verification import VerificationService, EngagementToVerify
+from core.services.settlement import SettlementService
 from posts.models import Engagement, Post, VerificationBatch
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=3)
@@ -252,3 +264,223 @@ def _run_verification(batch: VerificationBatch) -> dict:
         "credits": float(credits_awarded),
         "message": message,
     }
+
+
+# =============================================================================
+# POST EXPIRY TASK
+# =============================================================================
+
+@shared_task(bind=True, max_retries=3)
+def expire_old_posts(self):
+    """
+    Expire posts older than POST_EXPIRY_HOURS and refund remaining escrow.
+
+    Features:
+    - Idempotent: Safe to run multiple times
+    - Batched: Processes in chunks to avoid long transactions
+    - Self-scheduling: If more posts remain, schedules another run
+    - Refunds: Remaining escrow returned to post creator
+
+    Run via Celery beat (hourly recommended).
+    """
+    try:
+        expiry_hours = get_setting('POST_EXPIRY_HOURS', 48)
+    except Exception:
+        expiry_hours = 48  # Fallback if settings unavailable
+
+    cutoff = timezone.now() - timedelta(hours=expiry_hours)
+
+    # Get IDs only (no lock yet) - batch of 100
+    expired_ids = list(
+        Post.objects.filter(
+            status=Post.Status.ACTIVE,
+            created_at__lt=cutoff,
+        ).values_list('pk', flat=True)[:100]
+    )
+
+    if not expired_ids:
+        logger.info("No posts to expire")
+        return {"expired": 0, "failed": 0}
+
+    logger.info(f"Found {len(expired_ids)} posts to expire")
+
+    # Process each in its own transaction
+    expired_count = 0
+    failed_count = 0
+
+    for post_id in expired_ids:
+        try:
+            _expire_single_post(post_id)
+            expired_count += 1
+        except Post.DoesNotExist:
+            # Already expired or deleted - not an error
+            logger.debug(f"Post {post_id} already processed")
+        except Exception as e:
+            logger.error(f"Failed to expire post {post_id}: {e}")
+            failed_count += 1
+
+    logger.info(f"Expired {expired_count} posts, {failed_count} failed")
+
+    # If we hit the batch limit, schedule another run
+    if len(expired_ids) == 100:
+        logger.info("More posts may need expiry, scheduling follow-up task")
+        expire_old_posts.apply_async(countdown=5)  # Run again in 5 seconds
+
+    return {"expired": expired_count, "failed": failed_count}
+
+
+@transaction.atomic
+def _expire_single_post(post_id: UUID):
+    """
+    Expire a single post with refund.
+
+    Atomic operation:
+    1. Lock post row
+    2. Verify still active (idempotency)
+    3. Refund remaining escrow to creator
+    4. Mark as cancelled
+
+    Args:
+        post_id: UUID of post to expire
+
+    Raises:
+        Post.DoesNotExist: If post not found or not active
+    """
+    # Lock and verify post is still active
+    post = Post.objects.select_for_update().get(
+        pk=post_id,
+        status=Post.Status.ACTIVE,
+    )
+
+    # Log before cancelling
+    logger.info(
+        f"Expiring post {post_id}: "
+        f"escrow={post.escrow}, creator={post.user_id}"
+    )
+
+    # Cancel with refund (this handles all the credit service logic)
+    post.cancel(refund=True)
+
+
+# =============================================================================
+# REFACTORED VERIFICATION BATCH (USING NEW SERVICES)
+# =============================================================================
+
+@shared_task(bind=True, max_retries=3)
+def process_verification_batch_v2(self, batch_id: str):
+    """
+    Process verification batch using clean service architecture.
+
+    Phase 1: VerificationService - API calls (no locks)
+    Phase 2: SettlementService - Atomic DB writes (no API calls)
+
+    This is the new implementation. Once verified, can replace process_verification_batch.
+    """
+    try:
+        batch = VerificationBatch.objects.get(id=batch_id)
+    except VerificationBatch.DoesNotExist:
+        return {"error": "Batch not found"}
+
+    # Skip if already processed
+    if batch.status in ['completed', 'failed']:
+        return {"status": batch.status, "already_processed": True}
+
+    # Mark as processing
+    batch.status = VerificationBatch.Status.PROCESSING
+    batch.save(update_fields=['status'])
+
+    try:
+        result = _run_verification_v2(batch)
+        return result
+    except Exception as exc:
+        logger.error(f"Verification batch {batch_id} failed: {exc}")
+        batch.status = VerificationBatch.Status.FAILED
+        batch.message = str(exc)
+        batch.completed_at = timezone.now()
+        batch.save(update_fields=['status', 'message', 'completed_at'])
+
+        # Retry with exponential backoff
+        raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+
+
+def _run_verification_v2(batch: VerificationBatch) -> dict:
+    """
+    Run verification using clean architecture.
+
+    Phase 1: Gather data and verify via API (no locks)
+    Phase 2: Settle via SettlementService (atomic)
+    """
+    user = User.objects.get(pk=batch.user_id)
+
+    engagement_ids = batch.engagement_ids
+    if not engagement_ids:
+        batch.status = VerificationBatch.Status.COMPLETED
+        batch.passed = 0
+        batch.failed = 0
+        batch.credits_awarded = Decimal('0')
+        batch.message = "No engagements to verify"
+        batch.completed_at = timezone.now()
+        batch.save()
+        return {"passed": 0, "failed": 0, "credits": 0}
+
+    # Get engagements with post data (NO lock - just reading)
+    engagements = Engagement.objects.filter(
+        id__in=engagement_ids,
+        user=user,
+        verified=False,
+        credit_granted=False,
+    ).select_related('post').order_by('clicked_at')
+
+    # Prepare verification inputs
+    to_verify = []
+    for eng in engagements:
+        tweet_id = eng.post.tweet_id
+        if not tweet_id:
+            tweet_id = twitter_verification.extract_tweet_id(eng.post.x_link)
+        to_verify.append(EngagementToVerify(
+            engagement_id=eng.pk,
+            post_id=eng.post_id,
+            tweet_id=tweet_id or "",
+        ))
+
+    if not to_verify:
+        batch.status = VerificationBatch.Status.COMPLETED
+        batch.passed = 0
+        batch.failed = 0
+        batch.credits_awarded = Decimal('0')
+        batch.message = "No pending engagements found"
+        batch.completed_at = timezone.now()
+        batch.save()
+        return {"passed": 0, "failed": 0, "credits": 0}
+
+    # PHASE 1: Verify via API (no DB locks held)
+    verification_service = VerificationService()
+    verification_results = verification_service.verify_engagements(
+        engagements=to_verify,
+        x_username=user.x_username or "",
+    )
+
+    # PHASE 2: Settle atomically (no API calls)
+    settlement_service = SettlementService()
+    settlement_results = settlement_service.settle_engagements(
+        user_id=user.pk,
+        verification_results=verification_results.results,
+    )
+
+    # Update batch with results
+    batch.status = VerificationBatch.Status.COMPLETED
+    batch.passed = settlement_results.total_passed
+    batch.failed = settlement_results.total_failed
+    batch.credits_awarded = settlement_results.total_awarded
+    batch.message = settlement_results.message
+    batch.completed_at = timezone.now()
+    batch.save()
+
+    logger.info(
+        f"Batch {batch.id} completed: "
+        f"{settlement_results.total_passed} passed, "
+        f"{settlement_results.total_failed} failed, "
+        f"{settlement_results.total_awarded} karma"
+    )
+
+    return settlement_results.to_dict()

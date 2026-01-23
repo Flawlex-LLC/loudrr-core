@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse } from '@/lib/api';
+import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse, loudApi, LoudProject, LoudProjectsResponse, LoudSubmitResponse, normalizeXLink } from '@/lib/api';
 import { initTelegramWebApp, hapticFeedback, openLink } from '@/lib/telegram';
 
-type Tab = 'home' | 'engage' | 'campaigns' | 'earn';
+type Tab = 'home' | 'engage' | 'campaigns' | 'earn' | 'loud';
 type EngageState = 'idle' | 'loading' | 'ready' | 'engaging' | 'completing' | 'completed' | 'error';
 
 // Lifted engage state - persists across tab switches
@@ -265,6 +265,18 @@ export default function MiniApp() {
     );
   }
 
+  // Show onboarding screen for new whitelisted users (tweetscout_score == 0)
+  if (user && user.is_whitelisted && (user.tweetscout_score === 0 || user.tweetscout_score === undefined) && user.x_username) {
+    return (
+      <OnboardingScreen
+        user={user}
+        onComplete={async () => {
+          await loadUser();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col overflow-hidden tg-safe-area-top tg-safe-area-bottom">
       {/* Header */}
@@ -292,6 +304,9 @@ export default function MiniApp() {
         </div>
         <div style={{ display: activeTab === 'earn' ? 'block' : 'none' }}>
           <EarnTab />
+        </div>
+        <div style={{ display: activeTab === 'loud' ? 'block' : 'none' }}>
+          <LoudTab user={user} />
         </div>
       </div>
 
@@ -329,6 +344,14 @@ export default function MiniApp() {
             label="Earn"
             active={activeTab === 'earn'}
             onClick={() => handleTabChange('earn')}
+          />
+          <TabButton
+            tabId="loud"
+            icon={<RocketIconFill />}
+            iconOutline={<RocketIcon />}
+            label="Loud"
+            active={activeTab === 'loud'}
+            onClick={() => handleTabChange('loud')}
           />
         </div>
       </div>
@@ -2427,6 +2450,92 @@ function StatsModal({
   );
 }
 
+// ONBOARDING SCREEN - shown for new whitelisted users
+function OnboardingScreen({
+  user,
+  onComplete,
+}: {
+  user: User;
+  onComplete: () => Promise<void>;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleStart = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await api.completeOnboarding();
+      hapticFeedback('success');
+
+      // Refetch user to get updated data
+      await onComplete();
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong');
+      hapticFeedback('error');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      {/* Logo */}
+      <div className="mb-6">
+        <img
+          src="/loudrr-icon.png"
+          alt="Loudrr"
+          className="w-20 h-20"
+        />
+      </div>
+
+      {/* Welcome Message */}
+      <h1 className="text-3xl font-bold text-white mb-2 text-center">
+        Welcome to Loudrr!
+      </h1>
+
+      <p className="text-gray-400 text-center mb-8 max-w-sm">
+        Your multiplier is connected to your X account score.<br />
+        Higher score = More karma per engagement.
+      </p>
+
+      {/* X Username Display */}
+      {user.x_username && (
+        <div className="mb-8 px-6 py-3 rounded-xl bg-white/5 border border-[#FF6B00]/30">
+          <span className="text-[#FF6B00] font-medium">@{user.x_username}</span>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <p className="text-red-400 text-sm mb-4">{error}</p>
+      )}
+
+      {/* Start Button */}
+      <button
+        onClick={handleStart}
+        disabled={loading}
+        className="px-8 py-4 gold-gradient-bg text-black font-bold rounded-xl text-lg shadow-lg shadow-[#FF6B00]/30 hover:shadow-[#FF6B00]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+      >
+        {loading ? (
+          <>
+            <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+            Loading...
+          </>
+        ) : (
+          <>Let's Go Loudrr</>
+        )}
+      </button>
+
+      {/* Footer */}
+      <p className="mt-8 text-gray-600 text-sm text-center">
+        Earn karma by engaging.<br />
+        Spend karma to grow.
+      </p>
+    </div>
+  );
+}
+
 // LINK X ACCOUNT MODAL
 interface LinkXResult {
   x_username: string;
@@ -2769,5 +2878,564 @@ function GiftIcon({ className = "w-6 h-6" }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
     </svg>
+  );
+}
+
+// Loud tab icons (rocket boost)
+function RocketIconFill({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path fillRule="evenodd" d="M9.315 7.584C12.195 3.883 16.695 1.5 21.75 1.5a.75.75 0 01.75.75c0 5.056-2.383 9.555-6.084 12.436A6.75 6.75 0 019.75 22.5a.75.75 0 01-.75-.75v-4.131A15.838 15.838 0 016.382 15H2.25a.75.75 0 01-.75-.75 6.75 6.75 0 017.815-6.666zM15 6.75a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z" clipRule="evenodd" />
+      <path d="M5.26 17.242a.75.75 0 10-.897-1.203 5.243 5.243 0 00-2.05 5.022.75.75 0 00.625.627 5.243 5.243 0 005.022-2.051.75.75 0 10-1.202-.897 3.744 3.744 0 01-3.008 1.51c0-1.23.592-2.323 1.51-3.008z" />
+    </svg>
+  );
+}
+
+function RocketIcon({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+    </svg>
+  );
+}
+
+// =============================================================================
+// LOUD TAB - UGC Rewards Feature
+// =============================================================================
+
+function LoudTab({ user }: { user: User | null }) {
+  const [projectsData, setProjectsData] = useState<LoudProjectsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<LoudProject | null>(null);
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  const loadProjects = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await loudApi.getProjects();
+      setProjectsData(data);
+      if (data.projects.length > 0 && !selectedProject) {
+        setSelectedProject(data.projects[0]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load projects');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatTimeRemaining = (hours: number): string => {
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
+  };
+
+  if (loading) {
+    return (
+      <div className="p-4 flex items-center justify-center min-h-[400px]">
+        <PixelLoader size="sm" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4">
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-center">
+          <p className="text-red-400">{error}</p>
+          <button
+            onClick={loadProjects}
+            className="mt-2 px-4 py-2 bg-red-500/20 rounded-lg text-red-400 text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!projectsData || projectsData.projects.length === 0) {
+    return (
+      <div className="p-4">
+        <div className="bg-white/5 rounded-xl p-8 text-center">
+          <RocketIcon className="w-16 h-16 mx-auto mb-4 text-gray-500" />
+          <h3 className="text-lg font-medium text-white mb-2">No Active Projects</h3>
+          <p className="text-gray-400 text-sm">
+            Check back soon for UGC reward opportunities.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Header with Submit Button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-white">Loud</h2>
+          <p className="text-sm text-gray-400">Create content, earn rewards</p>
+        </div>
+        <button
+          onClick={() => setShowSubmitModal(true)}
+          className="px-4 py-2 bg-[#FF6B00] rounded-xl font-medium text-white"
+        >
+          Submit
+        </button>
+      </div>
+
+      {/* User Stats Bar */}
+      <div className="bg-white/5 rounded-xl p-3 flex items-center justify-between">
+        <div className="flex items-center gap-4 text-sm">
+          <span className="text-gray-400">
+            Expected: <span className="text-white font-medium">{projectsData.expected_points} pts</span>
+          </span>
+          <span className="text-gray-400">
+            Daily: <span className="text-white font-medium">{projectsData.daily_submissions_remaining}/{projectsData.daily_limit}</span>
+          </span>
+        </div>
+        <span className="text-xs text-gray-500">
+          Score: {projectsData.user_tweetscout_score}
+        </span>
+      </div>
+
+      {/* Project Cards - Horizontal Scroll */}
+      <div className="overflow-x-auto -mx-4 px-4 pb-2">
+        <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
+          {projectsData.projects.map((project) => (
+            <button
+              key={project.id}
+              onClick={() => setSelectedProject(project)}
+              className={`flex-shrink-0 w-40 p-3 rounded-xl border transition-all ${
+                selectedProject?.id === project.id
+                  ? 'bg-[#FF6B00]/20 border-[#FF6B00]'
+                  : 'bg-white/5 border-transparent hover:bg-white/10'
+              }`}
+            >
+              {/* Project Logo */}
+              <div className="w-10 h-10 rounded-full bg-white/10 mb-2 flex items-center justify-center overflow-hidden">
+                {project.logo_url ? (
+                  <img src={project.logo_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-lg font-bold text-white">{project.name.charAt(0)}</span>
+                )}
+              </div>
+
+              {/* Project Name */}
+              <h4 className="text-sm font-medium text-white truncate mb-1">{project.name}</h4>
+
+              {/* Time Remaining */}
+              <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
+                <span>{formatTimeRemaining(project.time_remaining_hours)}</span>
+                {project.reward_pool && (
+                  <>
+                    <span>·</span>
+                    <span className="text-[#FF6B00]">{project.reward_pool}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Mini Leaderboard Preview */}
+              <div className="text-xs text-gray-500 space-y-0.5">
+                <div className="flex justify-between">
+                  <span>Your rank:</span>
+                  <span className="text-white">
+                    {project.your_rank ? `#${project.your_rank}` : '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Points:</span>
+                  <span className="text-white">{project.your_points}</span>
+                </div>
+              </div>
+
+              {/* Submission Progress */}
+              <div className="mt-2 text-xs">
+                <div className="flex justify-between text-gray-500 mb-1">
+                  <span>Posts</span>
+                  <span>{project.user_submissions}/{project.max_submissions}</span>
+                </div>
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#FF6B00]"
+                    style={{ width: `${(project.user_submissions / project.max_submissions) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Selected Project Details */}
+      {selectedProject && (
+        <div className="space-y-4">
+          {/* Project Info */}
+          <div className="bg-white/5 rounded-xl p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
+                {selectedProject.logo_url ? (
+                  <img src={selectedProject.logo_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xl font-bold text-white">{selectedProject.name.charAt(0)}</span>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-lg font-bold text-white">{selectedProject.name}</h3>
+                <p className="text-sm text-gray-400 line-clamp-2">{selectedProject.description}</p>
+                <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                  {selectedProject.reward_pool && (
+                    <span className="text-[#FF6B00]">{selectedProject.reward_pool}</span>
+                  )}
+                  <span>{formatTimeRemaining(selectedProject.time_remaining_hours)} remaining</span>
+                  <span>{selectedProject.total_participants} participants</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Eligibility */}
+            {selectedProject.min_tweetscout_score > 0 && (
+              <div className={`mt-3 text-xs px-2 py-1 rounded-lg inline-block ${
+                projectsData.user_tweetscout_score >= selectedProject.min_tweetscout_score
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'bg-red-500/20 text-red-400'
+              }`}>
+                Min TweetScout: {selectedProject.min_tweetscout_score}
+              </div>
+            )}
+
+            {/* Submit Button for Selected Project */}
+            {selectedProject.can_submit ? (
+              <button
+                onClick={() => setShowSubmitModal(true)}
+                className="mt-4 w-full py-3 bg-[#FF6B00] rounded-xl font-medium text-white"
+              >
+                Submit to {selectedProject.name}
+              </button>
+            ) : (
+              <div className="mt-4 py-3 bg-white/5 rounded-xl text-center text-gray-400 text-sm">
+                {selectedProject.cannot_submit_reason}
+              </div>
+            )}
+          </div>
+
+          {/* Leaderboard */}
+          <LoudLeaderboard project={selectedProject} />
+        </div>
+      )}
+
+      {/* Submit Modal */}
+      {showSubmitModal && selectedProject && (
+        <LoudSubmitModal
+          project={selectedProject}
+          projectsData={projectsData}
+          onClose={() => setShowSubmitModal(false)}
+          onSuccess={() => {
+            setShowSubmitModal(false);
+            loadProjects();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Leaderboard component
+function LoudLeaderboard({ project }: { project: LoudProject }) {
+  const [leaderboard, setLeaderboard] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [project.slug]);
+
+  const loadLeaderboard = async () => {
+    try {
+      setLoading(true);
+      const data = await loudApi.getLeaderboard(project.slug);
+      setLeaderboard(data);
+    } catch (err) {
+      console.error('Failed to load leaderboard:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white/5 rounded-xl p-4">
+        <h4 className="text-sm font-medium text-white mb-3">Leaderboard</h4>
+        <div className="flex justify-center py-4">
+          <PixelLoader size="xs" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!leaderboard || leaderboard.leaderboard.length === 0) {
+    return (
+      <div className="bg-white/5 rounded-xl p-4">
+        <h4 className="text-sm font-medium text-white mb-3">Leaderboard</h4>
+        <p className="text-gray-400 text-sm text-center py-4">No submissions yet. Be the first!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white/5 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-medium text-white">Leaderboard</h4>
+        <span className="text-xs text-gray-500">{leaderboard.total_participants} participants</span>
+      </div>
+
+      <div className="space-y-2">
+        {leaderboard.leaderboard.slice(0, 10).map((entry: any) => (
+          <div
+            key={entry.user.id}
+            className={`flex items-center gap-3 p-2 rounded-lg ${
+              entry.rank <= 3 ? 'bg-white/5' : ''
+            }`}
+          >
+            {/* Rank */}
+            <div className={`w-6 text-center font-medium ${
+              entry.rank === 1 ? 'text-yellow-500' :
+              entry.rank === 2 ? 'text-gray-400' :
+              entry.rank === 3 ? 'text-amber-600' :
+              'text-gray-500'
+            }`}>
+              {entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : entry.rank}
+            </div>
+
+            {/* Avatar */}
+            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
+              {entry.user.avatar ? (
+                <img src={entry.user.avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-sm font-medium text-white">
+                  {entry.user.display_name?.charAt(0) || '?'}
+                </span>
+              )}
+            </div>
+
+            {/* Name */}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{entry.user.display_name}</p>
+              {entry.user.x_username && (
+                <p className="text-xs text-gray-500 truncate">@{entry.user.x_username}</p>
+              )}
+            </div>
+
+            {/* Points */}
+            <div className="text-right">
+              <p className="text-sm font-medium text-white">{entry.total_points}</p>
+              <p className="text-xs text-gray-500">{entry.submission_count} posts</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* User's position if not in top 10 */}
+      {leaderboard.user_entry && leaderboard.user_entry.rank && leaderboard.user_entry.rank > 10 && (
+        <div className="mt-3 pt-3 border-t border-white/10">
+          <div className="flex items-center gap-3 p-2 bg-[#FF6B00]/10 rounded-lg">
+            <div className="w-6 text-center font-medium text-[#FF6B00]">
+              {leaderboard.user_entry.rank}
+            </div>
+            <div className="flex-1 text-sm font-medium text-white">You</div>
+            <div className="text-right">
+              <p className="text-sm font-medium text-white">{leaderboard.user_entry.total_points}</p>
+              <p className="text-xs text-gray-500">{leaderboard.user_entry.submission_count} posts</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Submit Modal
+function LoudSubmitModal({
+  project,
+  projectsData,
+  onClose,
+  onSuccess,
+}: {
+  project: LoudProject;
+  projectsData: LoudProjectsResponse;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [xLink, setXLink] = useState('');
+  const [urlValidation, setUrlValidation] = useState<{
+    valid: boolean;
+    normalized: string;
+    error?: string;
+  }>({ valid: false, normalized: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState<LoudSubmitResponse | null>(null);
+
+  const handleUrlChange = (value: string) => {
+    setXLink(value);
+    setSubmitError(null);
+
+    if (!value.trim()) {
+      setUrlValidation({ valid: false, normalized: '' });
+      return;
+    }
+
+    const result = normalizeXLink(value);
+    setUrlValidation({
+      valid: result.valid,
+      normalized: result.normalized,
+      error: result.error,
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!urlValidation.valid) return;
+
+    try {
+      setSubmitting(true);
+      setSubmitError(null);
+      const result = await loudApi.submit(project.id, xLink);
+
+      if (result.success) {
+        setSubmitSuccess(result);
+        hapticFeedback('success');
+        setTimeout(() => {
+          onSuccess();
+        }, 2000);
+      } else {
+        setSubmitError(result.error || 'Submission failed');
+        hapticFeedback('error');
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Submission failed');
+      hapticFeedback('error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+
+      <div className="relative w-full max-w-md bg-[#0a0a0a] rounded-t-3xl p-6 animate-slide-up">
+        {/* Handle */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 w-10 h-1 bg-white/20 rounded-full" />
+
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-bold text-white">Submit to Loud</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white p-2">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {submitSuccess ? (
+          // Success State
+          <div className="text-center py-8">
+            <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h4 className="text-lg font-bold text-white mb-2">Submitted!</h4>
+            <p className="text-3xl font-bold text-[#FF6B00] mb-1">+{submitSuccess.points_awarded} pts</p>
+            <p className="text-gray-400 text-sm">
+              Rank #{submitSuccess.new_rank} · {submitSuccess.new_total_points} total points
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Project Info */}
+            <div className="bg-white/5 rounded-xl p-3 mb-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
+                {project.logo_url ? (
+                  <img src={project.logo_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-lg font-bold text-white">{project.name.charAt(0)}</span>
+                )}
+              </div>
+              <div>
+                <h4 className="font-medium text-white">{project.name}</h4>
+                <p className="text-xs text-gray-400">
+                  {project.user_submissions}/{project.max_submissions} posts
+                </p>
+              </div>
+            </div>
+
+            {/* URL Input */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Paste your X post link
+              </label>
+              <input
+                type="text"
+                value={xLink}
+                onChange={(e) => handleUrlChange(e.target.value)}
+                placeholder="https://x.com/username/status/..."
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#FF6B00]"
+              />
+              {urlValidation.error && (
+                <p className="mt-2 text-sm text-red-400">{urlValidation.error}</p>
+              )}
+              {urlValidation.valid && urlValidation.normalized && (
+                <p className="mt-2 text-xs text-gray-500">
+                  Will submit: {urlValidation.normalized}
+                </p>
+              )}
+            </div>
+
+            {/* Expected Points */}
+            <div className="bg-[#FF6B00]/10 rounded-xl p-4 mb-4 text-center">
+              <p className="text-sm text-gray-400 mb-1">Expected Points</p>
+              <p className="text-3xl font-bold text-[#FF6B00]">{projectsData.expected_points}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                Based on your TweetScout: {projectsData.user_tweetscout_score}
+              </p>
+            </div>
+
+            {/* Limits Info */}
+            <div className="flex justify-between text-sm text-gray-400 mb-4">
+              <span>Daily: {projectsData.daily_submissions_remaining}/{projectsData.daily_limit} remaining</span>
+              <span>{project.name}: {project.max_submissions - project.user_submissions} remaining</span>
+            </div>
+
+            {/* Error Message */}
+            {submitError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4">
+                <p className="text-red-400 text-sm">{submitError}</p>
+              </div>
+            )}
+
+            {/* Submit Button */}
+            <button
+              onClick={handleSubmit}
+              disabled={!urlValidation.valid || submitting || !project.can_submit}
+              className="w-full py-4 bg-[#FF6B00] rounded-xl font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {submitting ? 'Submitting...' : 'Submit & Earn'}
+            </button>
+
+            {!project.can_submit && (
+              <p className="mt-2 text-center text-sm text-red-400">
+                {project.cannot_submit_reason}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

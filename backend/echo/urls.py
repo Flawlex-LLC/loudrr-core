@@ -88,7 +88,9 @@ class LogEntryAdmin(admin.ModelAdmin):
     change_message_display.short_description = "Details"
 
 
-loudrr_admin.register(LogEntry, LogEntryAdmin)
+# Only register if not already registered
+if not loudrr_admin.is_registered(LogEntry):
+    loudrr_admin.register(LogEntry, LogEntryAdmin)
 
 
 # === Change History (django-auditlog) ===
@@ -193,7 +195,9 @@ class AuditLogEntryAdmin(admin.ModelAdmin):
     changes_display.short_description = "Changes"
 
 
-loudrr_admin.register(AuditLogEntry, AuditLogEntryAdmin)
+# Only register if not already registered
+if not loudrr_admin.is_registered(AuditLogEntry):
+    loudrr_admin.register(AuditLogEntry, AuditLogEntryAdmin)
 
 
 # Register ALL models with custom admin site
@@ -224,6 +228,14 @@ loudrr_admin.register(SponsoredPost, SponsoredPostAdmin)
 loudrr_admin.register(Campaign, CampaignAdmin)
 loudrr_admin.register(CampaignEntry, CampaignEntryAdmin)
 
+# Loud models
+from loud.models import LoudProject, LoudSubmission, LoudLeaderboardEntry
+from loud.admin import LoudProjectAdmin, LoudSubmissionAdmin, LoudLeaderboardEntryAdmin
+
+loudrr_admin.register(LoudProject, LoudProjectAdmin)
+loudrr_admin.register(LoudSubmission, LoudSubmissionAdmin)
+loudrr_admin.register(LoudLeaderboardEntry, LoudLeaderboardEntryAdmin)
+
 # Note: miniapp.EngagementSession and SessionClick models were removed (dead code)
 # Engagement tracking is done via posts.Engagement directly
 
@@ -240,6 +252,7 @@ urlpatterns = [
     path("api/", include("core.api.urls")),
     path("api/posts/", include("posts.api.urls")),
     path("api/miniapp/", include("miniapp.urls")),
+    path("api/loud/", include("loud.urls")),
 
     # Redirects
     path("r/", include("redirects.urls")),

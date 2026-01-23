@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "redirects",
     "bots",
     "miniapp",
+    "loud",
 ]
 
 # Jazzmin Admin UI Configuration
@@ -101,6 +102,10 @@ JAZZMIN_SETTINGS = {
         "posts.SponsoredPost",
         "posts.Campaign",
         "miniapp",
+        "loud",
+        "loud.LoudProject",
+        "loud.LoudSubmission",
+        "loud.LoudLeaderboardEntry",
     ],
 
     # Custom icons for apps/models (FontAwesome 5)
@@ -123,6 +128,10 @@ JAZZMIN_SETTINGS = {
         "posts.Campaign": "fas fa-bullhorn",
         "posts.CampaignEntry": "fas fa-ticket-alt",
         "miniapp": "fas fa-mobile-alt",
+        "loud": "fas fa-rocket",
+        "loud.LoudProject": "fas fa-flag",
+        "loud.LoudSubmission": "fas fa-paper-plane",
+        "loud.LoudLeaderboardEntry": "fas fa-trophy",
         "auditlog": "fas fa-file-alt",
         "auditlog.LogEntry": "fas fa-clipboard-list",
     },
@@ -301,7 +310,9 @@ REST_FRAMEWORK = {
 }
 
 # CORS
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:3000"])
+# In production, set CORS_ALLOW_ALL_ORIGINS=False (defaults to DEBUG value)
+CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:3000", "http://localhost:3001"])
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.trycloudflare\.com$",  # Allow all Cloudflare tunnel URLs
 ]
@@ -323,6 +334,7 @@ MINIAPP_URL = env("MINIAPP_URL", default="http://localhost:3000")
 
 # Bot tokens
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", default="")
+TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", default="Loudrrbot")
 DISCORD_BOT_TOKEN = env("DISCORD_BOT_TOKEN", default="")
 
 # Twitter API (twitterapi.io) for verification (v1)

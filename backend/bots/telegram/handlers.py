@@ -10,7 +10,7 @@ from django.conf import settings
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 
-from core.models import User
+from core.models import User, WaitlistEntry
 from core.services.credits import CreditService
 from core.services.posts import PostService, get_feed_posts, get_feed_count
 from core.services.gamification import get_user_stats, get_leaderboard
@@ -47,8 +47,14 @@ def get_user_by_username(username: str) -> Optional[User]:
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command - onboarding."""
+    """Handle /start command - onboarding or waitlist deep link."""
     telegram_user = update.effective_user
+
+    # Check for waitlist deep link: /start join_TOKEN
+    if context.args and context.args[0].startswith('join_'):
+        await handle_waitlist_join(update, context)
+        return
+
     user, created = get_or_create_user(
         telegram_id=telegram_user.id,
         display_name=telegram_user.full_name or telegram_user.username or "",
@@ -76,6 +82,66 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text(welcome_text)
+
+
+async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle waitlist deep link - /start join_TOKEN."""
+    telegram_user = update.effective_user
+    token = context.args[0].replace('join_', '')
+
+    try:
+        entry = WaitlistEntry.objects.get(join_token=token)
+    except WaitlistEntry.DoesNotExist:
+        await update.message.reply_text(
+            "Invalid or expired link.\n\n"
+            "Please try again from loudrr.com"
+        )
+        return
+
+    # Check if already approved
+    if entry.status == WaitlistEntry.Status.APPROVED:
+        miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
+        keyboard = [[InlineKeyboardButton(
+            "Open Loudrr",
+            web_app=WebAppInfo(url=miniapp_url)
+        )]]
+        await update.message.reply_text(
+            "You're already approved!\n\n"
+            "Tap below to open Loudrr.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    # Check if X username already submitted
+    if entry.x_username and entry.status == WaitlistEntry.Status.SUBMITTED:
+        await update.message.reply_text(
+            f"You're on the waitlist!\n\n"
+            f"Email: {entry.email}\n"
+            f"X: @{entry.x_username}\n\n"
+            "We'll notify you here when you get access."
+        )
+        return
+
+    # Link Telegram to entry
+    entry.telegram_id = telegram_user.id
+    entry.telegram_username = telegram_user.username or ""
+    entry.telegram_display_name = telegram_user.full_name or ""
+    entry.save(update_fields=[
+        'telegram_id', 'telegram_username', 'telegram_display_name', 'updated_at'
+    ])
+
+    # Show "Apply for Whitelist" button
+    keyboard = [[InlineKeyboardButton(
+        "Apply for Whitelist",
+        callback_data=f"apply_waitlist:{entry.id}"
+    )]]
+
+    await update.message.reply_text(
+        f"Welcome!\n\n"
+        f"Email: {entry.email}\n\n"
+        "Click below to complete your application:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -456,9 +522,80 @@ async def give_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass  # User may have not started the bot yet
 
 
+async def handle_waitlist_x_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle X username collection for waitlist application."""
+    from .image_utils import create_waitlist_card
+
+    entry_id = context.user_data.pop('collecting_x_username')
+    x_username = update.message.text.strip().lstrip('@')
+
+    # Validate format
+    if not re.match(r'^[a-zA-Z0-9_]{1,15}$', x_username):
+        await update.message.reply_text(
+            "Invalid username format.\n\n"
+            "Please send a valid X/Twitter username (letters, numbers, underscores only):"
+        )
+        context.user_data['collecting_x_username'] = entry_id
+        return
+
+    try:
+        entry = WaitlistEntry.objects.get(id=entry_id)
+    except WaitlistEntry.DoesNotExist:
+        await update.message.reply_text("Application not found. Please try again from loudrr.com")
+        return
+
+    # Check if X username already used in waitlist
+    if WaitlistEntry.objects.filter(x_username__iexact=x_username).exclude(id=entry_id).exists():
+        await update.message.reply_text(
+            "This X account is already on the waitlist.\n\n"
+            "Please use a different account:"
+        )
+        context.user_data['collecting_x_username'] = entry_id
+        return
+
+    # Check if X username already registered as a user
+    if User.objects.filter(x_username__iexact=x_username).exists():
+        await update.message.reply_text(
+            "This X account is already registered.\n\n"
+            "Please use a different account:"
+        )
+        context.user_data['collecting_x_username'] = entry_id
+        return
+
+    # Save X username and update status
+    entry.x_username = x_username
+    entry.status = WaitlistEntry.Status.SUBMITTED
+    entry.save(update_fields=['x_username', 'status', 'updated_at'])
+
+    # Send waitlist confirmation card
+    try:
+        card_image = create_waitlist_card(x_username=x_username)
+        await update.message.reply_photo(
+            photo=card_image,
+            caption=(
+                f"*You're on the Loudrr waitlist!*\n\n"
+                f"X: @{x_username}\n\n"
+                "_We'll notify you here when you get access._"
+            ),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        # Fallback to text if card generation fails
+        await update.message.reply_text(
+            f"You're on the Loudrr waitlist!\n\n"
+            f"X: @{x_username}\n\n"
+            "We'll notify you here when you get access."
+        )
+
+
 async def link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle messages with X/Twitter links - auto-create posts."""
     if not update.message or not update.message.text:
+        return
+
+    # Check if we're collecting X username for waitlist
+    if 'collecting_x_username' in context.user_data:
+        await handle_waitlist_x_username(update, context)
         return
 
     text = update.message.text
@@ -884,3 +1021,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(text, reply_markup=reply_markup)
+
+    elif data.startswith("apply_waitlist:"):
+        # User clicked "Apply for Whitelist" button
+        entry_id = data.split(":")[1]
+
+        # Store state for collecting X username
+        context.user_data['collecting_x_username'] = entry_id
+
+        await query.edit_message_text(
+            "*Apply for Whitelist*\n\n"
+            "Please send your X/Twitter username:\n\n"
+            "Example: `@yourusername` or `yourusername`",
+            parse_mode="Markdown"
+        )

@@ -184,6 +184,7 @@ def get_feed_posts(
     exclude_engaged: bool = True,
     exclude_post_ids: Optional[List] = None,
     use_scoring: bool = True,
+    filter_by_multiplier: bool = True,
 ) -> List[Post]:
     """
     Get posts available for a user to engage with.
@@ -197,13 +198,26 @@ def get_feed_posts(
         exclude_engaged: Whether to exclude posts user already engaged with
         exclude_post_ids: Additional post IDs to exclude (e.g., pending engagements)
         use_scoring: Whether to use scoring algorithm (v1) or FIFO (legacy)
+        filter_by_multiplier: If True, only show posts with enough escrow for user's tier
 
     Returns:
         List of Post instances
     """
+    from decimal import Decimal
+    from core.services.tweet_score import get_tweet_score_multiplier
+
+    # Calculate minimum escrow needed for this user's tier
+    base_credit = Decimal(str(get_setting('CREDIT_PER_ENGAGEMENT', 1)))
+
+    if filter_by_multiplier:
+        multiplier = get_tweet_score_multiplier(user.tweetscout_score or 0)
+        min_escrow = base_credit * multiplier
+    else:
+        min_escrow = Decimal('0.0001')  # Just needs to be > 0
+
     queryset = Post.objects.filter(
         status=Post.Status.ACTIVE,
-        escrow__gt=0,  # Only posts with remaining escrow
+        escrow__gte=min_escrow,  # Only posts that can afford user's karma
     ).exclude(
         user=user,  # Can't engage with own posts
     ).select_related("user", "user__x_profile")  # Prefetch user + X profile for response
@@ -233,22 +247,36 @@ def get_feed_posts(
     return [p[0] for p in scored_posts[:limit]]
 
 
-def get_feed_count(user: User) -> int:
+def get_feed_count(user: User, filter_by_multiplier: bool = True) -> int:
     """
     Get count of posts available for engagement.
 
     Args:
         user: User to check feed for
+        filter_by_multiplier: If True, only count posts with enough escrow for user's tier
 
     Returns:
         Number of available posts
     """
+    from decimal import Decimal
+    from core.services.tweet_score import get_tweet_score_multiplier
+
+    # Calculate minimum escrow needed for this user's tier
+    base_credit = Decimal(str(get_setting('CREDIT_PER_ENGAGEMENT', 1)))
+
+    if filter_by_multiplier:
+        multiplier = get_tweet_score_multiplier(user.tweetscout_score or 0)
+        min_escrow = base_credit * multiplier
+    else:
+        min_escrow = Decimal('0.0001')
+
     engaged_post_ids = Engagement.objects.filter(
         user=user,
     ).values_list("post_id", flat=True)
 
     return Post.objects.filter(
         status=Post.Status.ACTIVE,
+        escrow__gte=min_escrow,
     ).exclude(
         user=user,
     ).exclude(

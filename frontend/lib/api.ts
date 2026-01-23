@@ -7,6 +7,11 @@ const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !
   ? '/api/miniapp'  // Use Next.js API routes (proxied to backend)
   : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/miniapp');
 
+// Loud API base URL
+const LOUD_API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+  ? '/api/loud'  // Use Next.js API routes (proxied to backend)
+  : (process.env.NEXT_PUBLIC_API_URL?.replace('/api/miniapp', '/api/loud') || 'http://localhost:8000/api/loud');
+
 // Debug telegram ID for local testing (only used when not in Telegram)
 const DEBUG_TELEGRAM_ID = process.env.NEXT_PUBLIC_DEBUG_TELEGRAM_ID || '6451704338';
 
@@ -56,6 +61,39 @@ async function apiRequest<T>(
   return response.json();
 }
 
+// Loud API request helper (same auth, different base URL)
+async function loudApiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const initData = getTelegramInitData();
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(initData && { 'X-Telegram-Init-Data': initData }),
+    ...options.headers,
+  };
+
+  // Add debug telegram_id for local testing when not in Telegram
+  let url = `${LOUD_API_BASE_URL}${endpoint}`;
+  if (!isInTelegram() && DEBUG_TELEGRAM_ID) {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    url = `${url}${separator}telegram_id=${DEBUG_TELEGRAM_ID}`;
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || error.message || 'Request failed');
+  }
+
+  return response.json();
+}
+
 // Types
 export interface User {
   id: string;
@@ -79,6 +117,8 @@ export interface User {
   // Engagement progress
   available_posts?: number;
   engaged_today?: number;
+  // Whitelist status
+  is_whitelisted?: boolean;
 }
 
 export interface Post {
@@ -330,4 +370,175 @@ export const api = {
    */
   getClaimHistory: () =>
     apiRequest<ClaimHistoryResponse>('/claims/history/'),
+
+  /**
+   * Complete onboarding - fetches TweetScout and activates user
+   * Called when user clicks "Let's Go Loudrr" button
+   */
+  completeOnboarding: () =>
+    apiRequest<{
+      success: boolean;
+      tweetscout_score: number;
+      tier: string;
+      followers_count?: number;
+      display_name?: string;
+      already_onboarded?: boolean;
+      message?: string;
+    }>('/onboarding/complete/', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 };
+
+// =============================================================================
+// LOUD API - UGC Rewards Feature
+// =============================================================================
+
+export interface LoudProject {
+  id: string;
+  name: string;
+  slug: string;
+  logo_url: string | null;
+  description: string;
+  ends_at: string;
+  time_remaining_hours: number;
+  reward_pool: string;
+  min_tweetscout_score: number;
+  max_submissions: number;
+  user_submissions: number;
+  can_submit: boolean;
+  cannot_submit_reason: string | null;
+  total_participants: number;
+  your_rank: number | null;
+  your_points: number;
+}
+
+export interface LoudProjectsResponse {
+  projects: LoudProject[];
+  daily_submissions_remaining: number;
+  daily_limit: number;
+  expected_points: number;
+  user_tweetscout_score: number;
+}
+
+export interface LoudSubmitResponse {
+  success: boolean;
+  submission_id?: string;
+  points_awarded?: number;
+  new_total_points?: number;
+  new_rank?: number;
+  daily_submissions_remaining?: number;
+  project_submissions_remaining?: number;
+  error?: string;
+}
+
+export interface LoudLeaderboardUser {
+  id: string;
+  display_name: string;
+  x_username: string | null;
+  avatar: string | null;
+}
+
+export interface LoudLeaderboardEntry {
+  rank: number;
+  user: LoudLeaderboardUser;
+  total_points: number;
+  submission_count: number;
+}
+
+export interface LoudUserEntry {
+  rank: number | null;
+  total_points: number;
+  submission_count: number;
+}
+
+export interface LoudLeaderboardResponse {
+  project: {
+    name: string;
+    slug: string;
+    ends_at: string;
+    reward_pool: string;
+  };
+  leaderboard: LoudLeaderboardEntry[];
+  user_entry: LoudUserEntry | null;
+  total_participants: number;
+}
+
+// Loud API Functions
+export const loudApi = {
+  /**
+   * Get live projects with user's submission counts and eligibility
+   */
+  getProjects: () => loudApiRequest<LoudProjectsResponse>('/projects/'),
+
+  /**
+   * Submit content to a project
+   * @param projectId - The project UUID
+   * @param xLink - The X/Twitter post URL
+   */
+  submit: (projectId: string, xLink: string) =>
+    loudApiRequest<LoudSubmitResponse>('/submit/', {
+      method: 'POST',
+      body: JSON.stringify({ project_id: projectId, x_link: xLink }),
+    }),
+
+  /**
+   * Get project leaderboard
+   * @param projectSlug - The project slug
+   */
+  getLeaderboard: (projectSlug: string) =>
+    loudApiRequest<LoudLeaderboardResponse>(`/leaderboard/${projectSlug}/`),
+};
+
+// URL normalization helper for frontend validation
+export function normalizeXLink(url: string): {
+  valid: boolean;
+  normalized: string;
+  tweetId: string;
+  username: string;
+  error?: string;
+} {
+  // Strip protocol
+  let clean = url.replace(/^https?:\/\//, '');
+
+  // Reject i/status (anonymous links)
+  if (clean.includes('/i/status/')) {
+    return {
+      valid: false,
+      normalized: '',
+      tweetId: '',
+      username: '',
+      error: 'Anonymous links not accepted. Use link with username.',
+    };
+  }
+
+  // Extract username and tweet ID
+  const match = clean.match(/(?:x\.com|twitter\.com)\/([^\/]+)\/status\/(\d+)/);
+  if (!match) {
+    return {
+      valid: false,
+      normalized: '',
+      tweetId: '',
+      username: '',
+      error: 'Invalid link format. Use: x.com/username/status/...',
+    };
+  }
+
+  const [, username, tweetId] = match;
+
+  // Reject if username is 'i' or 'intent'
+  if (['i', 'intent', 'share', 'search'].includes(username.toLowerCase())) {
+    return {
+      valid: false,
+      normalized: '',
+      tweetId: '',
+      username: '',
+      error: 'Invalid link format',
+    };
+  }
+
+  // Build normalized URL (no query params)
+  const normalized = `https://x.com/${username}/status/${tweetId}`;
+
+  return { valid: true, normalized, tweetId, username };
+}

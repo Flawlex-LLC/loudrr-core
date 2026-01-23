@@ -3,7 +3,7 @@
 > **Attention Marketplace** - A community engagement platform where users earn karma by engaging with X/Twitter posts and spend karma to get engagement on their own posts.
 
 **Last Updated:** January 2026
-**Status:** Production Ready (v1.1)
+**Status:** Production Ready (v1.2)
 
 ---
 
@@ -21,9 +21,12 @@
 10. [Admin Panel](#10-admin-panel)
 11. [Configuration](#11-configuration)
 12. [Security & Robustness](#12-security--robustness)
-13. [Development Setup](#13-development-setup)
-14. [Deployment (Production)](#14-deployment-production)
-15. [Quick Reference](#15-quick-reference)
+13. [Known Issues & Edge Cases](#13-known-issues--edge-cases)
+14. [Cost Estimation](#14-cost-estimation)
+15. [Development Setup](#15-development-setup)
+16. [Deployment (Production)](#16-deployment-production)
+17. [Quick Reference](#17-quick-reference)
+18. [Files to Delete](#18-files-to-delete)
 
 ---
 
@@ -36,7 +39,7 @@ Loudrr is a **karma-based attention marketplace** built as a Telegram Mini App. 
 1. **Earn karma** by engaging with other users' X/Twitter posts (like + reply)
 2. **Spend karma** to get engagement on their own posts
 3. **Level up** through tiers based on their TweetScout score
-4. **Earn more** with tier-based multipliers (1.0x to 1.2x)
+4. **Earn more** with tier-based multipliers (1.0x to 1.35x)
 
 ### Core Mechanics
 
@@ -45,40 +48,34 @@ Loudrr is a **karma-based attention marketplace** built as a Telegram Mini App. 
 | **Karma** | In-app currency with 4 decimal precision (displays 2 decimals) |
 | **Escrow** | When submitting a post, karma is locked and distributed to engagers |
 | **Engagement** | Clicking a post link, liking, and replying on X (verification checks reply only) |
-| **Tiers** | Anon → Normie → Degen → Based → Legend → OG → GOAT (based on TweetScout) |
-| **Multipliers** | Higher tiers earn more karma per engagement (1.0x to 1.2x) |
-| **Verification** | Batch verification of 10 engagements, 3 randomly spot-checked |
-
-### User Flow
-
-```
-1. User joins via Telegram → Auto-creates account with 0 karma
-2. Links X/Twitter account → Gets TweetScout score → Tier assigned
-3. Engages with posts → Earns karma (unlimited daily)
-4. Submits own post (20-40 karma, user chooses) → Other users engage
-5. Post completes when escrow reaches 0
-```
+| **Tiers** | Anon -> Normie -> Degen -> Based -> Legend -> OG -> GOAT (based on TweetScout) |
+| **Multipliers** | Higher tiers earn more karma per engagement (1.0x to 1.35x) |
+| **Verification** | 100% verification via `from:user conversation_id:tweet` query |
 
 ### Karma Economics
 
 - **No inflation**: Escrow deducted = Karma earned (with multiplier)
 - **Decimal precision**: 4 decimal places internally, 2 for display
 - **Banker's rounding**: ROUND_HALF_EVEN for fairness
-- **Example**: GOAT user earns 1.20 karma, escrow decreases by 1.20
+- **Example**: GOAT user earns 1.35 karma, escrow decreases by 1.35
 
 ---
 
 ## 2. Tech Stack
 
 ### Backend
-| Component | Technology |
-|-----------|------------|
-| Framework | Django 5.0 |
-| API | Django REST Framework |
-| Database | PostgreSQL (Supabase) |
-| Task Queue | Celery + Redis |
-| Bot Framework | python-telegram-bot v21 |
-| Admin UI | Django Jazzmin |
+| Component | Technology | Version |
+|-----------|------------|---------|
+| Framework | Django | 5.0 |
+| API | Django REST Framework | 3.14 |
+| Database | PostgreSQL | 15 (Supabase) |
+| Task Queue | Celery | 5.3 |
+| Cache | Redis | 7.x |
+| Bot Framework | python-telegram-bot | v21 |
+| Admin UI | Django Jazzmin | 3.0 |
+| HTTP Client | httpx | sync |
+| Audit | django-auditlog | 3.0 |
+| Static Files | WhiteNoise | 6.x |
 
 ### Frontend
 | Component | Technology |
@@ -90,53 +87,54 @@ Loudrr is a **karma-based attention marketplace** built as a Telegram Mini App. 
 | Platform | Telegram Mini App |
 
 ### External APIs
-| Service | Purpose |
-|---------|---------|
-| TweetScout | User score/tier calculation |
-| Kaito.ai | Yaps score (engagement quality) |
-| twitterapi.io | Reply verification (likes private since 2024) |
+| Service | Purpose | Cost |
+|---------|---------|------|
+| TweetScout | User score/tier (on X link only) | ~$0.01/call |
+| twitterapi.io | Reply verification | 15 credits (~$0.00015)/call |
+
+**Note**: Kaito.ai integration was **REMOVED**. All Kaito fields deleted.
 
 ---
 
 ## 3. Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        TELEGRAM                                  │
-│  ┌──────────────┐                    ┌──────────────────────┐   │
-│  │ Telegram Bot │◄──────────────────►│  Telegram Mini App   │   │
-│  │ (Commands)   │                    │  (Web Interface)     │   │
-│  └──────┬───────┘                    └──────────┬───────────┘   │
-└─────────┼───────────────────────────────────────┼───────────────┘
-          │                                       │
-          ▼                                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     BACKEND (Django)                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐   │
-│  │   Bot API    │  │  MiniApp API │  │    REST API          │   │
-│  │ /bot/        │  │ /api/miniapp │  │    /api/             │   │
-│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘   │
-│         │                 │                      │               │
-│         └────────────────►│◄─────────────────────┘               │
-│                           ▼                                      │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                    SERVICES LAYER                        │    │
-│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐    │    │
-│  │  │ CreditSvc   │ │ PostSvc     │ │ EngagementSvc   │    │    │
-│  │  │ (Decimal)   │ │             │ │ (Multipliers)   │    │    │
-│  │  └─────────────┘ └─────────────┘ └─────────────────┘    │    │
-│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐    │    │
-│  │  │ TweetScore  │ │ Kaito       │ │ Settings        │    │    │
-│  │  │ (Tiers)     │ │             │ │ (Cached)        │    │    │
-│  │  └─────────────┘ └─────────────┘ └─────────────────┘    │    │
-│  └─────────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    PostgreSQL (Supabase)                         │
-│              DecimalField for all karma values                   │
-└─────────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------------+
+|                        TELEGRAM                                    |
+|  +--------------+                    +----------------------+      |
+|  | Telegram Bot |<------------------>|  Telegram Mini App   |      |
+|  | (Commands)   |                    |  (Web Interface)     |      |
+|  +------+-------+                    +----------+-----------+      |
++---------|------------------------------------|---------------------|
+          |                                    |
+          v                                    v
++-------------------------------------------------------------------+
+|                     BACKEND (Django)                               |
+|  +--------------+  +--------------+  +----------------------+      |
+|  |   Bot API    |  |  MiniApp API |  |    REST API          |      |
+|  | /bot/        |  | /api/miniapp |  |    /api/             |      |
+|  +------+-------+  +------+-------+  +----------+-----------+      |
+|         |                 |                      |                 |
+|         +---------------->|<---------------------+                 |
+|                           v                                        |
+|  +---------------------------------------------------------+      |
+|  |                    SERVICES LAYER                        |      |
+|  |  +-------------+ +-------------+ +-----------------+     |      |
+|  |  | CreditSvc   | | PostSvc     | | EngagementSvc   |     |      |
+|  |  | [ATOMIC]    | |             | | [ATOMIC]        |     |      |
+|  |  +-------------+ +-------------+ +-----------------+     |      |
+|  |  +-------------+ +-------------+ +-----------------+     |      |
+|  |  | TweetScore  | | TwitterAPI  | | Settings        |     |      |
+|  |  | (Tiers)     | | (Verify)    | | (Cached 5min)   |     |      |
+|  |  +-------------+ +-------------+ +-----------------+     |      |
+|  +---------------------------------------------------------+      |
++-------------------------------------------------------------------+
+                           |
+                           v
++-------------------------------------------------------------------+
+|                    PostgreSQL (Supabase)                           |
+|              DecimalField(max_digits=12, decimal_places=4)         |
++-------------------------------------------------------------------+
 ```
 
 ---
@@ -145,97 +143,96 @@ Loudrr is a **karma-based attention marketplace** built as a Telegram Mini App. 
 
 ```
 reply-community-bot/
-├── backend/
-│   ├── manage.py
-│   ├── requirements.txt
-│   │
-│   ├── echo/                          # Django project config
-│   │   ├── settings.py                # ECHO_CONFIG defaults
-│   │   ├── urls.py
-│   │   ├── admin_site.py
-│   │   └── wsgi.py
-│   │
-│   ├── core/                          # Users & credits app
-│   │   ├── models.py                  # User (DecimalField), Transaction, SiteSetting
-│   │   ├── admin.py                   # User admin + cache clearing
-│   │   ├── services/
-│   │   │   ├── credits.py             # CreditService (Decimal math)
-│   │   │   ├── engagements.py         # With tier multipliers
-│   │   │   ├── posts.py               # PostService + feed scoring
-│   │   │   ├── tweet_score.py         # Tier calculation + multipliers
-│   │   │   ├── settings.py            # Cached SiteSettings
-│   │   │   ├── tweetscout.py          # TweetScout API
-│   │   │   ├── kaito.py               # Kaito API
-│   │   │   └── twitter_verification.py
-│   │   └── migrations/
-│   │       ├── 0017_convert_karma_to_decimal.py
-│   │       ├── 0018_update_tier_multipliers.py
-│   │       └── 0019_post_cost_range_settings.py
-│   │
-│   ├── posts/                         # Posts & engagements
-│   │   ├── models.py                  # Post (DecimalField escrow), Engagement
-│   │   └── migrations/
-│   │       └── 0005_convert_karma_to_decimal.py
-│   │
-│   ├── miniapp/                       # Mini App API
-│   │   ├── views.py                   # All MiniApp endpoints
-│   │   └── urls.py
-│   │
-│   └── bots/telegram/                 # Telegram bot
-│       ├── bot.py
-│       └── handlers.py
-│
-├── frontend/
-│   ├── app/
-│   │   ├── page.tsx                   # Main app (~2000 lines)
-│   │   ├── layout.tsx
-│   │   ├── globals.css
-│   │   └── api/miniapp/[...path]/route.ts
-│   │
-│   └── lib/
-│       ├── api.ts                     # API client + types
-│       └── telegram.ts
-│
-└── CLAUDE.md                          # This file
++-- backend/
+|   +-- manage.py
+|   +-- requirements.txt
+|   +-- Dockerfile
+|   |
+|   +-- echo/                          # Django project config
+|   |   +-- settings.py                # All config + ECHO_CONFIG
+|   |   +-- urls.py                    # URL routing
+|   |   +-- admin_site.py              # Custom admin site
+|   |   +-- wsgi.py                    # WSGI entry point
+|   |   +-- celery.py                  # Celery configuration
+|   |
+|   +-- core/                          # Users & credits app
+|   |   +-- models.py                  # User, Transaction, XProfile, SiteSetting, XPTransaction
+|   |   +-- admin.py                   # User admin (6 actions, color coding)
+|   |   +-- backends.py                # TelegramIDBackend for auth
+|   |   +-- services/
+|   |   |   +-- credits.py             # CreditService [ATOMIC]
+|   |   |   +-- engagements.py         # EngagementService [ATOMIC]
+|   |   |   +-- posts.py               # PostService + feed scoring
+|   |   |   +-- tweet_score.py         # Tier multipliers
+|   |   |   +-- settings.py            # Cached SiteSettings
+|   |   |   +-- tweetscout.py          # TweetScout API client
+|   |   |   +-- twitter_verification.py # [OPTIMIZED] from:user query
+|   |   |   +-- xp.py                  # XP service for sponsored
+|   |   |   +-- x_url_resolver.py      # URL resolution
+|   |   |   +-- gamification.py        # Stats & leaderboards
+|   |   |   +-- campaigns.py           # Campaign/giveaway logic
+|   |
+|   +-- posts/                         # Posts & engagements
+|   |   +-- models.py                  # Post, Engagement, SponsoredPost, Campaign, CampaignEntry, VerificationBatch
+|   |   +-- admin.py                   # Post admin (custom form), Campaign admin
+|   |   +-- tasks.py                   # Celery async verification
+|   |
+|   +-- miniapp/                       # Mini App API
+|   |   +-- views.py                   # All MiniApp endpoints
+|   |   +-- urls.py
+|   |   +-- models.py                  # EMPTY (session models removed)
+|   |
+|   +-- bots/telegram/                 # Telegram bot [FUNCTIONAL]
+|   |   +-- bot.py                     # Bot setup
+|   |   +-- handlers.py                # 12 command handlers
+|   |   +-- keyboards.py               # Inline keyboards
+|   |   +-- image_utils.py             # PIL balance cards
+|   |
+|   +-- bots/discord/                  # [EMPTY - NOT IMPLEMENTED]
+|   |   +-- __init__.py
+|   |   +-- cogs/__init__.py
+|   |
+|   +-- redirects/                     # Redirect tracking
+|   |   +-- views.py                   # Encrypted redirect handler
+|   |   +-- urls.py
+|   |   +-- models.py                  # EMPTY
+|   |   +-- admin.py                   # EMPTY
+|   |
+|   +-- static/
+|       +-- admin/css/loudrr-theme.css # Custom admin theme
+|       +-- images/                    # Logo assets
+|
++-- frontend/
+|   +-- app/
+|   |   +-- page.tsx                   # Main app (~2000 lines)
+|   |   +-- layout.tsx
+|   |   +-- globals.css
+|   |   +-- api/miniapp/[...path]/route.ts
+|   +-- lib/
+|       +-- api.ts                     # API client + types
+|       +-- telegram.ts                # Telegram SDK wrapper
+|
++-- CLAUDE.md                          # This file
++-- .env                               # Environment variables (not committed)
 ```
 
 ---
 
 ## 5. Database Models
 
-### Decimal Karma System
-
-All karma-related fields use `DecimalField(max_digits=12, decimal_places=4)`:
-
-```python
-# User model
-credits = DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
-total_credits_earned = DecimalField(...)
-total_credits_spent = DecimalField(...)
-daily_credits_earned = DecimalField(...)
-
-# Post model
-escrow = DecimalField(max_digits=12, decimal_places=4)
-initial_escrow = DecimalField(...)
-
-# Transaction model
-amount = DecimalField(max_digits=12, decimal_places=4)
-balance_after = DecimalField(...)
-```
-
 ### Core Models (`backend/core/models.py`)
 
 #### User
 ```python
 class User(AbstractBaseUser, PermissionsMixin):
-    # Identity
     id = UUIDField(primary_key=True)
     telegram_id = BigIntegerField(unique=True)
     telegram_username = CharField(max_length=50)
+    telegram_photo_url = URLField(max_length=500)
     display_name = CharField(max_length=100)
     x_username = CharField(max_length=50)
 
-    # Credits (Decimal)
+    # Credits (Decimal - 4 places)
     credits = DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
     total_credits_earned = DecimalField(...)
     total_credits_spent = DecimalField(...)
@@ -243,27 +240,48 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     # Gamification
     total_engagements = IntegerField(default=0)
+    total_posts = IntegerField(default=0)
     current_streak = IntegerField(default=0)
+    longest_streak = IntegerField(default=0)
     tweetscout_score = FloatField(default=0)
-    honesty_score = IntegerField(default=10)  # 0-10, for verification
+    honesty_score = IntegerField(default=50)  # 0-50 range
 
-    # Constraints
+    # XP (Sponsored)
+    sponsored_xp = IntegerField(default=0)
+    total_sponsored_xp_earned = IntegerField(default=0)
+    sponsored_engagements = IntegerField(default=0)
+
+    # Status
+    is_banned = BooleanField(default=False)
+    ban_reason = TextField(blank=True)
+
     class Meta:
         constraints = [
             CheckConstraint(check=Q(credits__gte=0), name='user_credits_non_negative'),
+            CheckConstraint(check=Q(honesty_score__gte=0) & Q(honesty_score__lte=50), ...),
+            CheckConstraint(check=Q(sponsored_xp__gte=0), ...),
         ]
 ```
 
-#### SiteSetting
-Runtime-configurable settings with caching.
-
+#### XProfile
 ```python
-class SiteSetting(Model):
-    key = CharField(max_length=100, unique=True)
-    value = CharField(max_length=500)
-    data_type = CharField(choices=['int', 'float', 'bool', 'str', 'decimal'])
-    description = TextField()
-    updated_by = ForeignKey(User, null=True)
+class XProfile(Model):
+    """X/Twitter profile from TweetScout - fetched ONCE on link."""
+    user = OneToOneField(User, related_name="x_profile")
+    x_user_id = CharField(max_length=50)      # Permanent Twitter ID
+    username = CharField(max_length=50)        # @handle
+    display_name = CharField(max_length=100)
+    bio = TextField()
+    followers_count = IntegerField(default=0)
+    following_count = IntegerField(default=0)
+    tweets_count = IntegerField(default=0)
+    score = FloatField(default=0)              # TweetScout score
+    avatar_url = URLField()
+    banner_url = URLField()
+    is_verified = BooleanField(default=False)
+    can_dm = BooleanField(default=False)
+    raw_tweetscout_data = JSONField()          # Full API response
+    fetched_at = DateTimeField()
 ```
 
 ### Posts Models (`backend/posts/models.py`)
@@ -275,9 +293,22 @@ class Post(Model):
     user = ForeignKey(User)
     x_link = URLField()
     tweet_id = CharField(max_length=50)
+
+    # Cached tweet content
+    tweet_text = TextField()
+    tweet_author_name = CharField()
+    tweet_author_username = CharField()
+    tweet_author_avatar = URLField()
+    tweet_media = JSONField(default=list)
+    tweet_created_at = DateTimeField()
+
+    # Escrow
     escrow = DecimalField(max_digits=12, decimal_places=4)
     initial_escrow = DecimalField(...)
     status = CharField(choices=['active', 'completed', 'cancelled'])
+    is_sponsored = BooleanField(default=False)
+    platform = CharField(choices=['telegram', 'discord', 'web'])
+    redirect_token = CharField(unique=True)
 
     class Meta:
         constraints = [
@@ -295,10 +326,12 @@ class Engagement(Model):
     credit_granted = BooleanField(default=False)
     like_verified = BooleanField(default=False)
     reply_verified = BooleanField(default=False)
+    verification_data = JSONField(null=True)
 
     class Meta:
         constraints = [
             UniqueConstraint(fields=['user', 'post'], name='unique_user_post_engagement'),
+            CheckConstraint(check=~Q(verified=False, credit_granted=True), name='engagement_credit_requires_verification'),
         ]
 ```
 
@@ -306,106 +339,64 @@ class Engagement(Model):
 
 ## 6. Backend Services
 
-### Tier/Multiplier System (`core/services/tweet_score.py`)
+### Twitter Verification (`core/services/twitter_verification.py`)
+
+**OPTIMIZED**: Uses `from:user conversation_id:tweet` for cost efficiency.
 
 ```python
-from decimal import Decimal, ROUND_HALF_EVEN
+class TwitterVerificationService:
+    BASE_URL = "https://api.twitterapi.io/twitter"
 
-KARMA_QUANTIZE = Decimal('0.0001')  # 4 decimal places
+    def verify_reply(self, tweet_id: str, x_username: str) -> dict:
+        """
+        Query: GET /tweet/advanced_search?query=from:{user} conversation_id:{tweet}
 
-def calculate_engagement_karma(base_amount: Decimal, tweetscout_score: float) -> tuple[Decimal, Decimal]:
-    """Calculate karma with tier multiplier."""
-    multiplier = get_tweet_score_multiplier(tweetscout_score)
-    karma = (base_amount * multiplier).quantize(KARMA_QUANTIZE, rounding=ROUND_HALF_EVEN)
-    return karma, multiplier
+        Cost: 15 credits (~$0.00015) - FIXED regardless of tweet's reply count
+
+        Returns:
+        {
+            "passed": bool,
+            "reply_verified": bool,
+            "like_verified": True,  # Always true (can't verify)
+            "error": str or None,
+            "skipped": bool
+        }
+        """
+
+    def get_tweet_content(self, tweet_id: str) -> dict:
+        """Fetch tweet for caching on submission. 15 credits."""
+
+    def extract_tweet_id(self, url: str) -> str:
+        """Extract ID from URL. No API call."""
 ```
+
+### Tier/Multiplier System (`core/services/tweet_score.py`)
 
 | TweetScout Score | Tier | Multiplier |
 |------------------|------|------------|
 | 0-99 | Anon | 1.00x |
-| 100-199 | Normie | 1.03x |
-| 200-399 | Degen | 1.06x |
-| 400-599 | Based | 1.10x |
-| 600-799 | Legend | 1.14x |
-| 800-999 | OG | 1.17x |
-| 1000+ | GOAT | 1.20x |
+| 100-199 | Normie | 1.10x |
+| 200-399 | Degen | 1.15x |
+| 400-599 | Based | 1.20x |
+| 600-799 | Legend | 1.25x |
+| 800-999 | OG | 1.30x |
+| 1000+ | GOAT | 1.35x |
 
-*All multipliers configurable via SiteSettings*
+*All configurable via SiteSettings*
 
 ### CreditService (`core/services/credits.py`)
 
-Handles all credit operations with Decimal math.
+**ATOMIC**: All operations use `@transaction.atomic` + `select_for_update()`.
 
 ```python
 class CreditService:
-    def earn(self, amount: Decimal, reference_id, reference_type, description) -> Transaction
-    def spend(self, amount: Decimal, ...) -> Transaction
-    def refund(self, amount: Decimal, ...) -> Transaction
-    def apply_penalty(self, amount: Decimal, ...) -> Transaction
+    @transaction.atomic
+    def earn(amount, reference_id, reference_type, description) -> Transaction
+    def spend(amount, ...) -> Transaction
+    def refund(amount, ...) -> Transaction
+    def apply_penalty(amount, ...) -> Transaction
+    def admin_grant(amount, admin_id, description) -> Transaction
 ```
-
-### Settings Service (`core/services/settings.py`)
-
-Cached settings with 5-minute TTL, cleared on admin save.
-
-```python
-def get_setting(key: str, default=None):
-    """
-    Get setting from cache or database.
-
-    Args:
-        key: Setting key (e.g., 'DAILY_EARN_CAP')
-        default: Default value if setting not found (optional)
-
-    Returns:
-        Setting value with proper type conversion, or default if not found
-
-    Raises:
-        KeyError: If setting not found and no default provided
-    """
-    cache_key = f'setting:{key}'
-    value = cache.get(cache_key)
-    if value is not None:
-        return value
-
-    try:
-        setting = SiteSetting.objects.get(key=key)
-        value = setting.get_value()
-        cache.set(cache_key, value, 300)  # 5 min cache
-        return value
-    except SiteSetting.DoesNotExist:
-        if default is not None:
-            return default
-        raise KeyError(f"Setting '{key}' not found")
-```
-
-### Twitter Verification Service (`core/services/twitter_verification.py`)
-
-Verifies user engagements via twitterapi.io. **Only verifies replies** - Twitter made likes private in 2024.
-
-```python
-class TwitterVerificationService:
-    """
-    3 methods only (all sync):
-    - verify_reply(tweet_id, x_username) → 1 API call
-    - get_tweet_author(tweet_id) → 1 API call
-    - extract_tweet_id(url) → no API call
-    """
-
-    def verify_reply(self, tweet_id: str, x_username: str) -> dict:
-        """
-        Returns:
-        {
-            "passed": bool,           # True if reply found
-            "reply_verified": bool,   # Same as passed
-            "like_verified": True,    # Always true (can't verify)
-            "error": str or None,
-            "skipped": bool           # True if no API key
-        }
-        """
-```
-
-**API Cost**: 1 call per verification (reply check only). With 3 random verifications per batch = 3 API calls per session completion.
 
 ---
 
@@ -413,170 +404,49 @@ class TwitterVerificationService:
 
 ### MiniApp API (`/api/miniapp/`)
 
-#### Get Settings
-```
-GET /api/miniapp/settings/
-
-Response: {
-  "post_cost_min": 20,
-  "post_cost_max": 40
-}
-```
-
-#### Get User Info
-```
-GET /api/miniapp/user/
-
-Response: {
-  "id": "uuid",
-  "display_name": "John",
-  "credits": 150.25,              // Decimal
-  "daily_earned": 45.50,          // Decimal
-  "tweetscout_score": 450,
-  "tier": "based",
-  "available_posts": 12,          // Posts waiting to engage
-  "engaged_today": 5,             // Engagements made today
-  "honesty_score": 10
-}
-```
-
-#### Submit Post
-```
-POST /api/miniapp/post/submit/
-Body: {
-  "x_link": "https://x.com/user/status/123",
-  "karma_amount": 30              // User chooses 20-40
-}
-
-Response: {
-  "success": true,
-  "post_id": "uuid",
-  "new_balance": 120.25,
-  "escrow": 30
-}
-```
-
-#### Start Engagement Session
-```
-POST /api/miniapp/session/start/
-
-Response: {
-  "posts": [...],                 // Up to 10 posts
-  "pending_count": 5,             // User's unverified engagements
-  "pending_post_ids": [...],
-  "show_verification": true       // True if pending >= 10
-}
-```
-
-#### Record Click
-```
-POST /api/miniapp/session/click/
-Body: { "post_id": "uuid" }
-
-Response: {
-  "success": true,
-  "engagement_id": "uuid",
-  "pending_count": 6,
-  "show_verification": false
-}
-```
-
-#### Complete Session (Verify)
-```
-POST /api/miniapp/session/complete/
-
-Response: {
-  "success": true,
-  "credits_awarded": 10.50,       // With multipliers
-  "new_balance": 160.75,
-  "pending_count": 0,
-  "verification_results": [
-    { "post_id": "uuid", "passed": true }
-  ],
-  "honesty_score": 10
-}
-```
-
-### Verification Flow
-
-1. User clicks 10 posts → Creates `Engagement` with `verified=False`
-2. User clicks "Verify" → Backend fetches 10 oldest pending (FIFO)
-3. 3 random engagements spot-checked via twitterapi.io (reply only - likes are private since 2024)
-4. Credits awarded proportionally based on pass rate
-5. Multiplier applied: `karma = base × tier_multiplier`
-6. Same amount deducted from post escrow (no inflation)
-
-**Note**: Twitter made likes private in 2024, so verification only checks replies. Like verification always returns `true`.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/settings/` | GET | Get app settings |
+| `/user/` | GET | Get user info + available_posts + engaged_today |
+| `/user/stats/` | GET | Detailed stats |
+| `/session/start/` | POST | Get posts to engage |
+| `/session/click/` | POST | Record click |
+| `/session/verify-return/` | POST | Mark return from X |
+| `/session/complete/` | POST | Verify & award karma |
+| `/post/submit/` | POST | Submit X post |
+| `/x/link/` | POST | Link X account |
+| `/claim/queue/` | POST | Queue async verification |
+| `/claim/history/` | GET | Batch history |
 
 ---
 
 ## 8. Frontend Documentation
 
-### Key Features
-
-- **Decimal display**: `formatKarma()` shows 2 decimals (or none for whole numbers)
-- **Karma slider**: Users choose 20-40 karma for posts
-- **Progress bar**: Shows engaged/available posts
-- **Tab refresh**: User data refetched on Home tab switch
-
-### formatKarma Utility
-
-```typescript
-function formatKarma(value: number): string {
-  if (Number.isInteger(value)) {
-    return value.toLocaleString();  // "150"
-  }
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });  // "1.03" or "1,234.56"
-}
-```
-
-### Submit Modal with Slider
-
-```typescript
-// Karma amount defaults to minimum, user can slide to max
-const minCost = settings?.post_cost_min ?? 20;
-const maxCost = settings?.post_cost_max ?? 40;
-const [karmaAmount, setKarmaAmount] = useState(minCost);
-
-// Slider UI
-<input type="range" min={minCost} max={maxCost} value={karmaAmount} />
-```
-
-### Home Tab Progress
-
-```typescript
-// Shows "Today's Progress: 5/12" with progress bar
-const total = (user.engaged_today || 0) + (user.available_posts || 0);
-const progress = user.engaged_today / total * 100;
-```
-
-### Design System
-
-- **Theme**: Dark background with orange (#FF6B00) accent
-- **Style**: Glassmorphism with backdrop blur
-- **Classes**: `.gold-gradient-*` classes (legacy names, all use orange)
+- **Theme**: Dark + orange (#FF6B00)
+- **formatKarma()**: 2 decimals for fractional, none for whole
+- **Karma slider**: 20-40 range
+- **Progress bar**: engaged_today / (engaged_today + available_posts)
 
 ---
 
 ## 9. Telegram Bot
 
-### Commands
+### Status: FUNCTIONAL
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Initialize user, show main menu |
-| `/balance` | Display credit balance |
-| `/stats` | Show user stats & streak |
-| `/post <url>` | Create a post |
-| `/launch` | Open mini app |
+| `/start` | Welcome + onboarding |
+| `/help` | All commands |
+| `/balance` | Visual balance card (PIL image) |
+| `/stats` | User statistics |
+| `/engage` | Open Mini App |
+| `/feed [n]` | Get n posts (max 20) |
+| `/post <url>` | Submit X post |
+| `/leaderboard` | Top engagers |
+| `/launch` | Pinnable "Play Now" message |
+| `/give` | Admin: grant credits |
 
-### Run Bot
-```bash
-python manage.py run_telegram_bot
-```
+**Run**: `python manage.py run_telegram_bot`
 
 ---
 
@@ -584,269 +454,283 @@ python manage.py run_telegram_bot
 
 ### Access
 - **URL**: `/loudrr-admin/`
-- **Theme**: Jazzmin dark mode
+- **Theme**: Jazzmin darkly
 
-### SiteSettings Management
+### Registered Models
 
-All settings editable at `/loudrr-admin/core/sitesetting/`:
+| App | Model | Editable | Notes |
+|-----|-------|----------|-------|
+| core | User | YES | 8 bulk actions |
+| core | Transaction | READ-ONLY | Audit trail |
+| core | SiteSetting | value only | No add/delete |
+| core | XProfile | READ-ONLY | Auto-created |
+| core | XPTransaction | READ-ONLY | Audit trail |
+| posts | Post | YES | Custom creation form |
+| posts | Engagement | Partial | View only |
+| posts | SponsoredPost | YES | +XP badge posts |
+| posts | Campaign | YES | Giveaways |
+| posts | CampaignEntry | Partial | View + mark winners |
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `CREDIT_PER_ENGAGEMENT` | 1 | Base karma per engagement |
-| `POST_COST_MIN` | 20 | Minimum karma for post |
-| `POST_COST_MAX` | 40 | Maximum karma for post |
-| `DAILY_EARN_CAP` | 999999 | Effectively unlimited |
-| `VERIFICATION_BATCH_SIZE` | 10 | Engagements per verification |
-| `VERIFICATION_SAMPLE_SIZE` | 3 | API spot-checks per batch |
-| `TIER_*_MULTIPLIER` | 1.0-1.2 | Per-tier karma multipliers |
+### NOT Registered (Gaps)
+- `core.AuditLog` - Verification audits
+- `posts.VerificationBatch` - Async batches
 
-**Cache clearing**: Settings cache automatically cleared on admin save.
+### Admin Actions
+
+**User Admin:**
+- Grant 10/50/100 credits
+- Revoke 10 credits
+- Grant 10/50 XP
+- Fetch X Profile from TweetScout
+- Ban/Unban users
+
+**Campaign Admin:**
+- Activate campaigns
+- Select winners
+
+### Admin Issues
+
+| Issue | Impact |
+|-------|--------|
+| `user.get_streak_multiplier()` missing | Balance card errors |
+| `/help` shows "80 karma" | Hardcoded, should be dynamic |
+| AuditLog not registered | Can't view verification audits |
+| VerificationBatch not registered | Can't view async batches |
 
 ---
 
 ## 11. Configuration
 
-### Key SiteSettings
+### SiteSettings (in DB, 5-min cache)
 
-```python
-# Engagement
-CREDIT_PER_ENGAGEMENT = 1          # Base karma (before multiplier)
-DAILY_EARN_CAP = 999999            # Unlimited
-
-# Post costs
-POST_COST_MIN = 20                 # Min karma to submit post
-POST_COST_MAX = 40                 # Max karma to submit post
-
-# Verification
-VERIFICATION_BATCH_SIZE = 10       # Engagements per batch
-VERIFICATION_SAMPLE_SIZE = 3       # API checks per batch
-
-# Tier multipliers (TweetScout score based)
-TIER_ANON_MULTIPLIER = 1.00
-TIER_NORMIE_MULTIPLIER = 1.03
-TIER_DEGEN_MULTIPLIER = 1.06
-TIER_BASED_MULTIPLIER = 1.10
-TIER_LEGEND_MULTIPLIER = 1.14
-TIER_OG_MULTIPLIER = 1.17
-TIER_GOAT_MULTIPLIER = 1.20
-```
+| Setting | Default | Description |
+|---------|---------|-------------|
+| CREDIT_PER_ENGAGEMENT | 1 | Base karma |
+| POST_COST_MIN | 20 | Min escrow |
+| POST_COST_MAX | 40 | Max escrow |
+| DAILY_EARN_CAP | 999999 | Unlimited |
+| MIN_ENGAGEMENTS_TO_CLAIM | 10 | Min to verify |
+| MIN_SESSION_DURATION_SECONDS | 150 | Anti-gaming |
+| SPONSORED_XP_PER_ENGAGEMENT | 5 | XP per +XP post |
+| TIER_*_THRESHOLD | varies | Score thresholds |
+| TIER_*_MULTIPLIER | 1.0-1.35 | Karma multipliers |
 
 ### Environment Variables
 
 ```bash
 # Django
-SECRET_KEY=your-secret-key
+SECRET_KEY=...
 DEBUG=False
-ALLOWED_HOSTS=yourdomain.com
+ALLOWED_HOSTS=api.loudrr.com
+ENCRYPTION_KEY=...           # For redirect URLs
 
-# Database
+# Database (Supabase)
 DATABASE_URL=postgresql://...
 
-# Telegram
-TELEGRAM_BOT_TOKEN=123456:ABC...
+# Redis
+REDIS_URL=redis://...
 
-# External APIs
+# Telegram
+TELEGRAM_BOT_TOKEN=...
+ADMIN_TELEGRAM_IDS=123,456   # Comma-separated
+
+# APIs
 TWEETSCOUT_API_KEY=...
-TWITTER_API_KEY=...
+TWITTER_API_KEY=...          # twitterapi.io
 
 # Frontend
 MINIAPP_URL=https://app.loudrr.com
+CORS_ALLOWED_ORIGINS=https://app.loudrr.com
 ```
 
 ---
 
 ## 12. Security & Robustness
 
-### Concurrency Safety
+### Atomic Transactions
 
-| Pattern | Implementation |
-|---------|----------------|
-| Row locking | `select_for_update()` on User/Post |
-| Atomic updates | `F()` expressions for decrements |
-| FIFO ordering | `order_by('clicked_at')` for verification |
-| Idempotency | `get_or_create` + IntegrityError handling |
+| Service | Atomic | Method |
+|---------|--------|--------|
+| CreditService.earn() | YES | @transaction.atomic + select_for_update |
+| CreditService.spend() | YES | @transaction.atomic + select_for_update |
+| record_button_engagement() | YES | Lock Post -> User (order) |
+| CompleteSessionView | YES | Locks posts sorted by pk |
+| SubmitPostView | YES | @transaction.atomic |
+| Celery _run_verification | YES | @transaction.atomic |
 
 ### Database Constraints
 
 ```python
-CheckConstraint(check=Q(credits__gte=0), name='user_credits_non_negative')
-CheckConstraint(check=Q(escrow__gte=0), name='post_escrow_non_negative')
-UniqueConstraint(fields=['user', 'post'], name='unique_user_post_engagement')
+# User
+CheckConstraint(check=Q(credits__gte=0))
+CheckConstraint(check=Q(honesty_score__gte=0) & Q(honesty_score__lte=50))
+
+# Post
+CheckConstraint(check=Q(escrow__gte=0))
+
+# Engagement
+UniqueConstraint(fields=['user', 'post'])
+CheckConstraint(check=~Q(verified=False, credit_granted=True))
 ```
-
-### Verification Anti-Gaming
-
-- **Honesty score**: 0-10, decreases on failed verifications
-- **First offense**: Warning only, score drops to 9
-- **Repeat offenses**: Karma penalty + score reduction
-- **Score < 7**: Higher penalties per failure
 
 ---
 
-## 13. Development Setup
+## 13. Known Issues & Edge Cases
 
-### Backend
+### Karma Inflation/Deflation Risks
+
+| Issue | Status | Details |
+|-------|--------|---------|
+| Multiplier mismatch | FIXED | Same karma_amount for escrow deduct + credit |
+| Partial escrow | HANDLED | Skip if escrow < karma_amount |
+| Race condition | LOW RISK | F() + escrow__gte filter |
+
+### Potential Issues
+
+1. **Honesty score range changed**: 0-10 -> 0-50
+2. **Failed verification deletes engagement**: User can retry (gaming risk)
+3. **API errors give benefit of doubt**: passed=True, skipped=True
+
+### Telegram Bot Issues
+
+1. `user.get_streak_multiplier()` method missing
+2. `/help` hardcodes "80 karma"
+3. `/balance` hardcodes daily cap 100
+
+---
+
+## 14. Cost Estimation
+
+### twitterapi.io Pricing
+
+| Item | Credits | USD |
+|------|---------|-----|
+| Per tweet returned | 15 | $0.00015 |
+| Empty response | 15 (min) | $0.00015 |
+| 1 USD | 100,000 | - |
+
+### Monthly Cost Estimates
+
+**Scenario: 1,000 active users, 100 posts/day**
+
+| Approach | Calculation | Monthly Cost |
+|----------|-------------|--------------|
+| Old (fetch all replies) | 100 posts x 150 replies x $0.00015 x 30 | ~$67.50 |
+| **New (from:user query)** | 100 posts x 100 engagers x $0.00015 x 30 | **~$45** |
+
+**Per 100k verifications**: $15
+
+---
+
+## 15. Development Setup
+
 ```bash
+# Backend
 cd backend
 python -m venv venv
 venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 python manage.py migrate
 python manage.py runserver 8000
-```
 
-### Frontend
-```bash
+# Frontend
 cd frontend
 npm install
 npm run dev
-```
 
-### Run Both + Bot
-```bash
-# Terminal 1: Backend
-cd backend && python manage.py runserver 8000
+# Bot
+cd backend
+python manage.py run_telegram_bot
 
-# Terminal 2: Frontend
-cd frontend && npm run dev
-
-# Terminal 3: Bot
-cd backend && python manage.py run_telegram_bot
+# Celery (optional)
+cd backend
+celery -A echo worker -l info
 ```
 
 ---
 
-## 14. Deployment (Production)
+## 16. Deployment (Production)
 
 ### Infrastructure
-| Component | Service |
-|-----------|---------|
-| Server | Hetzner VPS |
-| Orchestration | Coolify (self-hosted) |
-| Database | Supabase PostgreSQL (external) |
-| Redis | Coolify managed service |
-| SSL | Let's Encrypt (auto via Traefik) |
+
+| Component | Service | Details |
+|-----------|---------|---------|
+| **Server** | Hetzner VPS | 1 server, shared CPU |
+| **Orchestration** | Coolify | Self-hosted PaaS |
+| **Database** | Supabase PostgreSQL | External, Session Pooler |
+| **Redis** | Coolify managed | For Celery + cache |
+| **SSL** | Let's Encrypt | Auto via Traefik |
+| **DNS** | Cloudflare | loudrr.com |
+
+### Coolify Services (4 total)
+
+| Service | Image | Watch Path | Port |
+|---------|-------|------------|------|
+| loudrr-backend | python:3.11-slim | `backend/**` | 8000 |
+| loudrr-frontend | node:20 | `frontend/**` | 3000 |
+| loudrr-bot | python:3.11-slim | `backend/**` | - |
+| redis | redis:7-alpine | - | 6379 |
 
 ### Production URLs
+
 | Service | URL |
 |---------|-----|
-| Frontend (Mini App) | `https://app.loudrr.com` |
-| Backend API | `https://api.loudrr.com` |
-| Django Admin | `https://api.loudrr.com/loudrr-admin/` |
-| Health Check | `https://api.loudrr.com/health/` |
-
-### Coolify Services
-| Service | Watch Path | Description |
-|---------|------------|-------------|
-| `loudrr-backend` | `backend/**` | Django + Gunicorn |
-| `loudrr-frontend` | `frontend/**` | Next.js |
-| `loudrr-bot` | `backend/**` | Telegram bot |
-| Redis | - | Managed service |
-
-### Backend Dockerfile
-```dockerfile
-FROM python:3.11-slim
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DJANGO_SETTINGS_MODULE=echo.settings
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y gcc libpq-dev curl && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir gunicorn
-
-COPY . .
-RUN python manage.py collectstatic --noinput --clear 2>/dev/null || true
-
-EXPOSE 8000
-
-# Health check with 40s startup grace period
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health/ || exit 1
-
-# Gunicorn with full logging
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--threads", "2", \
-    "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", \
-    "--capture-output", "--log-level", "info", "echo.wsgi:application"]
-```
-
-### Environment Variables (Production)
-```bash
-# Backend
-DEBUG=False
-SECRET_KEY=<secure-random-key>
-DATABASE_URL=postgresql://user:pass@host:5432/db  # Supabase Session Pooler
-REDIS_URL=redis://default:pass@redis-host:6379/0
-ALLOWED_HOSTS=api.loudrr.com
-CORS_ALLOWED_ORIGINS=https://app.loudrr.com
-TELEGRAM_BOT_TOKEN=<bot-token>
-TWEETSCOUT_API_KEY=<api-key>
-TWITTER_API_KEY=<api-key>
-MINIAPP_URL=https://app.loudrr.com
-
-# Frontend
-BACKEND_URL=https://api.loudrr.com
-NEXT_PUBLIC_API_URL=https://api.loudrr.com
-```
-
-### Create Superuser (Production)
-Run in Coolify terminal for backend container:
-```bash
-python manage.py createsuperuser
-```
+| Frontend | https://app.loudrr.com |
+| Backend API | https://api.loudrr.com |
+| Django Admin | https://api.loudrr.com/loudrr-admin/ |
+| Health Check | https://api.loudrr.com/health/ |
 
 ### Deployment Flow
-1. Push to `main` branch on GitHub
-2. Coolify auto-deploys services based on Watch Paths
-3. Backend rebuilds only when `backend/**` changes
-4. Frontend rebuilds only when `frontend/**` changes
+
+1. Push to `main` on GitHub
+2. Coolify webhook triggers rebuild
+3. Watch paths determine which services rebuild
+4. Zero-downtime with health checks
 
 ---
 
-## 15. Quick Reference
+## 17. Quick Reference
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `core/services/credits.py` | Decimal credit operations |
-| `core/services/tweet_score.py` | Tier multipliers + karma calculation |
-| `core/services/twitter_verification.py` | Reply verification via twitterapi.io |
-| `core/services/settings.py` | Cached SiteSettings |
-| `miniapp/views.py` | All MiniApp API endpoints |
-| `frontend/app/page.tsx` | All frontend components |
-| `frontend/lib/api.ts` | API client + types |
+| File | Purpose | Atomic |
+|------|---------|--------|
+| core/services/credits.py | Credit operations | YES |
+| core/services/engagements.py | Engagement logic | YES |
+| core/services/tweet_score.py | Tier multipliers | - |
+| core/services/twitter_verification.py | Reply verification | - |
+| miniapp/views.py | All API endpoints | PARTIAL |
+| posts/tasks.py | Celery verification | YES |
+| bots/telegram/handlers.py | Bot commands | NO |
 
-### Common Operations
+### Cost Quick Reference
 
-```python
-# Calculate karma with multiplier
-from core.services.tweet_score import calculate_engagement_karma
-from decimal import Decimal
-
-karma, multiplier = calculate_engagement_karma(
-    Decimal('1'),  # base amount
-    user.tweetscout_score
-)
-# karma = Decimal('1.1000') for Based tier
-
-# Get cached setting
-from core.services.settings import get_setting
-min_cost = get_setting('POST_COST_MIN')  # Returns int: 20
+```
+1 verification = 15 credits = $0.00015
+1,000 verifications = $0.15
+100,000 verifications = $15
 ```
 
-### Testing Checklist
+---
 
-- [ ] Decimal karma displays correctly (e.g., "1.03", "150")
-- [ ] Tier multipliers apply in verification flow
-- [ ] Post cost slider works (20-40 range)
-- [ ] Progress bar shows engaged/available
-- [ ] Admin setting changes reflect without rebuild
-- [ ] Verification processes exact clicked posts (FIFO)
+## 18. Files to Delete
+
+### Empty/Unused
+
+| File | Reason |
+|------|--------|
+| `backend/bots/discord/` | Empty, Discord not implemented |
+| `backend/miniapp/models.py` | Only stub function |
+| `backend/redirects/models.py` | Empty |
+| `backend/redirects/admin.py` | Empty |
+
+### Removed Services
+
+| Service | Status |
+|---------|--------|
+| Kaito.ai | REMOVED (migrations 0023, 0024) |
+| EngagementSession model | REMOVED |
+| SessionClick model | REMOVED |
 
 ---
 
