@@ -10,21 +10,26 @@ from django.utils import timezone
 class UserManager(BaseUserManager):
     """Custom user manager for ECHO users."""
 
-    def create_user(self, telegram_id=None, discord_id=None, **extra_fields):
+    def create_user(self, email=None, telegram_id=None, discord_id=None, password=None, **extra_fields):
         """Create a user with either Telegram or Discord ID."""
-        if not telegram_id and not discord_id:
-            raise ValueError("User must have either telegram_id or discord_id")
+        if not telegram_id and not discord_id and not email:
+            raise ValueError("User must have telegram_id, discord_id, or email")
 
-        user = self.model(telegram_id=telegram_id, discord_id=discord_id, **extra_fields)
-        user.set_unusable_password()
+        user = self.model(email=email, telegram_id=telegram_id, discord_id=discord_id, **extra_fields)
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, telegram_id=None, discord_id=None, **extra_fields):
-        """Create a superuser."""
+    def create_superuser(self, email=None, password=None, **extra_fields):
+        """Create a superuser with email login."""
+        if not email:
+            raise ValueError("Superuser must have an email")
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
-        return self.create_user(telegram_id, discord_id, **extra_fields)
+        return self.create_user(email=email, password=password, **extra_fields)
 
 
 class User(AbstractBaseUser, PermissionsMixin):
@@ -45,6 +50,9 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     # X/Twitter info
     x_username = models.CharField(max_length=50, blank=True)
+
+    # Admin login (optional, only for superusers)
+    email = models.EmailField(unique=True, null=True, blank=True)
 
     # Display name (from platform)
     display_name = models.CharField(max_length=100, blank=True)
@@ -109,7 +117,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = UserManager()
 
-    USERNAME_FIELD = "id"
+    USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
     class Meta:
