@@ -6,9 +6,18 @@ class CoreConfig(AppConfig):
     name = "core"
 
     def ready(self):
-        """Register Django built-in models with auditlog."""
+        """
+        Register Django built-in models with auditlog.
+
+        Import signals to ensure they are registered.
+        Best practice: Import signals in ready() to avoid circular imports.
+        """
         from auditlog.registry import auditlog
         from django.contrib.auth.models import Group
 
         # Track permission group changes
         auditlog.register(Group)
+
+        # Import signals to register receivers (do not remove this import!)
+        # The import registers the @receiver decorators
+        from . import signals  # noqa: F401

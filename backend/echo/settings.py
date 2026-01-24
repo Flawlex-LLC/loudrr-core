@@ -312,9 +312,18 @@ REST_FRAMEWORK = {
 # CORS
 # In production, set CORS_ALLOW_ALL_ORIGINS=False (defaults to DEBUG value)
 CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:3000", "http://localhost:3001"])
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=[
+        # Development
+        "http://localhost:3000",  # Main frontend
+        "http://localhost:3001",  # Landing page
+        # Production (set via environment variables)
+        # Example: CORS_ALLOWED_ORIGINS=https://loudrr.com,https://www.loudrr.com,https://app.loudrr.com
+    ]
+)
 CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://.*\.trycloudflare\.com$",  # Allow all Cloudflare tunnel URLs
+    r"^https://.*\.trycloudflare\.com$",  # Allow all Cloudflare tunnel URLs (dev/staging)
 ]
 CORS_ALLOW_HEADERS = [
     "accept",

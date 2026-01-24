@@ -715,26 +715,17 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
                         is_whitelisted=True,
                     )
 
-                    # Update entry
+                    # Update entry (notification sent automatically via post_save signal)
                     entry.status = WaitlistEntry.Status.APPROVED
                     entry.approved_at = timezone.now()
                     entry.created_user = user
                     entry.save(update_fields=['status', 'approved_at', 'created_user', 'updated_at'])
 
-                    # Send notification via Celery (if available)
-                    try:
-                        from bots.telegram.tasks import send_approval_notification_task
-                        send_approval_notification_task.delay(str(entry.id))
-                    except ImportError:
-                        # Celery task not available, send directly
-                        import asyncio
-                        from bots.telegram.notifications import send_approval_notification
-                        try:
-                            asyncio.get_event_loop().run_until_complete(
-                                send_approval_notification(entry)
-                            )
-                        except Exception:
-                            pass  # Notification failure shouldn't block approval
+                    # Note: Telegram notification is sent automatically by post_save signal
+                    # See core/signals.py:send_approval_notification_on_approve
+                    # - Uses dispatch_uid to prevent duplicates
+                    # - Uses transaction.on_commit for reliability
+                    # - Delegates to Celery background task (non-blocking)
 
                     log_admin_action(request, entry, f"Approved and created user {user.id}")
                     approved += 1

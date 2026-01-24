@@ -28,6 +28,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from core.models import User, WaitlistEntry
@@ -1176,19 +1177,43 @@ class ClaimHistoryView(MiniAppAuthMixin, APIView):
 # WAITLIST SYSTEM
 # =============================================================================
 
+class WaitlistThrottle(AnonRateThrottle):
+    """
+    Custom throttle for waitlist submissions.
+
+    Limits: 5 submissions per hour per IP address.
+
+    Prevents abuse while allowing legitimate retries.
+    Based on DRF best practices: https://www.django-rest-framework.org/api-guide/throttling/
+    """
+    rate = '5/hour'
+
+
 class WaitlistSubmitView(APIView):
     """
     Submit email to join waitlist (landing page).
 
     Flow:
     1. User submits email
-    2. Creates WaitlistEntry with join_token
+    2. Creates WaitlistEntry with join_token (atomic transaction)
     3. Returns Telegram deep link URL
     4. Frontend redirects to Telegram
 
-    Rate limited to prevent abuse.
+    Rate limited to 5 requests/hour per IP to prevent abuse.
+
+    Best practices implemented:
+    - AnonRateThrottle for IP-based rate limiting
+    - transaction.atomic for database consistency
+    - Email validation with regex
+    - Cryptographically secure token generation
+    - Race condition handling with IntegrityError
+
+    References:
+    - https://www.django-rest-framework.org/api-guide/throttling/
+    - https://docs.djangoproject.com/en/stable/topics/db/transactions/
     """
     permission_classes = [AllowAny]
+    throttle_classes = [WaitlistThrottle]
 
     def post(self, request):
         import secrets
@@ -1207,7 +1232,7 @@ class WaitlistSubmitView(APIView):
         # Get bot username from settings
         bot_username = getattr(settings, 'TELEGRAM_BOT_USERNAME', 'loudrr_bot')
 
-        # Check if email already on waitlist
+        # Check if email already on waitlist (read-only, no transaction needed)
         try:
             existing = WaitlistEntry.objects.get(email=email)
             telegram_url = f"https://t.me/{bot_username}?start=join_{existing.join_token}"
@@ -1219,17 +1244,20 @@ class WaitlistSubmitView(APIView):
         except WaitlistEntry.DoesNotExist:
             pass
 
-        # Create new entry with unique token
-        join_token = secrets.token_urlsafe(16)
-
+        # Create new entry with unique token (atomic to handle race conditions)
+        # Use transaction.atomic to ensure entry creation is all-or-nothing
+        # Prevents partial state if something fails mid-operation
         try:
-            entry = WaitlistEntry.objects.create(
-                email=email,
-                join_token=join_token,
-                status=WaitlistEntry.Status.PENDING,
-            )
+            with transaction.atomic():
+                join_token = secrets.token_urlsafe(16)
+                entry = WaitlistEntry.objects.create(
+                    email=email,
+                    join_token=join_token,
+                    status=WaitlistEntry.Status.PENDING,
+                )
         except IntegrityError:
-            # Race condition - email was just created
+            # Race condition - email was created by concurrent request
+            # This is safe - just fetch the existing entry
             entry = WaitlistEntry.objects.get(email=email)
 
         telegram_url = f"https://t.me/{bot_username}?start=join_{entry.join_token}"
