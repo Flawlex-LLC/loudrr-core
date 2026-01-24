@@ -600,7 +600,8 @@ class XPTransactionAdmin(admin.ModelAdmin):
     amount_display.admin_order_field = "amount"
 
 
-@admin.register(WaitlistEntry)
+# WaitlistEntry is registered in echo/urls.py with loudrr_admin
+# Do NOT use @admin.register here to avoid duplicate registration
 class WaitlistEntryAdmin(admin.ModelAdmin):
     """
     Admin for waitlist entries.

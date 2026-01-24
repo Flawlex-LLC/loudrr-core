@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse, loudApi, LoudProject, LoudProjectsResponse, LoudSubmitResponse, normalizeXLink } from '@/lib/api';
+import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse, loudApi, LoudProject, LoudProjectsResponse, LoudSubmitResponse, LoudLeaderboardResponse, normalizeXLink } from '@/lib/api';
 import { initTelegramWebApp, hapticFeedback, openLink } from '@/lib/telegram';
+import { BorderBeam } from '@/components/ui/border-beam';
+import ShimmerButton from '@/components/ui/shimmer-button';
+import AnimatedGradientText from '@/components/ui/animated-gradient';
 
 type Tab = 'home' | 'engage' | 'campaigns' | 'earn' | 'loud';
 type EngageState = 'idle' | 'loading' | 'ready' | 'engaging' | 'completing' | 'completed' | 'error';
@@ -23,6 +26,14 @@ interface EngageData {
 }
 
 const STALE_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
+
+// Orange gradient style for icons
+const ICON_GRADIENT_STYLE = {
+  background: 'linear-gradient(135deg, #FF9500 0%, #f95400 50%, #CC5500 100%)',
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
+  backgroundClip: 'text'
+} as React.CSSProperties;
 
 /**
  * Format karma value for display.
@@ -256,7 +267,7 @@ export default function MiniApp() {
               setShowLoader(true);
               loadInitialData();
             }}
-            className="px-6 py-3 bg-[#FF6B00] text-black font-semibold rounded-xl hover:bg-[#FF8533] transition-colors"
+            className="px-6 py-3 bg-[#f95400] text-black font-semibold rounded-xl hover:bg-[#ff7020] transition-colors"
           >
             Retry
           </button>
@@ -310,49 +321,60 @@ export default function MiniApp() {
         </div>
       </div>
 
-      {/* Bottom Tab Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-xl border-t border-[#FF6B00]/20 px-2 py-2 tg-safe-area-bottom">
-        <div className="flex justify-around items-center max-w-md mx-auto">
-          <TabButton
-            tabId="home"
-            icon={<HomeIconFill />}
-            iconOutline={<HomeIcon />}
-            label="Home"
-            active={activeTab === 'home'}
-            onClick={() => handleTabChange('home')}
-          />
-          <TabButton
-            tabId="engage"
-            icon={<BoltIconFill />}
-            iconOutline={<BoltIcon />}
-            label="Engage"
-            active={activeTab === 'engage'}
-            onClick={() => handleTabChange('engage')}
-          />
-          <TabButton
-            tabId="campaigns"
-            icon={<MegaphoneIconFill />}
-            iconOutline={<MegaphoneIcon />}
-            label="Campaigns"
-            active={activeTab === 'campaigns'}
-            onClick={() => handleTabChange('campaigns')}
-          />
-          <TabButton
-            tabId="earn"
-            icon={<GiftIconFill />}
-            iconOutline={<GiftIcon />}
-            label="Earn"
-            active={activeTab === 'earn'}
-            onClick={() => handleTabChange('earn')}
-          />
-          <TabButton
-            tabId="loud"
-            icon={<RocketIconFill />}
-            iconOutline={<RocketIcon />}
-            label="Loud"
-            active={activeTab === 'loud'}
-            onClick={() => handleTabChange('loud')}
-          />
+      {/* Bottom Tab Bar - Floating Glassmorphism Pill */}
+      <div className="fixed bottom-0 left-0 right-0 flex justify-center px-6 pb-8 tg-safe-area-bottom pointer-events-none">
+        <div
+          className="relative rounded-3xl p-2 pointer-events-auto"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.08) 0%, rgba(15, 10, 11, 0.9) 50%, rgba(249, 84, 0, 0.06) 100%)',
+            backdropFilter: 'blur(40px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+            border: '1px solid rgba(249, 84, 0, 0.25)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(249, 84, 0, 0.1) inset'
+          }}
+        >
+          <div className="flex items-center gap-1">
+            <TabButton
+              tabId="home"
+              icon={<HomeIconFill />}
+              iconOutline={<HomeIcon />}
+              label="Home"
+              active={activeTab === 'home'}
+              onClick={() => handleTabChange('home')}
+            />
+            <TabButton
+              tabId="engage"
+              icon={<BoltIconFill />}
+              iconOutline={<BoltIcon />}
+              label="Engage"
+              active={activeTab === 'engage'}
+              onClick={() => handleTabChange('engage')}
+            />
+            <TabButton
+              tabId="campaigns"
+              icon={<MegaphoneIconFill />}
+              iconOutline={<MegaphoneIcon />}
+              label="Campaigns"
+              active={activeTab === 'campaigns'}
+              onClick={() => handleTabChange('campaigns')}
+            />
+            <TabButton
+              tabId="earn"
+              icon={<GiftIconFill />}
+              iconOutline={<GiftIcon />}
+              label="Earn"
+              active={activeTab === 'earn'}
+              onClick={() => handleTabChange('earn')}
+            />
+            <TabButton
+              tabId="loud"
+              icon={<RocketIconFill />}
+              iconOutline={<RocketIcon />}
+              label="Loud"
+              active={activeTab === 'loud'}
+              onClick={() => handleTabChange('loud')}
+            />
+          </div>
         </div>
       </div>
 
@@ -401,12 +423,14 @@ function TabButton({
     <button
       onClick={onClick}
       data-tab={tabId}
-      className={`flex flex-col items-center justify-center w-20 py-2 rounded-xl transition-colors ${
-        active ? 'text-[#FF6B00]' : 'text-gray-500 hover:text-gray-300'
+      className={`relative z-10 flex flex-col items-center justify-center flex-1 px-3 py-2 rounded-2xl transition-all ${
+        active ? 'text-[#f95400]' : 'text-gray-500 hover:text-gray-300'
       }`}
     >
-      <div className="w-6 h-6">{active ? icon : iconOutline}</div>
-      <span className={`text-xs font-medium ${active ? 'gold-gradient-text' : ''}`}>{label}</span>
+      <div className="w-6 h-6 flex items-center justify-center mb-1 transition-all">
+        <div className="w-5 h-5">{active ? icon : iconOutline}</div>
+      </div>
+      <span className={`text-[9px] font-semibold text-center w-full ${active ? 'text-[#f95400]' : ''}`}>{label}</span>
     </button>
   );
 }
@@ -429,7 +453,7 @@ function Header({
   const xUsername = user?.x_username || null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 bg-black/90 backdrop-blur-xl border-b border-[#FF6B00]/20 z-40 tg-safe-area-top">
+    <div className="fixed top-0 left-0 right-0 bg-black/90 backdrop-blur-xl border-b border-[#f95400]/20 z-40 tg-safe-area-top">
       <div className="flex items-center justify-between px-4 py-3">
         {/* Logo */}
         <div className="flex items-center">
@@ -447,9 +471,9 @@ function Header({
               hapticFeedback('light');
               setShowProfileMenu(!showProfileMenu);
             }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-[#FF6B00]/30 hover:border-[#FF6B00]/60 hover:bg-[#FF6B00]/10 transition-all"
+            className="glass-pill flex items-center gap-2 hover:bg-white/10 transition-all"
           >
-            <div className="w-6 h-6 rounded-full gold-gradient-bg flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#f95400] to-[#ff7020] flex items-center justify-center">
               <span className="text-xs font-bold text-black">
                 {telegramUsername.charAt(0).toUpperCase()}
               </span>
@@ -457,7 +481,7 @@ function Header({
             <span className="text-sm text-gray-300 max-w-[100px] truncate">
               {telegramUsername}
             </span>
-            <ChevronDownIcon className={`w-4 h-4 text-gray-400 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`} />
+            <ChevronDownIconFill className={`w-4 h-4 text-gray-400 transition-transform ${showProfileMenu ? 'rotate-180' : ''}`} />
           </button>
 
           {/* Profile Dropdown */}
@@ -470,12 +494,16 @@ function Header({
               />
 
               {/* Menu */}
-              <div className="absolute right-0 top-full mt-2 w-64 bg-black/95 backdrop-blur-xl border border-[#FF6B00]/30 rounded-xl shadow-2xl shadow-[#FF6B00]/10 z-50 overflow-hidden slide-up">
+              <div className="absolute right-0 top-full mt-2 w-64 z-50 overflow-hidden slide-up rounded-2xl" style={{
+                background: '#0A0A0A',
+                border: '1px solid rgba(249, 84, 0, 0.25)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(249, 84, 0, 0.1) inset'
+              }}>
                 {/* Telegram Account */}
-                <div className="px-4 py-3 border-b border-[#FF6B00]/20">
+                <div className="px-4 py-3 border-b border-white/[0.06]">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full gold-gradient-bg flex items-center justify-center">
-                      <span className="text-sm font-bold text-black">
+                    <div className="glass-icon glass-icon-md glass-icon-orange rounded-full">
+                      <span className="text-sm font-bold text-[#f95400]">
                         {telegramUsername.charAt(0).toUpperCase()}
                       </span>
                     </div>
@@ -488,10 +516,10 @@ function Header({
 
                 {/* X Account - clickable if not connected */}
                 {xUsername ? (
-                  <div className="px-4 py-3 border-b border-[#FF6B00]/20">
+                  <div className="px-4 py-3 border-b border-white/[0.06]">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center">
-                        <XLogoIcon className="w-5 h-5 text-white" />
+                      <div className="glass-icon glass-icon-md">
+                        <XLogoIcon className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-gray-400">X Account</p>
@@ -506,24 +534,24 @@ function Header({
                       setShowProfileMenu(false);
                       onLinkX();
                     }}
-                    className="w-full px-4 py-3 border-b border-[#FF6B00]/20 flex items-center gap-3 hover:bg-[#FF6B00]/10 transition-colors"
+                    className="w-full px-4 py-3 border-b border-white/[0.06] flex items-center gap-3 hover:bg-white/[0.04] transition-colors"
                   >
-                    <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center">
+                    <div className="glass-icon glass-icon-md">
                       <XLogoIcon className="w-5 h-5 text-white" />
                     </div>
                     <div className="flex-1 min-w-0 text-left">
                       <p className="text-xs text-gray-400">X Account</p>
-                      <p className="text-sm text-[#FF6B00]">Link your account</p>
+                      <p className="text-sm text-[#f95400]">Link your account</p>
                     </div>
-                    <ChevronRightIcon className="w-4 h-4 text-gray-500" />
+                    <ChevronRightIconFill className="w-4 h-4 text-gray-500" />
                   </button>
                 )}
 
                 {/* Discord */}
-                <div className="px-4 py-3 border-b border-[#FF6B00]/20">
+                <div className="px-4 py-3 border-b border-white/[0.06]">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center">
-                      <DiscordIcon className="w-5 h-5 text-white" />
+                    <div className="glass-icon glass-icon-md">
+                      <DiscordIcon className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-gray-400">Discord</p>
@@ -538,16 +566,16 @@ function Header({
                     hapticFeedback('light');
                     onStatsClick();
                   }}
-                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-black transition-colors"
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/[0.04] transition-colors"
                 >
-                  <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center">
-                    <ChartIconFill className="w-5 h-5 text-[#FF6B00]" />
+                  <div className="glass-icon glass-icon-md glass-icon-orange">
+                    <ChartIconFill className="w-5 h-5 text-[#f95400]" />
                   </div>
                   <div className="flex-1 text-left">
                     <p className="text-sm font-medium text-white">Stats</p>
                     <p className="text-xs text-gray-400">View your performance</p>
                   </div>
-                  <ChevronRightIcon className="w-4 h-4 text-gray-500" />
+                  <ChevronRightIconFill className="w-4 h-4 text-gray-500" />
                 </button>
               </div>
             </>
@@ -581,6 +609,8 @@ function getScoreTier(score: number): string {
 }
 
 function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void }) {
+  const [showTierInfo, setShowTierInfo] = useState(false);
+
   if (!user) {
     return (
       <div className="p-4 text-center">
@@ -594,96 +624,106 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
   const scoreMultiplier = getScoreMultiplier(tweetscoutScore);
   const scoreTier = getScoreTier(tweetscoutScore);
 
+  // Tier data for the info modal
+  const tierData = [
+    { name: 'GOAT', minPoints: 1000, multiplier: '1.35x' },
+    { name: 'OG', minPoints: 800, multiplier: '1.30x' },
+    { name: 'Legend', minPoints: 600, multiplier: '1.25x' },
+    { name: 'Based', minPoints: 400, multiplier: '1.20x' },
+    { name: 'Degen', minPoints: 200, multiplier: '1.15x' },
+    { name: 'Normie', minPoints: 100, multiplier: '1.10x' },
+    { name: 'Anon', minPoints: 0, multiplier: '1.0x' },
+  ];
+
   return (
     <div className="p-4 space-y-4">
       {/* Balance Card - High-Tech Design */}
-      <div className="relative overflow-hidden rounded-2xl border border-[#FF6B00]/20 bg-gradient-to-br from-black via-zinc-900/50 to-black">
+      <div className="relative overflow-hidden rounded-2xl border border-[#f95400]/20 bg-gradient-to-br from-black via-zinc-900/50 to-black">
         {/* Grid Pattern Background */}
         <div className="absolute inset-0 opacity-[0.07]" style={{
-          backgroundImage: `linear-gradient(#FF6B00 1px, transparent 1px), linear-gradient(90deg, #FF6B00 1px, transparent 1px)`,
+          backgroundImage: `linear-gradient(#f95400 1px, transparent 1px), linear-gradient(90deg, #f95400 1px, transparent 1px)`,
           backgroundSize: '24px 24px'
         }} />
 
-        {/* Glowing orb effects */}
-        <div className="absolute -top-20 -right-20 w-40 h-40 bg-[#FF6B00]/20 rounded-full blur-3xl" />
-        <div className="absolute -bottom-16 -left-16 w-32 h-32 bg-[#FF6B00]/10 rounded-full blur-3xl" />
-
         {/* Scan line effect */}
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#FF6B00]/[0.03] to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#f95400]/[0.03] to-transparent" />
 
         <div className="relative z-10 p-6">
           {/* Header Row */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FF6B00] to-[#CC5500] flex items-center justify-center shadow-lg shadow-[#FF6B00]/20">
-                <WalletIconFill className="w-5 h-5 text-black" />
+              <div className="glass-icon glass-icon-md glass-icon-orange">
+                <WalletIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
               </div>
               <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wider">Available Balance</p>
-                <p className="text-xs text-[#FF6B00]">{scoreMultiplier} earn multiplier</p>
+                <p className="text-sm text-[#f95400] uppercase tracking-wider">Balance</p>
+                <p className="text-xs text-white">{scoreMultiplier} multiplier</p>
               </div>
             </div>
-            <div className="px-3 py-1.5 rounded-full bg-[#FF6B00]/10 border border-[#FF6B00]/30 backdrop-blur-sm">
-              <span className="text-xs font-medium text-[#FF6B00] uppercase tracking-wide">{scoreTier}</span>
-            </div>
+            <button
+              onClick={() => setShowTierInfo(true)}
+              className="px-4 py-2 rounded-full flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+              style={{
+                background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid rgba(249, 84, 0, 0.4)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 0 rgba(255, 140, 66, 0.2) inset'
+              }}
+            >
+              <span className="text-xs font-bold uppercase tracking-wide text-white">{scoreTier}</span>
+            </button>
           </div>
 
           {/* Main Balance Display */}
           <div className="mb-6">
-            <div className="flex items-end gap-3">
+            <div className="flex items-baseline gap-2">
               <span className="text-5xl font-bold tracking-tight gold-gradient-text">{formatKarma(user.credits)}</span>
-              <span className="text-lg text-gray-500 mb-1.5 font-light">karma</span>
+              <div className="flex items-center gap-1 mb-0.5">
+                <BoltIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+                <span className="text-lg text-white font-light">karma</span>
+              </div>
             </div>
           </div>
 
-          {/* Stats Row */}
-          <div className="grid grid-cols-2 gap-3 mb-5">
-            <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl p-3 border border-white/[0.05]">
-              <div className="flex items-center gap-2 mb-1">
-                <BoltIconFill className="w-4 h-4 text-[#FF6B00]" />
-                <span className="text-xs text-gray-500">Engagements</span>
-              </div>
-              <p className="text-xl font-semibold text-white">{user.total_engagements}</p>
-            </div>
-            <div className="bg-white/[0.03] backdrop-blur-sm rounded-xl p-3 border border-white/[0.05]">
-              <div className="flex items-center gap-2 mb-1">
-                <TrophyIconFill className="w-4 h-4 text-[#FF6B00]" />
-                <span className="text-xs text-gray-500">Tweet Score</span>
-              </div>
-              <p className="text-xl font-semibold text-white">{Math.round(tweetscoutScore)}</p>
-            </div>
-          </div>
-
-          {/* Engagement Progress */}
-          <div className="bg-black/40 backdrop-blur-sm rounded-xl p-4 border border-white/[0.05]">
+          {/* Engagement Progress - Magic UI card with BorderBeam */}
+          <div className="relative rounded-2xl overflow-hidden p-4" style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+            backdropFilter: 'blur(32px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+            border: '1px solid rgba(249, 84, 0, 0.15)',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset'
+          }}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-[#FF6B00]/10 flex items-center justify-center">
-                  <BoltIcon className="w-3.5 h-3.5 text-[#FF6B00]" />
+                <div className="glass-icon glass-icon-sm glass-icon-orange">
+                  <TrendingUpIconFill className="w-3.5 h-3.5" style={ICON_GRADIENT_STYLE} />
                 </div>
-                <span className="text-sm text-gray-400">Today's Progress</span>
+                <span className="text-sm font-semibold text-white">Today's Progress</span>
               </div>
-              <span className="text-sm font-mono text-white">
+              <span className="text-sm font-mono font-bold text-white">
                 {user.engaged_today || 0}
-                <span className="text-gray-500">/{(user.engaged_today || 0) + (user.available_posts || 0)}</span>
+                <span className="text-gray-400">/{(user.engaged_today || 0) + (user.available_posts || 0)}</span>
               </span>
             </div>
-            <div className="h-2 bg-black/60 rounded-full overflow-hidden">
+            <div className="h-3 bg-white/10 rounded-full overflow-hidden ring-1 ring-white/20">
               <div
-                className="h-full bg-gradient-to-r from-[#FF6B00] to-[#FF8533] rounded-full transition-all duration-500 relative overflow-hidden"
+                className="h-full rounded-full transition-all duration-500 relative overflow-hidden"
                 style={{
+                  background: 'linear-gradient(90deg, #f95400 0%, #ff8c42 50%, #f95400 100%)',
+                  backgroundSize: '200% 100%',
+                  animation: 'progress-shine 3s ease-in-out infinite',
+                  boxShadow: '0 0 12px rgba(249, 84, 0, 0.3), 0 1px 0 rgba(255, 140, 66, 0.4) inset',
                   width: `${((user.engaged_today || 0) + (user.available_posts || 0)) > 0
                     ? ((user.engaged_today || 0) / ((user.engaged_today || 0) + (user.available_posts || 0))) * 100
                     : 0}%`
                 }}
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-[shimmer_2s_infinite]" />
-              </div>
+              />
             </div>
             {(user.available_posts || 0) > 0 ? (
-              <p className="text-xs text-gray-500 mt-2">{user.available_posts} posts waiting for you</p>
+              <p className="text-xs text-gray-300 font-medium mt-2">{user.available_posts} posts waiting for you</p>
             ) : (
-              <p className="text-xs text-[#FF6B00] mt-2">All caught up! Submit a post to earn more</p>
+              <p className="text-xs text-[#f95400] mt-2">All caught up! Submit a post to earn more</p>
             )}
           </div>
         </div>
@@ -697,12 +737,21 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
             const engageTab = document.querySelector('[data-tab="engage"]') as HTMLButtonElement;
             if (engageTab) engageTab.click();
           }}
-          className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#FF6B00] to-[#CC5500] p-4 text-left transition-transform active:scale-[0.98]"
+          className="group relative overflow-hidden rounded-xl p-4 text-left transition-all active:scale-[0.98]"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.12) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.08) 100%)',
+            backdropFilter: 'blur(32px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+            border: '1px solid rgba(249, 84, 0, 0.4)',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.15) inset'
+          }}
         >
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
-          <BoltIconFill className="w-6 h-6 text-black mb-2" />
-          <p className="text-sm font-semibold text-black">Start Engaging</p>
-          <p className="text-xs text-black/60">Earn karma now</p>
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#f95400]/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+          <div className="glass-icon glass-icon-md glass-icon-orange mb-2">
+            <BoltIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+          </div>
+          <p className="text-sm font-bold text-white">Start Engaging</p>
+          <p className="text-xs text-gray-300">Earn karma now</p>
         </button>
         <button
           onClick={() => {
@@ -710,10 +759,12 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
             const campaignsTab = document.querySelector('[data-tab="campaigns"]') as HTMLButtonElement;
             if (campaignsTab) campaignsTab.click();
           }}
-          className="group relative overflow-hidden rounded-xl bg-white/[0.03] border border-white/[0.08] p-4 text-left transition-all hover:border-[#FF6B00]/30 active:scale-[0.98]"
+          className="group relative overflow-hidden rounded-xl bg-white/[0.03] border border-white/[0.08] p-4 text-left transition-all hover:border-[#f95400]/30 active:scale-[0.98]"
         >
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#FF6B00]/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
-          <MegaphoneIconFill className="w-6 h-6 text-[#FF6B00] mb-2" />
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#f95400]/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
+          <div className="glass-icon glass-icon-md glass-icon-orange mb-2">
+            <MegaphoneIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+          </div>
           <p className="text-sm font-semibold text-white">Campaigns</p>
           <p className="text-xs text-gray-500">Coming soon</p>
         </button>
@@ -721,6 +772,66 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
 
       {/* Streak Card */}
       <StreakCard currentStreak={user.current_streak} />
+
+      {/* Tier Info Modal */}
+      {showTierInfo && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 pb-20">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-md"
+            onClick={() => setShowTierInfo(false)}
+          />
+
+          {/* Modal - Compact Glass Card */}
+          <div className="relative w-full max-w-sm glass-card rounded-2xl p-4 animate-slide-up">
+            {/* Header with close */}
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-xs text-gray-500">
+                  <span className="text-[#f95400] font-medium">{Math.round(tweetscoutScore)} pts</span> on sorsa.io
+                </p>
+              </div>
+              <button
+                onClick={() => setShowTierInfo(false)}
+                className="w-6 h-6 rounded-full bg-white/[0.06] flex items-center justify-center hover:bg-white/10"
+              >
+                <XIconFill className="w-3 h-3 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Tiers Grid - Compact */}
+            <div className="space-y-1">
+              {tierData.map((tier) => {
+                const isCurrentTier = tier.name === scoreTier;
+                const isAchieved = tweetscoutScore >= tier.minPoints;
+
+                return (
+                  <div
+                    key={tier.name}
+                    className={`flex items-center justify-between py-2 px-3 rounded-lg ${
+                      isCurrentTier
+                        ? 'bg-[#f95400]/10 border border-[#f95400]/20'
+                        : 'border border-transparent'
+                    } ${!isAchieved && !isCurrentTier ? 'opacity-40' : ''}`}
+                  >
+                    <span className={`text-sm font-medium ${isCurrentTier ? 'text-[#f95400]' : 'text-white'}`}>
+                      {tier.name}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-500 w-14 text-right">
+                        {tier.minPoints}+ pts
+                      </span>
+                      <span className={`text-xs font-mono w-10 text-right ${isCurrentTier ? 'text-[#f95400]' : 'text-gray-400'}`}>
+                        {tier.multiplier}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -740,7 +851,13 @@ function StreakCard({ currentStreak }: { currentStreak: number }) {
   const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+    <div className="relative overflow-hidden rounded-xl p-4" style={{
+      background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.03) 0%, rgba(15, 10, 11, 0.6) 50%, rgba(249, 84, 0, 0.02) 100%)',
+      backdropFilter: 'blur(40px) saturate(180%)',
+      WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+      border: '1px solid rgba(249, 84, 0, 0.2)',
+      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(249, 84, 0, 0.08) inset'
+    }}>
       {/* Info Button - Top Right */}
       <button
         onClick={() => {
@@ -763,22 +880,15 @@ function StreakCard({ currentStreak }: { currentStreak: number }) {
 
       {/* Header Row */}
       <div className="flex items-center gap-3 mb-4">
-        <div className={`relative w-10 h-10 rounded-xl flex items-center justify-center ${
-          currentStreak > 0
-            ? 'bg-gradient-to-br from-orange-500 to-red-600 shadow-lg shadow-orange-500/20'
-            : 'bg-gray-800'
-        }`}>
-          <FireIconFill className={`w-5 h-5 ${currentStreak > 0 ? 'text-yellow-300' : 'text-gray-600'}`} />
-          {currentStreak > 0 && (
-            <div className="absolute inset-0 rounded-xl bg-orange-500/30 blur-md -z-10" />
-          )}
+        <div className={`glass-icon glass-icon-md ${currentStreak > 0 ? 'glass-icon-orange' : ''}`}>
+          <FireIconFill className="w-5 h-5" style={currentStreak > 0 ? ICON_GRADIENT_STYLE : { color: 'white' }} />
         </div>
         <div>
           <div className="flex items-baseline gap-1.5">
             <span className={`text-2xl font-bold ${currentStreak > 0 ? 'text-white' : 'text-gray-500'}`}>
               {currentStreak}
             </span>
-            <span className="text-sm text-gray-500">day streak</span>
+            <span className="text-sm font-bold text-gray-300">day streak</span>
           </div>
         </div>
       </div>
@@ -792,23 +902,19 @@ function StreakCard({ currentStreak }: { currentStreak: number }) {
 
           return (
             <div key={index} className="flex-1 flex flex-col items-center gap-1">
-              <div className={`w-full h-8 rounded-lg flex items-center justify-center transition-all ${
+              <div className={`w-full h-9 rounded-lg flex items-center justify-center transition-all ${
                 isCompleted
-                  ? 'bg-gradient-to-b from-orange-500 to-orange-600 shadow-sm shadow-orange-500/30'
+                  ? 'bg-gradient-to-b from-[#f95400] to-[#ff8c42] shadow-lg shadow-orange-500/30 ring-2 ring-orange-500/20'
                   : isToday
-                  ? 'bg-orange-500/20 border border-orange-500/40 border-dashed'
+                  ? 'bg-orange-500/15 border-2 border-orange-500/50 border-dashed'
                   : isFuture
-                  ? 'bg-white/[0.02]'
-                  : 'bg-white/[0.04]'
+                  ? 'bg-white/5 border border-white/10'
+                  : 'bg-white/10 border border-white/20'
               }`}>
-                {isCompleted ? (
-                  <CheckIcon className="w-4 h-4 text-white" />
-                ) : isToday ? (
-                  <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
-                ) : null}
+                {isCompleted && <CheckIconFill className="w-4 h-4 drop-shadow-lg" style={ICON_GRADIENT_STYLE} />}
               </div>
-              <span className={`text-[9px] font-medium ${
-                isCompleted ? 'text-orange-400' : isToday ? 'text-orange-400/70' : 'text-gray-600'
+              <span className={`text-[10px] font-bold ${
+                isCompleted ? 'text-orange-400' : isToday ? 'text-orange-300' : 'text-gray-400'
               }`}>
                 {day}
               </span>
@@ -825,15 +931,15 @@ function CampaignsTab() {
   return (
     <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
       <div className="text-center max-w-sm">
-        <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-[#FF6B00]/20 to-[#CC5500]/20 border border-[#FF6B00]/30 flex items-center justify-center">
-          <MegaphoneIconFill className="w-12 h-12 text-[#FF6B00]/60" />
+        <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-[#f95400]/20 to-[#CC5500]/20 border border-[#f95400]/30 flex items-center justify-center">
+          <MegaphoneIconFill className="w-12 h-12 text-[#f95400]/60" />
         </div>
         <h2 className="text-2xl font-bold mb-2 gold-gradient-text">Campaigns</h2>
         <p className="text-gray-400 mb-4">
           XP reward campaigns will be available here.
         </p>
-        <div className="px-4 py-2 rounded-full bg-[#FF6B00]/10 border border-[#FF6B00]/20">
-          <span className="text-sm text-[#FF6B00] font-medium">Coming Soon</span>
+        <div className="px-4 py-2 rounded-full bg-[#f95400]/10 border border-[#f95400]/20">
+          <span className="text-sm text-[#f95400] font-medium">Coming Soon</span>
         </div>
       </div>
     </div>
@@ -845,15 +951,15 @@ function EarnTab() {
   return (
     <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
       <div className="text-center max-w-sm">
-        <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-[#FF6B00]/20 to-[#CC5500]/20 border border-[#FF6B00]/30 flex items-center justify-center">
-          <GiftIconFill className="w-12 h-12 text-[#FF6B00]/60" />
+        <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-[#f95400]/20 to-[#CC5500]/20 border border-[#f95400]/30 flex items-center justify-center">
+          <GiftIconFill className="w-12 h-12 text-[#f95400]/60" />
         </div>
         <h2 className="text-2xl font-bold mb-2 gold-gradient-text">Earn Rewards</h2>
         <p className="text-gray-400 mb-4">
           Participate in giveaways and burn karma for rewards.
         </p>
-        <div className="px-4 py-2 rounded-full bg-[#FF6B00]/10 border border-[#FF6B00]/20">
-          <span className="text-sm text-[#FF6B00] font-medium">Coming Soon</span>
+        <div className="px-4 py-2 rounded-full bg-[#f95400]/10 border border-[#f95400]/20">
+          <span className="text-sm text-[#f95400] font-medium">Coming Soon</span>
         </div>
       </div>
     </div>
@@ -1357,8 +1463,8 @@ function EngageTab({
     return (
       <div className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden bg-black p-4">
         <div className="card-base p-6 text-center max-w-sm">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#FF6B00]/20 flex items-center justify-center">
-            <svg className="w-8 h-8 text-[#FF6B00]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#f95400]/20 flex items-center justify-center">
+            <svg className="w-8 h-8 text-[#f95400]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
           </div>
@@ -1408,7 +1514,7 @@ function EngageTab({
               }}
               className="btn-secondary w-full mt-3 flex items-center justify-center gap-2"
             >
-              <PlusIconFill className="w-5 h-5" />
+              <PlusIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
               Submit Your Post
             </button>
           </div>
@@ -1438,8 +1544,8 @@ function EngageTab({
     return (
       <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-black p-4">
         <div className="text-center max-w-sm">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-black/50 border border-[#FF6B00]/30 flex items-center justify-center">
-            <XIconFill className="w-10 h-10 text-[#FF6B00]" />
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-black/50 border border-[#f95400]/30 flex items-center justify-center">
+            <XIconFill className="w-10 h-10 text-[#f95400]" />
           </div>
           <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
           <p className="text-gray-400 mb-6">{error}</p>
@@ -1536,8 +1642,8 @@ function EngageTab({
             ) : (
               // No credits / other - could be failed verifications or no posts
               <>
-                <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-black/50 border border-[#FF6B00]/30 flex items-center justify-center">
-                  <InfoIconFill className="w-12 h-12 text-[#FF6B00]" />
+                <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-black/50 border border-[#f95400]/30 flex items-center justify-center">
+                  <InfoIconFill className="w-12 h-12 text-[#f95400]" />
                 </div>
                 <h2 className="text-xl font-bold mb-2">{result?.message || 'Session Complete'}</h2>
                 <p className="text-gray-400 mb-8">Tap below to re-engage and earn karma</p>
@@ -1554,7 +1660,7 @@ function EngageTab({
                 }}
                 className="btn-secondary w-full mt-3 flex items-center justify-center gap-2"
               >
-                <PlusIconFill className="w-5 h-5" />
+                <PlusIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                 Submit Your Post
               </button>
             )}
@@ -1578,7 +1684,7 @@ function EngageTab({
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-bold">Engage</h2>
-            <span className="text-sm text-[#FF6B00]">{engagedPosts.size}/10 queued</span>
+            <span className="text-sm text-[#f95400]">{engagedPosts.size}/10 queued</span>
           </div>
           <div className="progress-bar h-2">
             <div className="progress-fill" style={{ width: `${progress}%` }} />
@@ -1588,7 +1694,7 @@ function EngageTab({
           {/* Like Intent Toggle */}
           <div className="flex items-center justify-between mt-3 p-3 rounded-xl bg-white/5 border border-white/10">
             <div className="flex items-center gap-2">
-              <HeartIconFill className="w-4 h-4 text-[#FF6B00]" />
+              <HeartIconFill className="w-4 h-4 text-[#f95400]" />
               <span className="text-sm text-gray-300">Quick Like</span>
             </div>
             <button
@@ -1597,7 +1703,7 @@ function EngageTab({
                 setLikeIntentEnabled(!likeIntentEnabled);
               }}
               className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-                likeIntentEnabled ? 'bg-[#FF6B00]' : 'bg-gray-600'
+                likeIntentEnabled ? 'bg-[#f95400]' : 'bg-gray-600'
               }`}
             >
               <span
@@ -1747,12 +1853,12 @@ function EngageTab({
                   }}
                 >
                   <div className={`card-gold p-5 min-h-[160px] relative transition-all flex flex-col justify-start ${
-                    isCenter ? 'ring-2 ring-[#FF6B00]/50 cursor-pointer' : ''
+                    isCenter ? 'ring-2 ring-[#f95400]/50 cursor-pointer' : ''
                   }`}>
                     {/* Top right icons */}
                     <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
                       <XLogoIcon className="w-5 h-5 text-gray-400" />
-                      <ExternalLinkIconFill className="w-5 h-5 text-[#FF6B00]" />
+                      <ExternalLinkIconFill className="w-5 h-5 text-[#f95400]" />
                     </div>
 
                     {/* Card content */}
@@ -1766,12 +1872,12 @@ function EngageTab({
                               src={post.tweet_author_avatar || post.creator_avatar}
                               alt={post.tweet_author_name || post.creator}
                               className={`w-12 h-12 rounded-full object-cover ${
-                                isEngaged ? 'ring-2 ring-[#FF6B00]/50' : ''
+                                isEngaged ? 'ring-2 ring-[#f95400]/50' : ''
                               }`}
                             />
                           ) : (
                             <div className={`w-12 h-12 rounded-full gold-gradient-bg flex items-center justify-center ${
-                              isEngaged ? 'ring-2 ring-[#FF6B00]/50' : ''
+                              isEngaged ? 'ring-2 ring-[#f95400]/50' : ''
                             }`}>
                               <span className="text-lg font-bold text-black">
                                 {(post.tweet_author_username || post.creator_x_username || post.creator).charAt(0).toUpperCase()}
@@ -1780,8 +1886,8 @@ function EngageTab({
                           )}
                           {/* Small clock on profile for pending (queued) posts */}
                           {isEngaged && (
-                            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-[#FF6B00] flex items-center justify-center border-2 border-black">
-                              <ClockIcon className="w-3 h-3 text-black" />
+                            <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-[#f95400] flex items-center justify-center border-2 border-black">
+                              <ClockIconFill className="w-3 h-3 text-black" />
                             </div>
                           )}
                         </div>
@@ -1845,10 +1951,10 @@ function EngageTab({
               }`}
             >
               <div className={`card-gold p-5 min-h-[160px] flex flex-col items-center justify-center text-center ${
-                currentPostIndex === (session?.posts?.length || 0) ? 'ring-2 ring-[#FF6B00]/50' : ''
+                currentPostIndex === (session?.posts?.length || 0) ? 'ring-2 ring-[#f95400]/50' : ''
               }`}>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
-                  <ClockIcon className="w-8 h-8 text-gray-400" />
+                  <ClockIconFill className="w-8 h-8 text-gray-400" />
                 </div>
                 <h3 className="text-lg font-semibold text-white mb-2">You're all caught up!</h3>
                 <p className="text-gray-400 text-sm">Come back later for more posts to engage with</p>
@@ -1866,9 +1972,9 @@ function EngageTab({
                 key={index}
                 className={`h-1.5 rounded-full transition-all ${
                   index === currentPostIndex
-                    ? 'w-6 bg-[#FF6B00]'
+                    ? 'w-6 bg-[#f95400]'
                     : index < currentPostIndex
-                      ? 'w-1.5 bg-[#FF6B00]/50'
+                      ? 'w-1.5 bg-[#f95400]/50'
                       : 'w-1.5 bg-gray-600'
                 }`}
               />
@@ -1888,13 +1994,13 @@ function EngageTab({
             disabled={engagedPosts.size < 10 || isClaimLoading || hasProcessingBatch}
             className={`mt-4 w-full py-3 px-6 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
               engagedPosts.size >= 10 && !isClaimLoading && !hasProcessingBatch
-                ? 'gold-gradient-bg text-black shadow-lg shadow-[#FF6B00]/30 hover:shadow-[#FF6B00]/50 btn-glossy'
+                ? 'gold-gradient-bg text-black shadow-lg shadow-[#f95400]/30 hover:shadow-[#f95400]/50 btn-glossy'
                 : 'bg-white/10 text-white/40 cursor-not-allowed opacity-50'
             }`}
           >
             {isClaimLoading ? (
               <>
-                <ClockIcon className="w-5 h-5" />
+                <ClockIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                 Queuing...
               </>
             ) : hasProcessingBatch ? (
@@ -1904,7 +2010,7 @@ function EngageTab({
               </>
             ) : (
               <>
-                <BoltIconFill className="w-5 h-5" />
+                <BoltIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                 {engagedPosts.size >= 10
                   ? `Claim ${engagedPosts.size} Rewards`
                   : `${engagedPosts.size}/10 to Claim`
@@ -1914,44 +2020,75 @@ function EngageTab({
           </button>
 
           {/* Claim History - shows queued verification batches */}
-          {claimHistory.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <h4 className="text-sm font-medium text-gray-400">Recent Claims</h4>
-              <div className="space-y-2 max-h-40 overflow-y-auto scrollbar-hide">
-                {claimHistory.slice(0, 5).map((batch) => (
+          <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-medium text-gray-400">Verification Queue</h4>
+              {hasProcessingBatch && (
+                <span className="flex items-center gap-1.5 text-xs text-yellow-500">
+                  <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" />
+                  Processing
+                </span>
+              )}
+            </div>
+            <div className="glass-card p-3 space-y-2 max-h-48 overflow-y-auto">
+              {claimHistory.length > 0 ? (
+                claimHistory.slice(0, 5).map((batch) => (
                   <div
                     key={batch.id}
-                    className="flex items-center justify-between p-3 bg-white/5 rounded-lg"
+                    className="flex items-center justify-between p-2.5 bg-white/[0.03] rounded-xl border border-white/[0.05]"
                   >
-                    <span className="text-xs text-gray-400">
-                      {new Date(batch.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
                     <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        batch.status === 'completed' && batch.credits_awarded && batch.credits_awarded > 0
+                          ? 'bg-[#f95400]/20'
+                          : batch.status === 'pending' || batch.status === 'processing'
+                          ? 'bg-yellow-500/20'
+                          : 'bg-white/[0.05]'
+                      }`}>
+                        {(batch.status === 'pending' || batch.status === 'processing') ? (
+                          <ClockIconFill className="w-4 h-4 text-yellow-500" />
+                        ) : batch.status === 'completed' && batch.credits_awarded && batch.credits_awarded > 0 ? (
+                          <CheckIconFill className="w-4 h-4 text-[#f95400]" />
+                        ) : (
+                          <InfoIconFill className="w-4 h-4 text-gray-500" />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs text-white">{batch.engagement_count} engagements</p>
+                        <p className="text-[10px] text-gray-500">
+                          {new Date(batch.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
                       {(batch.status === 'pending' || batch.status === 'processing') && (
-                        <span className="text-yellow-500 text-sm flex items-center gap-1">
-                          <span className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
-                          Verifying {batch.engagement_count}...
-                        </span>
+                        <span className="text-yellow-500 text-xs">Verifying...</span>
                       )}
                       {batch.status === 'completed' && batch.credits_awarded !== null && batch.credits_awarded > 0 && (
-                        <span className="text-[#FF6B00] text-sm font-medium">
-                          +{Number(batch.credits_awarded).toFixed(2)} karma
+                        <span className="text-[#f95400] text-sm font-semibold">
+                          +{Number(batch.credits_awarded).toFixed(2)}
                         </span>
                       )}
                       {batch.status === 'completed' && (batch.credits_awarded === null || batch.credits_awarded === 0) && (
-                        <span className="text-gray-500 text-sm">
-                          {batch.failed || 0} failed
-                        </span>
+                        <span className="text-gray-500 text-xs">{batch.failed || 0} failed</span>
                       )}
                       {batch.status === 'failed' && (
-                        <span className="text-gray-500 text-sm">Error</span>
+                        <span className="text-red-400 text-xs">Error</span>
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
+                ))
+              ) : (
+                <div className="text-center py-4">
+                  <div className="glass-icon glass-icon-md mx-auto mb-2">
+                    <ClockIconFill className="w-5 h-5 text-gray-500" />
+                  </div>
+                  <p className="text-xs text-gray-500">No recent claims</p>
+                  <p className="text-[10px] text-gray-600 mt-1">Engage with 10 posts to claim</p>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -1961,9 +2098,9 @@ function EngageTab({
           hapticFeedback('light');
           setShowSubmitModal(true);
         }}
-        className="fixed bottom-24 right-4 w-14 h-14 rounded-full gold-gradient-bg flex items-center justify-center shadow-lg shadow-[#FF6B00]/30 z-10 hover:shadow-[#FF6B00]/50 transition-all"
+        className="fixed bottom-24 right-4 w-14 h-14 rounded-full glass-icon glass-icon-orange float-animation glow-pulse flex items-center justify-center shadow-lg shadow-[#f95400]/20 z-10 hover:scale-105 active:scale-95 transition-all"
       >
-        <PlusIconFill className="w-7 h-7 text-black" />
+        <PlusIconFill className="w-7 h-7 text-[#f95400]" />
       </button>
 
       <SubmitModal
@@ -1977,15 +2114,15 @@ function EngageTab({
       {/* Verification Results Popup - shown when verification completes */}
       {showFailurePopup && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="w-full max-w-sm bg-black/95 border border-[#FF6B00]/30 rounded-2xl p-6 text-center shadow-2xl shadow-black/50">
+          <div className="w-full max-w-sm bg-black/95 border border-[#f95400]/30 rounded-2xl p-6 text-center shadow-2xl shadow-black/50">
             {/* Icon */}
             <div className={`w-20 h-20 mx-auto mb-4 rounded-full flex items-center justify-center ${
-              failedCount > 0 ? 'bg-yellow-500/20' : 'bg-[#FF6B00]/20'
+              failedCount > 0 ? 'bg-yellow-500/20' : 'bg-[#f95400]/20'
             }`}>
               {failedCount > 0 ? (
                 <InfoIconFill className="w-10 h-10 text-yellow-500" />
               ) : (
-                <CheckIconFill className="w-10 h-10 text-[#FF6B00]" />
+                <CheckIconFill className="w-10 h-10 text-[#f95400]" />
               )}
             </div>
 
@@ -2122,14 +2259,14 @@ function SubmitModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg bg-black/95 backdrop-blur-xl border-t border-x border-[#FF6B00]/20 rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up frosted">
+      <div className="relative w-full max-w-lg bg-black/95 backdrop-blur-xl border-t border-x border-[#f95400]/20 rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up frosted">
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 rounded-full bg-[#FF6B00]/40" />
+          <div className="w-10 h-1 rounded-full bg-[#f95400]/40" />
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 pb-4 border-b border-[#FF6B00]/15">
+        <div className="flex items-center justify-between px-4 pb-4 border-b border-[#f95400]/15">
           <div>
             <h2 className="text-xl font-bold">Submit Post</h2>
             <p className="text-gray-400 text-sm">Share your X post to get engagements</p>
@@ -2171,7 +2308,7 @@ function SubmitModal({
                   hapticFeedback('light');
                   setKarmaAmount(Number(e.target.value));
                 }}
-                className="w-full h-2 bg-black/50 rounded-full appearance-none cursor-pointer accent-[#FF6B00] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#FF6B00] [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-[#FF6B00]/30"
+                className="w-full h-2 bg-black/50 rounded-full appearance-none cursor-pointer accent-[#f95400] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#f95400] [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-[#f95400]/30"
                 disabled={submitting}
               />
               <div className="flex justify-between text-xs text-gray-500">
@@ -2200,14 +2337,14 @@ function SubmitModal({
             </div>
 
             {error && (
-              <div className="bg-black/50 border border-[#FF6B00]/30 rounded-xl p-4">
-                <p className="text-[#FF6B00] text-sm">{error}</p>
+              <div className="bg-black/50 border border-[#f95400]/30 rounded-xl p-4">
+                <p className="text-[#f95400] text-sm">{error}</p>
               </div>
             )}
 
             {result?.success && (
-              <div className="bg-black/50 border border-[#FF6B00]/50 rounded-xl p-4">
-                <p className="text-[#FF6B00] text-sm">{result.message}</p>
+              <div className="bg-black/50 border border-[#f95400]/50 rounded-xl p-4">
+                <p className="text-[#f95400] text-sm">{result.message}</p>
               </div>
             )}
 
@@ -2304,14 +2441,14 @@ function StatsModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg bg-black/95 backdrop-blur-xl border-t border-x border-[#FF6B00]/20 rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up frosted">
+      <div className="relative w-full max-w-lg bg-black/95 backdrop-blur-xl border-t border-x border-[#f95400]/20 rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up frosted">
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 rounded-full bg-[#FF6B00]/40" />
+          <div className="w-10 h-1 rounded-full bg-[#f95400]/40" />
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 pb-4 border-b border-[#FF6B00]/15">
+        <div className="flex items-center justify-between px-4 pb-4 border-b border-[#f95400]/15">
           <div>
             <h2 className="text-xl font-bold">Your Stats</h2>
             <p className="text-gray-400 text-sm">Lifetime performance overview</p>
@@ -2501,8 +2638,8 @@ function OnboardingScreen({
 
       {/* X Username Display */}
       {user.x_username && (
-        <div className="mb-8 px-6 py-3 rounded-xl bg-white/5 border border-[#FF6B00]/30">
-          <span className="text-[#FF6B00] font-medium">@{user.x_username}</span>
+        <div className="mb-8 px-6 py-3 rounded-xl bg-white/5 border border-[#f95400]/30">
+          <span className="text-[#f95400] font-medium">@{user.x_username}</span>
         </div>
       )}
 
@@ -2515,7 +2652,7 @@ function OnboardingScreen({
       <button
         onClick={handleStart}
         disabled={loading}
-        className="px-8 py-4 gold-gradient-bg text-black font-bold rounded-xl text-lg shadow-lg shadow-[#FF6B00]/30 hover:shadow-[#FF6B00]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        className="px-8 py-4 gold-gradient-bg text-black font-bold rounded-xl text-lg shadow-lg shadow-[#f95400]/30 hover:shadow-[#f95400]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
       >
         {loading ? (
           <>
@@ -2596,7 +2733,7 @@ function LinkXModal({
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
 
       {/* Modal */}
-      <div className="relative w-full max-w-sm bg-zinc-900/95 backdrop-blur-xl rounded-2xl border border-[#FF6B00]/30 p-6 animate-slide-up">
+      <div className="relative w-full max-w-sm bg-zinc-900/95 backdrop-blur-xl rounded-2xl border border-[#f95400]/30 p-6 animate-slide-up">
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
@@ -2620,7 +2757,7 @@ function LinkXModal({
             value={username}
             onChange={(e) => setUsername(e.target.value.replace(/[@\s]/g, ''))}
             placeholder="username"
-            className="w-full bg-black/50 border border-gray-700 rounded-xl py-3 pl-8 pr-4 text-white placeholder-gray-500 focus:border-[#FF6B00]/50 focus:outline-none transition-colors"
+            className="w-full bg-black/50 border border-gray-700 rounded-xl py-3 pl-8 pr-4 text-white placeholder-gray-500 focus:border-[#f95400]/50 focus:outline-none transition-colors"
             autoFocus
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !loading) {
@@ -2638,7 +2775,7 @@ function LinkXModal({
         <button
           onClick={handleSubmit}
           disabled={loading || !username.trim()}
-          className="w-full py-3 rounded-xl bg-[#FF6B00] text-black font-semibold disabled:opacity-50 hover:bg-[#E56000] transition-colors"
+          className="w-full py-3 rounded-xl bg-[#f95400] text-black font-semibold disabled:opacity-50 hover:bg-[#E56000] transition-colors"
         >
           {loading ? 'Verifying...' : 'Link Account'}
         </button>
@@ -2809,6 +2946,14 @@ function ChevronDownIcon({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
+function ChevronDownIconFill({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
 function ChevronRightIcon({ className = "w-6 h-6" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2817,10 +2962,26 @@ function ChevronRightIcon({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
+function ChevronRightIconFill({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
 function ClockIcon({ className = "w-6 h-6" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function ClockIconFill({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
     </svg>
   );
 }
@@ -2891,6 +3052,14 @@ function RocketIconFill({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
+function TrendingUpIconFill({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
 function RocketIcon({ className = "w-6 h-6" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -2900,19 +3069,35 @@ function RocketIcon({ className = "w-6 h-6" }: { className?: string }) {
 }
 
 // =============================================================================
-// LOUD TAB - UGC Rewards Feature
+// LOUD TAB - UGC Rewards Feature (Premium UX with Horizontal Cards)
 // =============================================================================
 
-function LoudTab({ user }: { user: User | null }) {
+function LoudTab({ user: _user }: { user: User | null }) {
   const [projectsData, setProjectsData] = useState<LoudProjectsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<LoudProject | null>(null);
+  const [leaderboardData, setLeaderboardData] = useState<LoudLeaderboardResponse | null>(null);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   useEffect(() => {
     loadProjects();
   }, []);
+
+  useEffect(() => {
+    // Auto-select first project on load
+    if (projectsData?.projects.length && !selectedProject) {
+      setSelectedProject(projectsData.projects[0]);
+    }
+  }, [projectsData]);
+
+  useEffect(() => {
+    // Load leaderboard when project is selected
+    if (selectedProject) {
+      loadLeaderboard(selectedProject.slug);
+    }
+  }, [selectedProject]);
 
   const loadProjects = async () => {
     try {
@@ -2920,9 +3105,6 @@ function LoudTab({ user }: { user: User | null }) {
       setError(null);
       const data = await loudApi.getProjects();
       setProjectsData(data);
-      if (data.projects.length > 0 && !selectedProject) {
-        setSelectedProject(data.projects[0]);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load projects');
     } finally {
@@ -2930,10 +3112,22 @@ function LoudTab({ user }: { user: User | null }) {
     }
   };
 
+  const loadLeaderboard = async (slug: string) => {
+    try {
+      setLoadingLeaderboard(true);
+      const data = await loudApi.getLeaderboard(slug);
+      setLeaderboardData(data);
+    } catch (err) {
+      console.error('Failed to load leaderboard:', err);
+    } finally {
+      setLoadingLeaderboard(false);
+    }
+  };
+
   const formatTimeRemaining = (hours: number): string => {
-    if (hours < 24) return `${hours}h`;
+    if (hours < 24) return `${hours}h left`;
     const days = Math.floor(hours / 24);
-    return `${days}d`;
+    return `${days}d left`;
   };
 
   if (loading) {
@@ -2962,11 +3156,13 @@ function LoudTab({ user }: { user: User | null }) {
 
   if (!projectsData || projectsData.projects.length === 0) {
     return (
-      <div className="p-4">
-        <div className="bg-white/5 rounded-xl p-8 text-center">
-          <RocketIcon className="w-16 h-16 mx-auto mb-4 text-gray-500" />
-          <h3 className="text-lg font-medium text-white mb-2">No Active Projects</h3>
-          <p className="text-gray-400 text-sm">
+      <div className="p-5">
+        <div className="rounded-2xl bg-[#1a1a1a] p-8 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white/5 flex items-center justify-center">
+            <RocketIconFill className="w-8 h-8 text-gray-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">No Active Campaigns</h3>
+          <p className="text-gray-500 text-sm">
             Check back soon for UGC reward opportunities.
           </p>
         </div>
@@ -2975,170 +3171,317 @@ function LoudTab({ user }: { user: User | null }) {
   }
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Header with Submit Button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white">Loud</h2>
-          <p className="text-sm text-gray-400">Create content, earn rewards</p>
-        </div>
-        <button
-          onClick={() => setShowSubmitModal(true)}
-          className="px-4 py-2 bg-[#FF6B00] rounded-xl font-medium text-white"
-        >
-          Submit
-        </button>
+    <div className="relative min-h-full pb-32">
+      {/* Welcome Header */}
+      <div className="px-5 pt-5 pb-3">
+        <h1 className="text-2xl font-bold text-white">UGC Rewards</h1>
       </div>
 
-      {/* User Stats Bar */}
-      <div className="bg-white/5 rounded-xl p-3 flex items-center justify-between">
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-gray-400">
-            Expected: <span className="text-white font-medium">{projectsData.expected_points} pts</span>
-          </span>
-          <span className="text-gray-400">
-            Daily: <span className="text-white font-medium">{projectsData.daily_submissions_remaining}/{projectsData.daily_limit}</span>
-          </span>
-        </div>
-        <span className="text-xs text-gray-500">
-          Score: {projectsData.user_tweetscout_score}
-        </span>
-      </div>
+      {/* Daily Challenge Card - Like "Today's challenge" in reference */}
+      <div className="px-5 mb-5">
+        <div className="relative rounded-2xl bg-gradient-to-r from-[#f95400] to-[#ff7020] p-4 overflow-hidden">
+          {/* Background pattern */}
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-white/20" />
+            <div className="absolute -right-4 -bottom-4 w-20 h-20 rounded-full bg-white/10" />
+          </div>
 
-      {/* Project Cards - Horizontal Scroll */}
-      <div className="overflow-x-auto -mx-4 px-4 pb-2">
-        <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
-          {projectsData.projects.map((project) => (
+          <div className="relative flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-black/30 backdrop-blur-md border border-white/10 flex items-center justify-center">
+              <RocketIconFill className="w-6 h-6" style={ICON_GRADIENT_STYLE} />
+            </div>
+            <div className="flex-1">
+              <p className="text-white/80 text-sm">Daily submissions</p>
+              <p className="text-white text-xl font-bold">{projectsData.daily_submissions_remaining} remaining</p>
+            </div>
             <button
-              key={project.id}
-              onClick={() => setSelectedProject(project)}
-              className={`flex-shrink-0 w-40 p-3 rounded-xl border transition-all ${
-                selectedProject?.id === project.id
-                  ? 'bg-[#FF6B00]/20 border-[#FF6B00]'
-                  : 'bg-white/5 border-transparent hover:bg-white/10'
-              }`}
+              onClick={() => {
+                hapticFeedback('medium');
+                setShowSubmitModal(true);
+              }}
+              disabled={projectsData.daily_submissions_remaining === 0}
+              className="w-12 h-12 rounded-xl bg-black/30 backdrop-blur-md border border-white/10 flex items-center justify-center hover:bg-black/40 transition-colors disabled:opacity-50"
             >
-              {/* Project Logo */}
-              <div className="w-10 h-10 rounded-full bg-white/10 mb-2 flex items-center justify-center overflow-hidden">
-                {project.logo_url ? (
-                  <img src={project.logo_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-lg font-bold text-white">{project.name.charAt(0)}</span>
-                )}
-              </div>
-
-              {/* Project Name */}
-              <h4 className="text-sm font-medium text-white truncate mb-1">{project.name}</h4>
-
-              {/* Time Remaining */}
-              <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
-                <span>{formatTimeRemaining(project.time_remaining_hours)}</span>
-                {project.reward_pool && (
-                  <>
-                    <span>·</span>
-                    <span className="text-[#FF6B00]">{project.reward_pool}</span>
-                  </>
-                )}
-              </div>
-
-              {/* Mini Leaderboard Preview */}
-              <div className="text-xs text-gray-500 space-y-0.5">
-                <div className="flex justify-between">
-                  <span>Your rank:</span>
-                  <span className="text-white">
-                    {project.your_rank ? `#${project.your_rank}` : '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Points:</span>
-                  <span className="text-white">{project.your_points}</span>
-                </div>
-              </div>
-
-              {/* Submission Progress */}
-              <div className="mt-2 text-xs">
-                <div className="flex justify-between text-gray-500 mb-1">
-                  <span>Posts</span>
-                  <span>{project.user_submissions}/{project.max_submissions}</span>
-                </div>
-                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[#FF6B00]"
-                    style={{ width: `${(project.user_submissions / project.max_submissions) * 100}%` }}
-                  />
-                </div>
-              </div>
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
             </button>
-          ))}
+          </div>
         </div>
       </div>
 
-      {/* Selected Project Details */}
-      {selectedProject && (
-        <div className="space-y-4">
-          {/* Project Info */}
-          <div className="bg-white/5 rounded-xl p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
-                {selectedProject.logo_url ? (
-                  <img src={selectedProject.logo_url} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-xl font-bold text-white">{selectedProject.name.charAt(0)}</span>
+      {/* Horizontal Scrolling Project Cards */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between px-5 mb-3">
+          <h2 className="text-lg font-semibold text-white">Active Campaigns</h2>
+          <span className="text-sm text-gray-500">{projectsData.projects.length} active</span>
+        </div>
+
+        <div className="flex gap-3 overflow-x-auto pb-2 px-5 scrollbar-hide">
+          {projectsData.projects.map((project) => {
+            const isSelected = selectedProject?.id === project.id;
+            const isEligible = projectsData.user_tweetscout_score >= project.min_tweetscout_score;
+
+            return (
+              <button
+                key={project.id}
+                onClick={() => {
+                  hapticFeedback('light');
+                  setSelectedProject(project);
+                }}
+                className={`relative flex-shrink-0 w-[160px] rounded-2xl p-4 text-left transition-all overflow-hidden ${
+                  isSelected
+                    ? 'bg-white/[0.08] backdrop-blur-xl border border-[#f95400]/50 shadow-lg shadow-[#f95400]/20'
+                    : 'bg-white/[0.03] backdrop-blur-md border border-white/[0.06] hover:bg-white/[0.06] hover:border-white/10'
+                }`}
+              >
+                {/* Grid pattern for selected */}
+                {isSelected && (
+                  <div className="absolute inset-0 opacity-[0.06]" style={{
+                    backgroundImage: `linear-gradient(#f95400 1px, transparent 1px), linear-gradient(90deg, #f95400 1px, transparent 1px)`,
+                    backgroundSize: '16px 16px'
+                  }} />
                 )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-bold text-white">{selectedProject.name}</h3>
-                <p className="text-sm text-gray-400 line-clamp-2">{selectedProject.description}</p>
-                <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                  {selectedProject.reward_pool && (
-                    <span className="text-[#FF6B00]">{selectedProject.reward_pool}</span>
+
+                {/* Content */}
+                <div className="relative z-10">
+                  {/* Project Logo */}
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden mb-3 ${
+                    isSelected ? 'bg-[#f95400]/20 ring-1 ring-[#f95400]/30' : 'bg-white/10'
+                  }`}>
+                    {project.logo_url ? (
+                      <img src={project.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className={`text-lg font-bold ${isSelected ? 'text-[#f95400]' : 'text-white'}`}>
+                        {project.name.charAt(0)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Project Name */}
+                  <h3 className="font-semibold text-sm text-white mb-1 truncate">{project.name}</h3>
+
+                  {/* Reward */}
+                  {project.reward_pool && (
+                    <p className="text-xs font-medium text-[#f95400] mb-2">{project.reward_pool}</p>
                   )}
-                  <span>{formatTimeRemaining(selectedProject.time_remaining_hours)} remaining</span>
-                  <span>{selectedProject.total_participants} participants</span>
+
+                  {/* Time + Eligibility */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-gray-500">{formatTimeRemaining(project.time_remaining_hours)}</span>
+                    {project.min_tweetscout_score > 0 && !isEligible && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400">
+                        {project.min_tweetscout_score}+
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Your rank badge */}
+                {project.your_rank && (
+                  <div className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-[#f95400] text-[10px] font-bold text-black z-20">
+                    #{project.your_rank}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Stats Section - Like the third screen in reference */}
+      {selectedProject && leaderboardData?.user_entry && (
+        <div className="px-5 mb-6">
+          <div className="relative rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] p-6 text-center overflow-hidden">
+            {/* Grid pattern */}
+            <div className="absolute inset-0 opacity-[0.04]" style={{
+              backgroundImage: `linear-gradient(#f95400 1px, transparent 1px), linear-gradient(90deg, #f95400 1px, transparent 1px)`,
+              backgroundSize: '20px 20px'
+            }} />
+
+            <div className="relative z-10">
+              {/* Big rank number */}
+              <div className="mb-2">
+                <span className="text-5xl font-bold text-white">
+                  {leaderboardData.user_entry.rank ? `#${leaderboardData.user_entry.rank}` : '--'}
+                </span>
+              </div>
+              <p className="text-gray-500 text-sm mb-1">your rank in</p>
+              <p className="text-[#f95400] font-medium">{selectedProject.name}</p>
+
+              {/* Stats row */}
+              <div className="flex items-center justify-center gap-6 mt-6">
+                <div className="text-center">
+                  <div className="glass-icon glass-icon-lg glass-icon-orange mx-auto mb-2">
+                    <svg className="w-5 h-5 text-[#f95400]" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                    </svg>
+                  </div>
+                  <p className="text-xl font-bold text-white">{leaderboardData.user_entry.total_points.toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">Points</p>
+                </div>
+                <div className="text-center">
+                  <div className="glass-icon glass-icon-lg glass-icon-orange mx-auto mb-2">
+                    <svg className="w-5 h-5 text-[#f95400]" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
+                    </svg>
+                  </div>
+                  <p className="text-xl font-bold text-white">{leaderboardData.user_entry.submission_count}</p>
+                  <p className="text-xs text-gray-500">Posts</p>
+                </div>
+                <div className="text-center">
+                  <div className="glass-icon glass-icon-lg glass-icon-orange mx-auto mb-2">
+                    <svg className="w-5 h-5 text-[#f95400]" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                    </svg>
+                  </div>
+                  <p className="text-xl font-bold text-white">{selectedProject.total_participants}</p>
+                  <p className="text-xs text-gray-500">Competing</p>
                 </div>
               </div>
             </div>
-
-            {/* Eligibility */}
-            {selectedProject.min_tweetscout_score > 0 && (
-              <div className={`mt-3 text-xs px-2 py-1 rounded-lg inline-block ${
-                projectsData.user_tweetscout_score >= selectedProject.min_tweetscout_score
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'bg-red-500/20 text-red-400'
-              }`}>
-                Min TweetScout: {selectedProject.min_tweetscout_score}
-              </div>
-            )}
-
-            {/* Submit Button for Selected Project */}
-            {selectedProject.can_submit ? (
-              <button
-                onClick={() => setShowSubmitModal(true)}
-                className="mt-4 w-full py-3 bg-[#FF6B00] rounded-xl font-medium text-white"
-              >
-                Submit to {selectedProject.name}
-              </button>
-            ) : (
-              <div className="mt-4 py-3 bg-white/5 rounded-xl text-center text-gray-400 text-sm">
-                {selectedProject.cannot_submit_reason}
-              </div>
-            )}
           </div>
-
-          {/* Leaderboard */}
-          <LoudLeaderboard project={selectedProject} />
         </div>
       )}
 
+      {/* Leaderboard Section */}
+      {selectedProject && (
+        <div className="px-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white">Leaderboard</h2>
+            <span className="text-sm text-gray-500">Top 50</span>
+          </div>
+
+          <div className="relative rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] overflow-hidden">
+            {loadingLeaderboard ? (
+              <div className="flex justify-center py-8">
+                <PixelLoader size="xs" />
+              </div>
+            ) : leaderboardData?.leaderboard && leaderboardData.leaderboard.length > 0 ? (
+              <div className="max-h-[400px] overflow-y-auto">
+                {leaderboardData.leaderboard.slice(0, 50).map((entry, index) => {
+                  const isCurrentUser = leaderboardData.user_entry?.user_id === entry.user.id;
+
+                  return (
+                    <div
+                      key={entry.user.id}
+                      className={`relative flex items-center gap-3 px-4 py-3 ${
+                        index !== 0 ? 'border-t border-white/[0.06]' : ''
+                      } ${isCurrentUser ? 'bg-[#f95400]/10' : 'hover:bg-white/[0.02]'}`}
+                    >
+                      {/* Grid on current user row */}
+                      {isCurrentUser && (
+                        <div className="absolute inset-0 opacity-[0.05]" style={{
+                          backgroundImage: `linear-gradient(#f95400 1px, transparent 1px), linear-gradient(90deg, #f95400 1px, transparent 1px)`,
+                          backgroundSize: '12px 12px'
+                        }} />
+                      )}
+
+                      {/* Rank */}
+                      <span className={`relative z-10 w-8 text-sm font-semibold ${
+                        entry.rank === 1 ? 'text-yellow-400' :
+                        entry.rank === 2 ? 'text-gray-400' :
+                        entry.rank === 3 ? 'text-amber-600' :
+                        isCurrentUser ? 'text-[#f95400]' : 'text-gray-500'
+                      }`}>
+                        {entry.rank}
+                      </span>
+
+                      {/* Avatar */}
+                      <div className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 ${
+                        isCurrentUser ? 'ring-2 ring-[#f95400]' : ''
+                      } bg-white/10`}>
+                        {entry.user.avatar ? (
+                          <img src={entry.user.avatar} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-sm font-medium text-white">
+                            {entry.user.display_name?.charAt(0) || '?'}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Name */}
+                      <div className="relative z-10 flex-1 min-w-0">
+                        <p className={`font-medium truncate ${isCurrentUser ? 'text-[#f95400]' : 'text-white'}`}>
+                          {entry.user.x_username ? `@${entry.user.x_username}` : entry.user.display_name}
+                          {isCurrentUser && <span className="ml-2 text-xs bg-[#f95400] text-black px-1.5 py-0.5 rounded font-bold">YOU</span>}
+                        </p>
+                        <p className="text-xs text-gray-500">{entry.submission_count} posts</p>
+                      </div>
+
+                      {/* Points */}
+                      <span className={`relative z-10 text-sm font-bold ${isCurrentUser ? 'text-[#f95400]' : 'text-white'}`}>
+                        {entry.total_points.toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {/* User's entry if not in top 50 */}
+                {leaderboardData.user_entry && leaderboardData.user_entry.rank && leaderboardData.user_entry.rank > 50 && (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-[#f95400]/10 border-t border-[#f95400]/30">
+                    <span className="w-8 text-sm font-semibold text-[#f95400]">
+                      {leaderboardData.user_entry.rank}
+                    </span>
+                    <div className="w-10 h-10 rounded-full bg-[#f95400]/20 flex items-center justify-center ring-2 ring-[#f95400]">
+                      <span className="text-sm font-bold text-[#f95400]">Y</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-[#f95400]">
+                        You <span className="ml-2 text-xs bg-[#f95400] text-black px-1.5 py-0.5 rounded font-bold">YOU</span>
+                      </p>
+                      <p className="text-xs text-[#f95400]/60">{leaderboardData.user_entry.submission_count} posts</p>
+                    </div>
+                    <span className="text-sm font-bold text-[#f95400]">
+                      {leaderboardData.user_entry.total_points.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-10">
+                <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-white/[0.06] backdrop-blur border border-white/[0.08] flex items-center justify-center">
+                  <RocketIconFill className="w-7 h-7 text-gray-600" />
+                </div>
+                <p className="text-gray-400 font-medium">No submissions yet</p>
+                <p className="text-gray-600 text-sm mt-1">Be the first to earn points!</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Button */}
+      <button
+        onClick={() => {
+          hapticFeedback('medium');
+          setShowSubmitModal(true);
+        }}
+        disabled={projectsData.daily_submissions_remaining === 0}
+        className={`fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+          projectsData.daily_submissions_remaining > 0
+            ? 'glass-icon glass-icon-orange float-animation glow-pulse shadow-lg shadow-[#f95400]/20 hover:scale-105 active:scale-95'
+            : 'glass-icon opacity-50 cursor-not-allowed'
+        }`}
+      >
+        <PlusIcon className={`w-7 h-7 ${
+          projectsData.daily_submissions_remaining > 0 ? 'text-[#f95400]' : 'text-gray-600'
+        }`} />
+      </button>
+
       {/* Submit Modal */}
-      {showSubmitModal && selectedProject && (
+      {showSubmitModal && (
         <LoudSubmitModal
-          project={selectedProject}
+          projects={projectsData.projects}
           projectsData={projectsData}
+          preselectedProject={selectedProject}
           onClose={() => setShowSubmitModal(false)}
           onSuccess={() => {
             setShowSubmitModal(false);
             loadProjects();
+            if (selectedProject) {
+              loadLeaderboard(selectedProject.slug);
+            }
           }}
         />
       )}
@@ -3146,131 +3489,22 @@ function LoudTab({ user }: { user: User | null }) {
   );
 }
 
-// Leaderboard component
-function LoudLeaderboard({ project }: { project: LoudProject }) {
-  const [leaderboard, setLeaderboard] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadLeaderboard();
-  }, [project.slug]);
-
-  const loadLeaderboard = async () => {
-    try {
-      setLoading(true);
-      const data = await loudApi.getLeaderboard(project.slug);
-      setLeaderboard(data);
-    } catch (err) {
-      console.error('Failed to load leaderboard:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="bg-white/5 rounded-xl p-4">
-        <h4 className="text-sm font-medium text-white mb-3">Leaderboard</h4>
-        <div className="flex justify-center py-4">
-          <PixelLoader size="xs" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!leaderboard || leaderboard.leaderboard.length === 0) {
-    return (
-      <div className="bg-white/5 rounded-xl p-4">
-        <h4 className="text-sm font-medium text-white mb-3">Leaderboard</h4>
-        <p className="text-gray-400 text-sm text-center py-4">No submissions yet. Be the first!</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white/5 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-sm font-medium text-white">Leaderboard</h4>
-        <span className="text-xs text-gray-500">{leaderboard.total_participants} participants</span>
-      </div>
-
-      <div className="space-y-2">
-        {leaderboard.leaderboard.slice(0, 10).map((entry: any) => (
-          <div
-            key={entry.user.id}
-            className={`flex items-center gap-3 p-2 rounded-lg ${
-              entry.rank <= 3 ? 'bg-white/5' : ''
-            }`}
-          >
-            {/* Rank */}
-            <div className={`w-6 text-center font-medium ${
-              entry.rank === 1 ? 'text-yellow-500' :
-              entry.rank === 2 ? 'text-gray-400' :
-              entry.rank === 3 ? 'text-amber-600' :
-              'text-gray-500'
-            }`}>
-              {entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : entry.rank}
-            </div>
-
-            {/* Avatar */}
-            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
-              {entry.user.avatar ? (
-                <img src={entry.user.avatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-sm font-medium text-white">
-                  {entry.user.display_name?.charAt(0) || '?'}
-                </span>
-              )}
-            </div>
-
-            {/* Name */}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{entry.user.display_name}</p>
-              {entry.user.x_username && (
-                <p className="text-xs text-gray-500 truncate">@{entry.user.x_username}</p>
-              )}
-            </div>
-
-            {/* Points */}
-            <div className="text-right">
-              <p className="text-sm font-medium text-white">{entry.total_points}</p>
-              <p className="text-xs text-gray-500">{entry.submission_count} posts</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* User's position if not in top 10 */}
-      {leaderboard.user_entry && leaderboard.user_entry.rank && leaderboard.user_entry.rank > 10 && (
-        <div className="mt-3 pt-3 border-t border-white/10">
-          <div className="flex items-center gap-3 p-2 bg-[#FF6B00]/10 rounded-lg">
-            <div className="w-6 text-center font-medium text-[#FF6B00]">
-              {leaderboard.user_entry.rank}
-            </div>
-            <div className="flex-1 text-sm font-medium text-white">You</div>
-            <div className="text-right">
-              <p className="text-sm font-medium text-white">{leaderboard.user_entry.total_points}</p>
-              <p className="text-xs text-gray-500">{leaderboard.user_entry.submission_count} posts</p>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Submit Modal
+// Submit Modal - Premium Redesign with Project Selector
 function LoudSubmitModal({
-  project,
+  projects,
   projectsData,
+  preselectedProject,
   onClose,
   onSuccess,
 }: {
-  project: LoudProject;
+  projects: LoudProject[];
   projectsData: LoudProjectsResponse;
+  preselectedProject?: LoudProject | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const [selectedProject, setSelectedProject] = useState<LoudProject | null>(preselectedProject || null);
   const [xLink, setXLink] = useState('');
   const [urlValidation, setUrlValidation] = useState<{
     valid: boolean;
@@ -3280,6 +3514,8 @@ function LoudSubmitModal({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<LoudSubmitResponse | null>(null);
+
+  const eligibleProjects = projects.filter(p => p.can_submit);
 
   const handleUrlChange = (value: string) => {
     setXLink(value);
@@ -3299,19 +3535,19 @@ function LoudSubmitModal({
   };
 
   const handleSubmit = async () => {
-    if (!urlValidation.valid) return;
+    if (!urlValidation.valid || !selectedProject) return;
 
     try {
       setSubmitting(true);
       setSubmitError(null);
-      const result = await loudApi.submit(project.id, xLink);
+      const result = await loudApi.submit(selectedProject.id, xLink);
 
       if (result.success) {
         setSubmitSuccess(result);
         hapticFeedback('success');
         setTimeout(() => {
           onSuccess();
-        }, 2000);
+        }, 2500);
       } else {
         setSubmitError(result.error || 'Submission failed');
         hapticFeedback('error');
@@ -3326,115 +3562,176 @@ function LoudSubmitModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={onClose} />
 
-      <div className="relative w-full max-w-md bg-[#0a0a0a] rounded-t-3xl p-6 animate-slide-up">
+      {/* Modal */}
+      <div className="relative w-full max-w-lg bg-black/95 backdrop-blur-xl border-t border-x border-[#f95400]/20 rounded-t-3xl max-h-[90vh] flex flex-col animate-slide-up">
         {/* Handle */}
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 w-10 h-1 bg-white/20 rounded-full" />
-
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-white">Submit to Loud</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white p-2">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-10 h-1 rounded-full bg-[#f95400]/40" />
         </div>
 
-        {submitSuccess ? (
-          // Success State
-          <div className="text-center py-8">
-            <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        {/* Header */}
+        <div className="px-5 pb-4 border-b border-white/10">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-white">Submit Content</h2>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-full hover:bg-white/10 transition-colors"
+            >
+              <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
-            </div>
-            <h4 className="text-lg font-bold text-white mb-2">Submitted!</h4>
-            <p className="text-3xl font-bold text-[#FF6B00] mb-1">+{submitSuccess.points_awarded} pts</p>
-            <p className="text-gray-400 text-sm">
-              Rank #{submitSuccess.new_rank} · {submitSuccess.new_total_points} total points
-            </p>
+            </button>
           </div>
-        ) : (
-          <>
-            {/* Project Info */}
-            <div className="bg-white/5 rounded-xl p-3 mb-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden">
-                {project.logo_url ? (
-                  <img src={project.logo_url} alt="" className="w-full h-full object-cover" />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {submitSuccess ? (
+            /* Success State */
+            <div className="text-center py-8">
+              <div className="w-20 h-20 mx-auto mb-4 rounded-full gold-gradient-bg flex items-center justify-center shadow-lg shadow-[#f95400]/30">
+                <svg className="w-10 h-10 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Submitted!</h3>
+              <p className="text-4xl font-bold gold-gradient-text mb-1">+{submitSuccess.points_awarded}</p>
+              <p className="text-gray-400">points earned</p>
+              <p className="text-sm text-gray-500 mt-3">
+                Now ranked <span className="text-[#f95400] font-semibold">#{submitSuccess.new_rank}</span> in {selectedProject?.name}
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Step 1: Select Project */}
+              <div>
+                <label className="text-sm font-medium text-gray-400 mb-3 block">
+                  Select Project
+                </label>
+                {eligibleProjects.length === 0 ? (
+                  <div className="text-center py-6 bg-white/5 rounded-xl">
+                    <p className="text-gray-400 text-sm">No projects available for submission</p>
+                    <p className="text-gray-500 text-xs mt-1">You may have reached your limits</p>
+                  </div>
                 ) : (
-                  <span className="text-lg font-bold text-white">{project.name.charAt(0)}</span>
+                  <div className="space-y-2">
+                    {eligibleProjects.map((project) => (
+                      <button
+                        key={project.id}
+                        onClick={() => setSelectedProject(project)}
+                        className={`w-full p-3 rounded-xl border text-left transition-all flex items-center gap-3 ${
+                          selectedProject?.id === project.id
+                            ? 'border-[#f95400] bg-[#f95400]/10'
+                            : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/[0.07]'
+                        }`}
+                      >
+                        <div className={`w-11 h-11 rounded-xl flex items-center justify-center overflow-hidden ${
+                          selectedProject?.id === project.id ? 'ring-2 ring-[#f95400]/50' : 'bg-white/10'
+                        }`}>
+                          {project.logo_url ? (
+                            <img src={project.logo_url} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="font-bold text-white">{project.name.charAt(0)}</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-medium ${selectedProject?.id === project.id ? 'text-white' : 'text-gray-200'}`}>
+                            {project.name}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {project.max_submissions - project.user_submissions} submissions left
+                          </p>
+                        </div>
+                        {selectedProject?.id === project.id && (
+                          <div className="w-6 h-6 rounded-full gold-gradient-bg flex items-center justify-center">
+                            <svg className="w-4 h-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-              <div>
-                <h4 className="font-medium text-white">{project.name}</h4>
-                <p className="text-xs text-gray-400">
-                  {project.user_submissions}/{project.max_submissions} posts
-                </p>
-              </div>
-            </div>
 
-            {/* URL Input */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-400 mb-2">
-                Paste your X post link
-              </label>
-              <input
-                type="text"
-                value={xLink}
-                onChange={(e) => handleUrlChange(e.target.value)}
-                placeholder="https://x.com/username/status/..."
-                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-[#FF6B00]"
-              />
-              {urlValidation.error && (
-                <p className="mt-2 text-sm text-red-400">{urlValidation.error}</p>
+              {/* Step 2: URL Input (only shown when project selected) */}
+              {selectedProject && (
+                <>
+                  <div>
+                    <label className="text-sm font-medium text-gray-400 mb-2 block">
+                      X Post Link
+                    </label>
+                    <input
+                      type="url"
+                      value={xLink}
+                      onChange={(e) => handleUrlChange(e.target.value)}
+                      placeholder="https://x.com/username/status/..."
+                      className="w-full px-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-[#f95400]/50 focus:outline-none transition-colors"
+                    />
+                    {urlValidation.error && (
+                      <p className="mt-2 text-sm text-red-400">{urlValidation.error}</p>
+                    )}
+                    {urlValidation.valid && (
+                      <p className="mt-2 text-xs text-green-400 flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                        Valid link
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Expected Points Display */}
+                  <div className="bg-[#f95400]/10 border border-[#f95400]/30 rounded-xl p-4 text-center">
+                    <p className="text-sm text-gray-400 mb-1">You'll earn</p>
+                    <p className="text-3xl font-bold gold-gradient-text">{projectsData.expected_points}</p>
+                    <p className="text-sm text-gray-500">points</p>
+                  </div>
+
+                  {/* Error Message */}
+                  {submitError && (
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+                      <p className="text-red-400 text-sm">{submitError}</p>
+                    </div>
+                  )}
+
+                  {/* Submit Button */}
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!urlValidation.valid || submitting}
+                    className={`w-full py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
+                      urlValidation.valid && !submitting
+                        ? 'gold-gradient-bg text-black shadow-lg shadow-[#f95400]/30 hover:shadow-[#f95400]/50 active:scale-[0.98]'
+                        : 'bg-white/10 text-white/40 cursor-not-allowed'
+                    }`}
+                  >
+                    {submitting ? (
+                      <>
+                        <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <RocketIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+                        Submit & Earn
+                      </>
+                    )}
+                  </button>
+
+                  {/* Limits Info */}
+                  <div className="flex justify-between text-xs text-gray-500 pt-2">
+                    <span>Daily: {projectsData.daily_submissions_remaining}/{projectsData.daily_limit}</span>
+                    <span>{selectedProject.name}: {selectedProject.max_submissions - selectedProject.user_submissions} left</span>
+                  </div>
+                </>
               )}
-              {urlValidation.valid && urlValidation.normalized && (
-                <p className="mt-2 text-xs text-gray-500">
-                  Will submit: {urlValidation.normalized}
-                </p>
-              )}
-            </div>
-
-            {/* Expected Points */}
-            <div className="bg-[#FF6B00]/10 rounded-xl p-4 mb-4 text-center">
-              <p className="text-sm text-gray-400 mb-1">Expected Points</p>
-              <p className="text-3xl font-bold text-[#FF6B00]">{projectsData.expected_points}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                Based on your TweetScout: {projectsData.user_tweetscout_score}
-              </p>
-            </div>
-
-            {/* Limits Info */}
-            <div className="flex justify-between text-sm text-gray-400 mb-4">
-              <span>Daily: {projectsData.daily_submissions_remaining}/{projectsData.daily_limit} remaining</span>
-              <span>{project.name}: {project.max_submissions - project.user_submissions} remaining</span>
-            </div>
-
-            {/* Error Message */}
-            {submitError && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4">
-                <p className="text-red-400 text-sm">{submitError}</p>
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <button
-              onClick={handleSubmit}
-              disabled={!urlValidation.valid || submitting || !project.can_submit}
-              className="w-full py-4 bg-[#FF6B00] rounded-xl font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {submitting ? 'Submitting...' : 'Submit & Earn'}
-            </button>
-
-            {!project.can_submit && (
-              <p className="mt-2 text-center text-sm text-red-400">
-                {project.cannot_submit_reason}
-              </p>
-            )}
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

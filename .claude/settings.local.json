@@ -8,7 +8,11 @@
       "WebFetch(domain:twitterapi.io)",
       "WebFetch(domain:docs.twitterapi.io)",
       "WebFetch(domain:socialdata.gitbook.io)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "mcp__puppeteer__puppeteer_screenshot",
+      "mcp__puppeteer__puppeteer_evaluate",
+      "Bash(timeout /t 3)",
+      "Bash(ping:*)"
     ]
   }
 }

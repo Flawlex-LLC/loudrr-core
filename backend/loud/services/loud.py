@@ -287,6 +287,7 @@ class LoudService:
             entry = LoudLeaderboardEntry.objects.get(project=project, user=self.user)
             rank = self.get_user_rank(project)
             return {
+                'user_id': str(self.user.id),
                 'rank': rank,
                 'total_points': entry.total_points,
                 'submission_count': entry.submission_count,

@@ -26,8 +26,14 @@ COPY . .
 # Collect static files (will be served by whitenoise)
 RUN python manage.py collectstatic --noinput --clear 2>/dev/null || true
 
+# Copy and set entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 # Expose port
 EXPOSE 8000
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
 
 # Health check - uses lightweight endpoint, retries on failure
 # start-period gives app 40s to start before checking
