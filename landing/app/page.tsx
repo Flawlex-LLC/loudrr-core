@@ -229,14 +229,15 @@ export default function LandingPage() {
             <h1
               className={`
                 font-syne font-bold text-white
-                leading-[0.95] tracking-[-0.02em]
+                leading-[0.85] tracking-[-0.02em]
                 transition-all duration-1000 ease-out delay-200
                 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}
               `}
-              style={{ fontSize: 'clamp(2rem, 8vw, 6rem)' }}
+              style={{ fontSize: 'clamp(3.25rem, 9vw, 6rem)' }}
             >
-              Stand out{" "}
-              <span className="text-[#f95400] inline-block hover:scale-105 transition-transform duration-300 cursor-default">
+              <span className="whitespace-nowrap">Stand out</span>
+              <br />
+              <span className="text-[#f95400] inline-block hover:scale-105 transition-transform duration-300 cursor-default whitespace-nowrap">
                 Go Loudrr
               </span>
             </h1>
@@ -332,14 +333,14 @@ export default function LandingPage() {
               {/* Button */}
               <button
                 type="submit"
-                disabled={loading || !email.trim()}
+                disabled={loading}
                 onMouseEnter={() => setButtonHover(true)}
                 onMouseLeave={() => setButtonHover(false)}
                 className="
                   flex-shrink-0
                   text-black font-syne font-bold
                   transition-all duration-300
-                  disabled:opacity-30 disabled:cursor-not-allowed
+                  disabled:opacity-50 disabled:cursor-not-allowed
                   hover:scale-[1.02]
                   active:scale-[0.98]
                   whitespace-nowrap
@@ -368,16 +369,14 @@ export default function LandingPage() {
               </button>
             </div>
 
+            {/* Info text - always visible */}
+            <p className="text-white/30 mt-6" style={{ fontSize: 'clamp(10px, 1.4vw, 12px)' }}>
+              Redirects to Telegram to complete application.
+            </p>
+
             {/* Error message */}
             {error && (
               <p className="text-red-400 animate-shake mt-3" style={{ fontSize: 'clamp(11px, 1.5vw, 14px)' }}>{error}</p>
-            )}
-
-            {/* Helper text - only show after valid email entered */}
-            {email.trim() && email.includes('@') && (
-              <p className="text-white/20 mt-3" style={{ fontSize: 'clamp(11px, 1.5vw, 13px)' }}>
-                Join Telegram to complete waitlist application.
-              </p>
             )}
           </form>
         </div>

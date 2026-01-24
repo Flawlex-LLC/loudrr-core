@@ -16,6 +16,21 @@ export default function AudioWaveGL() {
     mouseRef.current.targetY = (e.clientY - rect.top) / rect.height;
   }, []);
 
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!containerRef.current) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    mouseRef.current.targetX = (touch.clientX - rect.left) / rect.width;
+    mouseRef.current.targetY = (touch.clientY - rect.top) / rect.height;
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    // Reset to default position when touch ends
+    mouseRef.current.targetX = 0.5;
+    mouseRef.current.targetY = 0.5;
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -54,8 +69,9 @@ export default function AudioWaveGL() {
       uniforms: {
         uColor: { value: brandColor.clone() },
         uGlowPosition: { value: new THREE.Vector2(0.5, 0.5) },
-        uIntensity: { value: 0.85 },
+        uIntensity: { value: 0.45 },
         uTime: { value: 0 },
+        uResolution: { value: new THREE.Vector2(width, height) },
       },
       vertexShader: `
         varying vec2 vUv;
@@ -69,21 +85,15 @@ export default function AudioWaveGL() {
         uniform vec2 uGlowPosition;
         uniform float uIntensity;
         uniform float uTime;
+        uniform vec2 uResolution;
         varying vec2 vUv;
 
-        float hash(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-        }
-
-        float noise(vec2 p) {
-          vec2 i = floor(p);
-          vec2 f = fract(p);
-          f = f * f * (3.0 - 2.0 * f);
-          float a = hash(i);
-          float b = hash(i + vec2(1.0, 0.0));
-          float c = hash(i + vec2(0.0, 1.0));
-          float d = hash(i + vec2(1.0, 1.0));
-          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        // Halftone dot pattern function
+        float halftone(vec2 coord, float dotSize) {
+          vec2 nearest = floor(coord / dotSize) * dotSize + dotSize * 0.5;
+          float dist = distance(coord, nearest);
+          float dotRadius = dotSize * 0.35;
+          return smoothstep(dotRadius, dotRadius * 0.7, dist);
         }
 
         void main() {
@@ -91,19 +101,25 @@ export default function AudioWaveGL() {
           float dist = distance(vUv, glowCenter);
           float glow = smoothstep(0.35, 0.0, dist) * uIntensity;
 
-          float barEffect = noise(vec2(vUv.x * 60.0, vUv.y * 2.0));
-          barEffect = pow(barEffect, 0.5);
+          // Create aspect-corrected coordinates for perfect circular dots
+          float aspect = uResolution.x / uResolution.y;
+          vec2 halftoneCoord = vUv * 400.0; // Even higher frequency for super tiny dots
+          halftoneCoord.x *= aspect; // Correct aspect ratio for circular dots
 
-          float grain = noise(vUv * 400.0);
-          float grainFine = noise(vUv * 800.0);
-          float ruggedTexture = mix(grain, grainFine, 0.5);
-          ruggedTexture = pow(ruggedTexture, 0.8) * 0.4 + 0.6;
+          float halftonePattern = halftone(halftoneCoord, 1.0);
 
-          glow *= ruggedTexture;
-          glow *= (0.7 + barEffect * 0.3);
+          // Invert so dots are bright, gaps are dark
+          halftonePattern = 1.0 - halftonePattern;
 
-          vec3 finalColor = uColor * (1.0 + glow * 0.2);
-          gl_FragColor = vec4(finalColor * glow, glow * 0.9);
+          // Subtle dot brightness that follows glow
+          float dotBrightness = halftonePattern * glow * 1.8;
+
+          // Combine soft glow with very fine halftone texture
+          float combinedGlow = glow * 0.25 + dotBrightness * 0.4;
+
+          vec3 finalColor = uColor * (1.1 + combinedGlow * 0.3);
+          float alpha = (glow * 0.35 + dotBrightness * 0.3) * 0.85;
+          gl_FragColor = vec4(finalColor * combinedGlow, alpha);
         }
       `,
       transparent: true,
@@ -122,7 +138,8 @@ export default function AudioWaveGL() {
 
     // Function to calculate bar properties based on current dimensions
     const calculateBarLayout = (w: number, h: number) => {
-      const barWidth = w / barCount * 0.7;
+      // Increase bar width for better visibility, especially on mobile
+      const barWidth = w / barCount * 0.85;
       const barSpacing = w / barCount;
       return { barWidth, barSpacing };
     };
@@ -200,13 +217,13 @@ export default function AudioWaveGL() {
       const currentWidth = dimensionsRef.current.width;
       const currentHeight = dimensionsRef.current.height;
 
-      // Smooth mouse interpolation
-      mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.1;
-      mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.1;
+      // Smooth mouse interpolation (slower for smoother transitions)
+      mouseRef.current.x += (mouseRef.current.targetX - mouseRef.current.x) * 0.05;
+      mouseRef.current.y += (mouseRef.current.targetY - mouseRef.current.y) * 0.05;
 
       // Glow position follows mouse horizontally - stays on right side, away from cursor
       const targetGlowX = 0.55 + mouseRef.current.x * 0.4; // Offset to right, follows mouse
-      glowPositionRef.current.x += (targetGlowX - glowPositionRef.current.x) * 0.03;
+      glowPositionRef.current.x += (targetGlowX - glowPositionRef.current.x) * 0.02;
 
       // Clamp glow to right half only (0.5 to 0.95)
       glowPositionRef.current.x = Math.max(0.5, Math.min(glowPositionRef.current.x, 0.95));
@@ -218,6 +235,7 @@ export default function AudioWaveGL() {
       // Update glow
       (glowMaterial.uniforms.uGlowPosition.value as THREE.Vector2).set(glowX, glowY);
       glowMaterial.uniforms.uTime.value = time;
+      (glowMaterial.uniforms.uResolution.value as THREE.Vector2).set(currentWidth, currentHeight);
 
       bars.forEach((bar, i) => {
         const data = barData[i];
@@ -250,6 +268,9 @@ export default function AudioWaveGL() {
     animate();
 
     window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("touchmove", handleTouchMove, { passive: true });
+    window.addEventListener("touchstart", handleTouchMove, { passive: true });
+    window.addEventListener("touchend", handleTouchEnd, { passive: true });
 
     const handleResize = () => {
       if (!container) return;
@@ -272,6 +293,9 @@ export default function AudioWaveGL() {
       // Update glow plane geometry
       glowPlane.geometry.dispose();
       glowPlane.geometry = new THREE.PlaneGeometry(newWidth * 1.5, newHeight * 1.5);
+
+      // Update resolution uniform for aspect-corrected halftone
+      (glowMaterial.uniforms.uResolution.value as THREE.Vector2).set(newWidth, newHeight);
 
       // Update bar positions and geometries
       const { barWidth: newBarWidth, barSpacing: newBarSpacing } = calculateBarLayout(newWidth, newHeight);
@@ -297,6 +321,9 @@ export default function AudioWaveGL() {
     return () => {
       cancelAnimationFrame(animationId);
       window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchstart", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
       window.removeEventListener("resize", handleResize);
 
       if (container && renderer.domElement) {
@@ -311,7 +338,7 @@ export default function AudioWaveGL() {
       glowPlane.geometry.dispose();
       glowMaterial.dispose();
     };
-  }, [handleMouseMove]);
+  }, [handleMouseMove, handleTouchMove, handleTouchEnd]);
 
   return (
     <div
