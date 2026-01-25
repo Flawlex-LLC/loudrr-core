@@ -8,6 +8,7 @@ Models:
 """
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Index, UniqueConstraint
 
@@ -131,6 +132,9 @@ class LoudSubmission(models.Model):
         indexes = [
             Index(fields=['user', 'submitted_at']),
             Index(fields=['project', '-points_awarded']),
+            # Critical: Fast lookup for per-project user submission counts
+            # Prevents wrong leaderboard updates under concurrent load
+            Index(fields=['user', 'project'], name='loud_sub_user_proj_idx'),
         ]
 
     def __str__(self):
@@ -182,3 +186,64 @@ class LoudLeaderboardEntry(models.Model):
 
     def __str__(self):
         return f"{self.user.display_name} - {self.project.name}: {self.total_points} pts"
+
+
+class LoudPointAdjustment(models.Model):
+    """
+    Audit log for manual point adjustments by admins.
+    Used for removing points from fake/duplicate submissions.
+    """
+    class AdjustmentType(models.TextChoices):
+        DEDUCTION = 'deduction', 'Point Deduction'
+        ADDITION = 'addition', 'Point Addition'
+        SUBMISSION_VOID = 'void', 'Submission Voided'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    leaderboard_entry = models.ForeignKey(
+        LoudLeaderboardEntry,
+        on_delete=models.CASCADE,
+        related_name='adjustments'
+    )
+    submission = models.ForeignKey(
+        LoudSubmission,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='adjustments',
+        help_text="If voiding a specific submission"
+    )
+
+    # Adjustment details
+    adjustment_type = models.CharField(
+        max_length=20,
+        choices=AdjustmentType.choices,
+        default=AdjustmentType.DEDUCTION
+    )
+    points_change = models.IntegerField(
+        help_text="Negative for deductions, positive for additions"
+    )
+    reason = models.TextField(help_text="Required reason for audit trail")
+
+    # Snapshot for audit
+    points_before = models.PositiveIntegerField()
+    points_after = models.PositiveIntegerField()
+
+    # Admin who made the change
+    admin_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='loud_point_adjustments'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'loud_point_adjustments'
+        ordering = ['-created_at']
+        indexes = [
+            Index(fields=['leaderboard_entry', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.adjustment_type}: {self.points_change} pts - {self.leaderboard_entry.user.display_name}"

@@ -609,15 +609,16 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
     Allows admins to approve/reject waitlist applications.
     """
     list_display = [
-        "email", "x_username_display", "telegram_username_display",
-        "status_display", "email_verified_display", "created_at",
+        "email", "x_username_display", "followers_display", "verified_display",
+        "telegram_username_display", "status_display", "created_at",
     ]
-    list_filter = ["status", "email_verified", "created_at"]
-    search_fields = ["email", "x_username", "telegram_username"]
-    ordering = ["-created_at"]
+    list_filter = ["status", "x_is_verified", "email_verified", "created_at"]
+    search_fields = ["email", "x_username", "x_display_name", "telegram_username"]
+    ordering = ["-x_followers_count", "-created_at"]  # High followers first by default
     readonly_fields = [
         "id", "join_token", "telegram_id", "telegram_username",
         "telegram_display_name", "email_verified",
+        "x_display_name", "x_followers_count", "x_avatar_url", "x_is_verified", "x_fetched_at",
         "created_at", "updated_at", "approved_at", "created_user",
     ]
     actions = ["approve_entries", "reject_entries"]
@@ -629,7 +630,10 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
     fieldsets = (
         ("Email", {"fields": ("email", "email_verified")}),
         ("Telegram", {"fields": ("telegram_id", "telegram_username", "telegram_display_name")}),
-        ("X/Twitter", {"fields": ("x_username",)}),
+        ("X/Twitter", {"fields": (
+            "x_username", "x_display_name", "x_followers_count",
+            "x_is_verified", "x_avatar_url", "x_fetched_at"
+        )}),
         ("Status", {"fields": ("status", "approved_at", "created_user")}),
         ("Internal", {"fields": ("id", "join_token"), "classes": ("collapse",)}),
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
@@ -676,6 +680,44 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
             return format_html('<span style="color: #27ae60;">✓</span>')
         return format_html('<span style="color: rgba(255,255,255,0.3);">-</span>')
     email_verified_display.short_description = "Email ✓"
+
+    def followers_display(self, obj):
+        """Display follower count with formatting (sortable)."""
+        if obj.x_followers_count is None:
+            return format_html('<span style="color: rgba(255,255,255,0.3);">-</span>')
+
+        count = obj.x_followers_count
+        if count >= 1_000_000:
+            formatted = f"{count / 1_000_000:.1f}M"
+        elif count >= 1_000:
+            formatted = f"{count / 1_000:.1f}K"
+        else:
+            formatted = str(count)
+
+        # Color based on follower tier
+        if count >= 100_000:
+            color = "#f39c12"  # Gold for 100K+
+        elif count >= 10_000:
+            color = "#3498db"  # Blue for 10K+
+        elif count >= 1_000:
+            color = "#27ae60"  # Green for 1K+
+        else:
+            color = "rgba(255,255,255,0.7)"
+
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color, formatted
+        )
+    followers_display.short_description = "Followers"
+    followers_display.admin_order_field = "x_followers_count"
+
+    def verified_display(self, obj):
+        """Display X verified (blue checkmark) status."""
+        if obj.x_is_verified:
+            return format_html('<span style="color: #1DA1F2;">✓</span>')
+        return format_html('<span style="color: rgba(255,255,255,0.3);">-</span>')
+    verified_display.short_description = "X ✓"
+    verified_display.admin_order_field = "x_is_verified"
 
     @admin.action(description="✅ Approve selected entries")
     def approve_entries(self, request, queryset):

@@ -12,6 +12,12 @@ const syne = Syne({
 export const metadata: Metadata = {
   title: "Loudrr - Earn Karma by Engaging",
   description: "Loudrr is a karma-based attention marketplace. Earn karma by engaging with posts. Spend karma to get engagement on yours.",
+  icons: {
+    icon: [
+      { url: "/loudrr-icon.png", type: "image/png" },
+    ],
+    apple: "/loudrr-icon.png",
+  },
   openGraph: {
     title: "Loudrr - Earn Karma by Engaging",
     description: "Join the waitlist for Loudrr - a karma-based attention marketplace.",

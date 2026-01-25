@@ -1,0 +1,47 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div style="background: #f8f8f8; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+    <h2 style="margin-top: 0;">Submission Details</h2>
+    <p><strong>User:</strong> {{ submission.user.display_name }} (@{{ submission.user.x_username }})</p>
+    <p><strong>Project:</strong> {{ submission.project.name }}</p>
+    <p><strong>Points:</strong> <span style="font-size: 20px; font-weight: bold; color: #f95400;">{{ submission.points_awarded }}</span></p>
+    <p><strong>Tweet ID:</strong> {{ submission.tweet_id }}</p>
+    <p><strong>Submitted:</strong> {{ submission.submitted_at|date:"Y-m-d H:i" }}</p>
+    <p><a href="{{ submission.x_link }}" target="_blank" style="color: #007bff;">View Tweet</a></p>
+</div>
+
+<div style="background: #f8d7da; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+    <strong>Warning:</strong> Voiding this submission will remove <strong>{{ submission.points_awarded }} points</strong>
+    from {{ submission.user.display_name }}'s total (currently {{ entry.total_points }} pts).
+    This action is logged for audit purposes.
+</div>
+
+<form method="post" style="max-width: 500px;">
+    {% csrf_token %}
+    <div style="margin-bottom: 15px;">
+        <label for="id_reason" style="display: block; font-weight: bold; margin-bottom: 5px;">
+            Reason for Voiding (Required):
+        </label>
+        {{ form.reason }}
+        {% if form.reason.help_text %}
+        <p style="color: #666; font-size: 12px; margin-top: 5px;">{{ form.reason.help_text }}</p>
+        {% endif %}
+        {% if form.reason.errors %}
+        <p style="color: red;">{{ form.reason.errors }}</p>
+        {% endif %}
+    </div>
+
+    <div style="margin-top: 20px;">
+        <button type="submit" class="button" style="background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+            Void Submission (-{{ submission.points_awarded }} pts)
+        </button>
+        <a href="{% url 'admin:loud_loudsubmission_changelist' %}" class="button" style="margin-left: 10px;">
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}
