@@ -102,7 +102,7 @@ class LinkAccountView(APIView):
     """Link another platform account to current user."""
 
     def post(self, request):
-        """Link a Telegram or Discord account."""
+        """Link a Telegram account."""
         serializer = LinkAccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -143,9 +143,9 @@ class CreateUserView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if platform not in ["telegram", "discord"]:
+        if platform != "telegram":
             return Response(
-                {"error": "platform must be 'telegram' or 'discord'"},
+                {"error": "platform must be 'telegram'"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

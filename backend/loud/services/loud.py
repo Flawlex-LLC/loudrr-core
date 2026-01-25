@@ -139,8 +139,9 @@ class LoudService:
         Submit content to a project.
 
         Uses atomic operations to prevent race conditions:
-        1. Unique constraint on tweet_id prevents duplicate submissions
-        2. F() expressions for leaderboard updates prevent read-modify-write races
+        1. Lock user row FIRST to prevent daily limit race condition
+        2. Unique constraint on tweet_id prevents duplicate submissions
+        3. F() expressions for leaderboard updates prevent read-modify-write races
 
         Returns:
             LoudSubmission: The created submission
@@ -148,22 +149,27 @@ class LoudService:
         Raises:
             ValidationError: If validation fails or duplicate submission
         """
-        # Validate eligibility
-        can, reason = self.can_submit(project)
+        # LOCK USER ROW FIRST - critical for preventing daily limit race conditions
+        # This ensures eligibility check happens on locked data
+        locked_user = User.objects.select_for_update().get(pk=self.user.pk)
+
+        # Validate eligibility with locked user
+        # Re-check limits using the locked user context
+        can, reason = self._can_submit_locked(project, locked_user)
         if not can:
             raise ValidationError(reason)
 
         # Validate and normalize URL
         normalized_url, tweet_id, x_username = validate_and_normalize_x_link(x_link)
 
-        # Calculate points
-        score = self.user.tweetscout_score or 0
+        # Calculate points using locked user data
+        score = locked_user.tweetscout_score or 0
         points = calculate_loud_points(score)
 
         try:
             # Create submission (unique constraint on tweet_id handles race)
             submission = LoudSubmission.objects.create(
-                user=self.user,
+                user=locked_user,
                 project=project,
                 x_link=normalized_url,
                 tweet_id=tweet_id,
@@ -182,6 +188,46 @@ class LoudService:
         self._invalidate_leaderboard_cache(project.slug)
 
         return submission
+
+    def _can_submit_locked(self, project: LoudProject, locked_user: User) -> tuple[bool, str]:
+        """
+        Check if user can submit to a project (with user row locked).
+
+        This is called INSIDE the atomic transaction after locking the user,
+        preventing race conditions on daily limit checks.
+
+        Returns:
+            tuple: (can_submit, error_message)
+        """
+        # Check 0: X account linked
+        if not locked_user.x_username:
+            return False, "Link your X account to submit"
+
+        # Check 1: TweetScout minimum for this project
+        score = locked_user.tweetscout_score or 0
+        if score < project.min_tweetscout_score:
+            return False, f"Requires TweetScout score of {project.min_tweetscout_score}+"
+
+        # Check 2: Global daily limit (checked with locked user)
+        today_count = LoudSubmission.objects.filter(
+            user=locked_user,
+            submitted_at__date=timezone.now().date()
+        ).count()
+
+        daily_limit = get_setting('LOUD_DAILY_LIMIT', 6)
+        if today_count >= daily_limit:
+            return False, f"Daily limit reached ({daily_limit} posts)"
+
+        # Check 3: Per-project limit
+        project_count = LoudSubmission.objects.filter(
+            user=locked_user,
+            project=project
+        ).count()
+
+        if project_count >= project.max_submissions_per_user:
+            return False, f"Project limit reached ({project.max_submissions_per_user} posts)"
+
+        return True, ""
 
     def _update_leaderboard_atomic(self, project: LoudProject, points: int):
         """

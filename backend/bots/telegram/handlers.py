@@ -12,10 +12,6 @@ from telegram.ext import ContextTypes
 
 from core.models import User, WaitlistEntry
 from core.services.credits import CreditService
-from core.services.posts import PostService, get_feed_posts, get_feed_count
-from core.services.gamification import get_user_stats, get_leaderboard
-from core.services.engagements import get_cooldown_remaining, record_button_engagement
-from posts.models import Post
 
 
 def get_or_create_user(telegram_id: int, display_name: str = "", username: str = "") -> tuple[User, bool]:
@@ -61,27 +57,30 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username=telegram_user.username or "",
     )
 
+    miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
+
     if created:
         welcome_text = (
             f"Welcome to Loudrr, {telegram_user.first_name}!\n\n"
-            "Loudrr is a credit-based engagement exchange:\n"
-            "- Reply to others' posts to earn credits\n"
-            "- Spend credits to get replies on your posts\n\n"
-            "Start engaging now:\n"
-            "/feed - Get posts to engage with\n"
-            "/balance - Check your credits\n"
-            "/post <link> - Submit your X post\n"
-            "/help - All commands"
+            "Loudrr is a karma-based engagement exchange:\n"
+            "- Engage with posts to earn karma\n"
+            "- Spend karma to promote your own posts\n\n"
+            "Tap the button below to open the app!"
         )
     else:
         welcome_text = (
             f"Welcome back, {telegram_user.first_name}!\n\n"
-            f"Credits: {user.credits}\n"
+            f"Karma: {user.credits}\n"
             f"Streak: {user.current_streak} days\n\n"
-            "Use /feed to start engaging!"
+            "Tap below to start engaging!"
         )
 
-    await update.message.reply_text(welcome_text)
+    keyboard = [[InlineKeyboardButton(
+        "Open Loudrr",
+        web_app=WebAppInfo(url=miniapp_url)
+    )]]
+
+    await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -146,36 +145,27 @@ async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /help command."""
-    telegram_id = update.effective_user.id
+    miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
 
     help_text = (
         "Loudrr Commands:\n\n"
-        "/engage - Open Mini App to earn karma\n"
+        "/start - Start the bot\n"
         "/balance - Check your karma balance\n"
-        "/stats - Your engagement statistics\n"
-        "/feed - Get posts to engage with (text mode)\n"
-        "/post <link> - Submit your X post (costs 80 karma)\n"
-        "/leaderboard - View top engagers\n"
+        "/launch - Get a pinnable 'Open App' message\n"
         "/help - Show this message\n\n"
-        "Or just send an X link to auto-post!\n\n"
         "How it works:\n"
-        "1. Use /engage to open the engagement app\n"
-        "2. Click posts, engage on X\n"
-        "3. Earn 1 karma per engagement\n"
-        "4. Spend 80 karma to post your own link\n"
-        "5. Get 80 guaranteed engagements!"
+        "1. Open the mini app using the button below\n"
+        "2. Engage with posts on X\n"
+        "3. Earn karma for each engagement\n"
+        "4. Spend karma to promote your own posts!"
     )
 
-    # Add admin commands if user is admin
-    if is_admin(telegram_id):
-        help_text += (
-            "\n\nAdmin Commands:\n"
-            "/give <amount> - Reply to user to give credits\n"
-            "/give @username <amount> - Give credits by username\n"
-            "/give <telegram_id> <amount> - Give credits by ID"
-        )
+    keyboard = [[InlineKeyboardButton(
+        "Open Loudrr",
+        web_app=WebAppInfo(url=miniapp_url)
+    )]]
 
-    await update.message.reply_text(help_text)
+    await update.message.reply_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -204,322 +194,6 @@ async def balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_photo(photo=image, caption="Your Loudrr Balance")
-
-
-async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /stats command."""
-    user, _ = get_or_create_user(
-        telegram_id=update.effective_user.id,
-        display_name=update.effective_user.full_name or "",
-        username=update.effective_user.username or "",
-    )
-
-    stats = get_user_stats(user)
-
-    text = (
-        f"Your Stats\n\n"
-        f"Credits: {stats['credits']}\n"
-        f"Total earned: {stats['total_earned']}\n"
-        f"Total spent: {stats['total_spent']}\n\n"
-        f"Engagements: {stats['total_engagements']}\n"
-        f"Posts created: {stats['total_posts']}\n\n"
-        f"Current streak: {stats['current_streak']} days\n"
-        f"Longest streak: {stats['longest_streak']} days\n\n"
-        f"Tier: {stats['tier'].title()}\n"
-        f"Rank: #{stats['rank']}\n"
-        f"Earning multiplier: {stats['combined_multiplier']:.2f}x"
-    )
-
-    await update.message.reply_text(text)
-
-
-async def engage_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /engage command - opens the Mini App for engagement."""
-    user, _ = get_or_create_user(
-        telegram_id=update.effective_user.id,
-        display_name=update.effective_user.full_name or "",
-        username=update.effective_user.username or "",
-    )
-
-    miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
-
-    # Get feed count for display
-    total_available = get_feed_count(user)
-
-    text = (
-        f"Ready to earn karma?\n\n"
-        f"Posts available: {total_available}\n"
-        f"Your balance: {user.credits} karma\n"
-        f"Daily earned: {user.daily_credits_earned}/100\n\n"
-        f"Tap 'Engage Now' to start earning!"
-    )
-
-    keyboard = [
-        [InlineKeyboardButton(
-            "Engage Now",
-            web_app=WebAppInfo(url=miniapp_url)
-        )],
-        [
-            InlineKeyboardButton("My Balance", callback_data="balance"),
-            InlineKeyboardButton("Leaderboard", callback_data="lb:all_time"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(text, reply_markup=reply_markup)
-
-
-async def post_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /post command - submit a new post."""
-    user, _ = get_or_create_user(
-        telegram_id=update.effective_user.id,
-        display_name=update.effective_user.full_name or "",
-        username=update.effective_user.username or "",
-    )
-
-    # Check if link was provided
-    if not context.args:
-        await update.message.reply_text(
-            "Please provide your X post link:\n\n"
-            "/post https://x.com/username/status/123456789"
-        )
-        return
-
-    x_link = context.args[0]
-
-    # Validate it's an X/Twitter link
-    if not re.match(r"https?://(twitter\.com|x\.com)/\w+/status/\d+", x_link):
-        await update.message.reply_text(
-            "Invalid link. Please provide a valid X post URL:\n"
-            "https://x.com/username/status/123456789"
-        )
-        return
-
-    # Check credits
-    post_cost = settings.ECHO_CONFIG["POST_COST"]
-    if user.credits < post_cost:
-        await update.message.reply_text(
-            f"Insufficient credits!\n\n"
-            f"Required: {post_cost} credits\n"
-            f"You have: {user.credits} credits\n\n"
-            f"Use /feed to earn more credits by engaging with others' posts."
-        )
-        return
-
-    # Create the post
-    post_service = PostService(user)
-    post = post_service.create_post(
-        x_link=x_link,
-        platform="telegram",
-        channel_id=update.effective_chat.id,
-        message_id=update.message.message_id,
-    )
-
-    await update.message.reply_text(
-        f"Post submitted!\n\n"
-        f"Credits deducted: {post_cost}\n"
-        f"Remaining balance: {user.credits}\n\n"
-        f"Your post is now live. You'll receive up to {post_cost} engagements.\n"
-        f"We'll notify you when it's complete!"
-    )
-
-
-async def feed_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /feed command - get bulk posts to engage with.
-
-    Usage: /feed [count]
-    Default: 10 posts
-    """
-    from django.core.cache import cache
-    import uuid
-
-    user, _ = get_or_create_user(
-        telegram_id=update.effective_user.id,
-        display_name=update.effective_user.full_name or "",
-        username=update.effective_user.username or "",
-    )
-
-    # Parse count from args (default 10, max 20)
-    count = 10
-    if context.args:
-        try:
-            count = min(int(context.args[0]), 20)  # Max 20 at a time
-            count = max(count, 1)  # Min 1
-        except ValueError:
-            pass
-
-    # Get feed posts
-    posts = get_feed_posts(user, limit=count)
-    total_available = get_feed_count(user)
-
-    if not posts:
-        await update.message.reply_text(
-            "No posts available right now.\n\n"
-            "Check back later or invite others to post!"
-        )
-        return
-
-    # Generate batch ID and store post IDs in cache
-    batch_id = str(uuid.uuid4())[:8]
-    post_ids = [str(post.id) for post in posts]
-    cache_key = f"feed_batch:{user.id}:{batch_id}"
-    cache.set(cache_key, post_ids, timeout=3600)  # 1 hour expiry
-
-    # Build the message with hyperlinks
-    lines = [f"📋 <b>{len(posts)} posts to engage with:</b>\n"]
-
-    for i, post in enumerate(posts, 1):
-        username = post.user.x_username or post.user.telegram_username or "user"
-        lines.append(f'{i}. <a href="{post.x_link}">@{username}</a>')
-
-    lines.append(f"\n📊 {total_available} total posts available")
-    lines.append("\n✅ Open links, engage on X, then tap Claim!")
-    lines.append("⚠️ 3 random posts will be verified")
-
-    text = "\n".join(lines)
-
-    # Create keyboard with claim button
-    keyboard = [
-        [InlineKeyboardButton(f"✅ Claim {len(posts)} Credits", callback_data=f"claim:{batch_id}")],
-        [
-            InlineKeyboardButton("🔄 New Batch", callback_data="newbatch"),
-            InlineKeyboardButton("📊 My Stats", callback_data="stats"),
-        ],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
-
-
-def is_admin(telegram_id: int) -> bool:
-    """Check if user is an admin."""
-    admin_ids = [int(x) for x in settings.ADMIN_TELEGRAM_IDS]
-    return telegram_id in admin_ids
-
-
-async def give_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /give command - admin gives credits to users.
-
-    Usage: /give <amount> (reply to user's message)
-    Or: /give @username <amount>
-    Or: /give <telegram_id> <amount>
-    """
-    admin_id = update.effective_user.id
-
-    # Check if user is admin
-    if not is_admin(admin_id):
-        await update.message.reply_text("You are not authorized to use this command.")
-        return
-
-    # Parse arguments
-    args = context.args
-    target_user = None
-    target_telegram_id = None
-
-    # Check if replying to someone's message
-    if update.message.reply_to_message:
-        # Get target user from replied message
-        target_telegram_id = update.message.reply_to_message.from_user.id
-        target_name = update.message.reply_to_message.from_user.full_name
-        target_username = update.message.reply_to_message.from_user.username or ""
-
-        if not args or len(args) < 1:
-            await update.message.reply_text(
-                "Usage: Reply to a user's message with:\n"
-                "/give <amount>\n\n"
-                "Example: /give 100"
-            )
-            return
-
-        try:
-            amount = int(args[0])
-        except ValueError:
-            await update.message.reply_text("Amount must be a number.")
-            return
-
-        # Get or create target user from reply
-        target_user, _ = get_or_create_user(
-            telegram_id=target_telegram_id,
-            display_name=target_name,
-            username=target_username,
-        )
-    else:
-        # Need @username or telegram_id and amount
-        if not args or len(args) < 2:
-            await update.message.reply_text(
-                "Usage:\n"
-                "1. Reply to a user's message: /give <amount>\n"
-                "2. Or use: /give @username <amount>\n"
-                "3. Or use: /give <telegram_id> <amount>\n\n"
-                "Examples:\n"
-                "/give 100 (when replying)\n"
-                "/give @johndoe 100\n"
-                "/give 123456789 100"
-            )
-            return
-
-        identifier = args[0]
-        try:
-            amount = int(args[1])
-        except ValueError:
-            await update.message.reply_text("Amount must be a number.")
-            return
-
-        # Check if it's a username (starts with @)
-        if identifier.startswith("@"):
-            target_user = get_user_by_username(identifier)
-            if not target_user:
-                await update.message.reply_text(
-                    f"User {identifier} not found.\n\n"
-                    "The user must have interacted with the bot at least once."
-                )
-                return
-        else:
-            # Try as telegram_id
-            try:
-                target_telegram_id = int(identifier)
-                target_user, _ = get_or_create_user(
-                    telegram_id=target_telegram_id,
-                    display_name=f"User {target_telegram_id}",
-                )
-            except ValueError:
-                await update.message.reply_text(
-                    "Invalid format. Use @username or telegram_id.\n\n"
-                    "Examples:\n"
-                    "/give @johndoe 100\n"
-                    "/give 123456789 100"
-                )
-                return
-
-    if amount <= 0:
-        await update.message.reply_text("Amount must be positive.")
-        return
-
-    # Give credits (use admin_grant to bypass daily cap)
-    credit_service = CreditService(target_user)
-    credit_service.admin_grant(
-        amount=amount,
-        admin_id=admin_id,
-        description=f"Credits granted by admin {admin_id}",
-    )
-
-    await update.message.reply_text(
-        f"Credits granted!\n\n"
-        f"User: {target_user.display_name or target_user.telegram_id}\n"
-        f"Amount: +{amount} credits\n"
-        f"New balance: {target_user.credits} credits"
-    )
-
-    # Notify the user if possible (in private chat)
-    try:
-        if target_user.telegram_id:
-            await context.bot.send_message(
-                chat_id=target_user.telegram_id,
-                text=f"You received {amount} credits from an admin!\n"
-                     f"New balance: {target_user.credits} credits"
-            )
-    except Exception:
-        pass  # User may have not started the bot yet
 
 
 async def handle_waitlist_x_username(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -588,8 +262,8 @@ async def handle_waitlist_x_username(update: Update, context: ContextTypes.DEFAU
         )
 
 
-async def link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle messages with X/Twitter links - auto-create posts."""
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle messages - check if collecting X username for waitlist."""
     if not update.message or not update.message.text:
         return
 
@@ -597,56 +271,6 @@ async def link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if 'collecting_x_username' in context.user_data:
         await handle_waitlist_x_username(update, context)
         return
-
-    text = update.message.text
-
-    # Find X/Twitter links in the message
-    x_pattern = r"https?://(twitter\.com|x\.com)/\w+/status/\d+"
-    matches = re.findall(x_pattern, text)
-
-    if not matches:
-        return  # No X links found, ignore message
-
-    # Extract full URL
-    match = re.search(x_pattern, text)
-    if not match:
-        return
-
-    x_link = match.group(0)
-
-    user, _ = get_or_create_user(
-        telegram_id=update.effective_user.id,
-        display_name=update.effective_user.full_name or "",
-        username=update.effective_user.username or "",
-    )
-
-    # Check credits
-    post_cost = settings.ECHO_CONFIG["POST_COST"]
-    if user.credits < post_cost:
-        await update.message.reply_text(
-            f"Insufficient credits to post!\n\n"
-            f"Required: {post_cost} credits\n"
-            f"You have: {user.credits} credits\n\n"
-            f"Use /feed to earn credits by engaging with others' posts."
-        )
-        return
-
-    # Create the post
-    post_service = PostService(user)
-    post = post_service.create_post(
-        x_link=x_link,
-        platform="telegram",
-        channel_id=update.effective_chat.id,
-        message_id=update.message.message_id,
-    )
-
-    await update.message.reply_text(
-        f"✅ Post auto-submitted!\n\n"
-        f"Link: {x_link[:50]}...\n"
-        f"Credits deducted: {post_cost}\n"
-        f"Remaining balance: {user.credits}\n\n"
-        f"Your post is now live and will receive up to {post_cost} engagements!"
-    )
 
 
 async def launch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -668,52 +292,6 @@ async def launch_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Play Now",
             web_app=WebAppInfo(url=miniapp_url)
         )],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(text, reply_markup=reply_markup)
-
-
-async def leaderboard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /leaderboard command."""
-    # Get period from args
-    period = "all_time"
-    if context.args:
-        if context.args[0] in ["daily", "weekly", "all_time"]:
-            period = context.args[0]
-
-    leaders = get_leaderboard(period=period, limit=10)
-
-    if not leaders:
-        await update.message.reply_text("No leaderboard data yet!")
-        return
-
-    period_display = {
-        "daily": "Today's",
-        "weekly": "This Week's",
-        "all_time": "All-Time",
-    }
-
-    text = f"{period_display[period]} Top Engagers\n\n"
-
-    for entry in leaders:
-        medal = ""
-        if entry["rank"] == 1:
-            medal = " [1st]"
-        elif entry["rank"] == 2:
-            medal = " [2nd]"
-        elif entry["rank"] == 3:
-            medal = " [3rd]"
-
-        text += f"{entry['rank']}. {entry['display_name']}{medal}\n"
-        text += f"   {entry['engagements']} engagements | {entry['streak']} day streak\n"
-
-    keyboard = [
-        [
-            InlineKeyboardButton("Daily", callback_data="lb:daily"),
-            InlineKeyboardButton("Weekly", callback_data="lb:weekly"),
-            InlineKeyboardButton("All-Time", callback_data="lb:all_time"),
-        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 

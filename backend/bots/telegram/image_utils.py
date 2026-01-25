@@ -216,8 +216,7 @@ def create_balance_card(
     tier: str,
     multiplier: float = 1.0,
     telegram_username: str = "",
-    discord_username: str = "",
-    x_username: str = ""  # Single X/Twitter username
+    x_username: str = ""  # X/Twitter username
 ) -> io.BytesIO:
     """Create a premium glossy balance card with proper rounded corners."""
 
@@ -359,8 +358,8 @@ def create_balance_card(
 
 
     # Profile and usernames section
-    if telegram_username or discord_username:
-        # Profile circle (on left) - sized to match height of all 3 social lines
+    if telegram_username:
+        # Profile circle (on left) - sized to match height of social lines
         profile_size = 72
         profile_x = left_x
         profile_y = row1_y - 10
@@ -375,8 +374,8 @@ def create_balance_card(
             [profile_x + 4, profile_y + 4, profile_x + profile_size - 4, profile_y + profile_size - 4],
             fill=gold_dim
         )
-        # User initial (from telegram or discord username) with gradient
-        display_name = telegram_username or discord_username
+        # User initial (from telegram username) with gradient
+        display_name = telegram_username
         initial = display_name[0].upper()
         init_font = get_font(32, bold=True)
         init_bbox = draw.textbbox((0, 0), initial, font=init_font)
@@ -400,8 +399,6 @@ def create_balance_card(
         lines = []
         if telegram_username:
             lines.append(("tg", f"@{telegram_username}"))
-        if discord_username:
-            lines.append(("discord", f"@{discord_username}"))
         if x_username:
             lines.append(("x", f"@{x_username}"))
 
@@ -423,12 +420,6 @@ def create_balance_card(
                 tg_icon = load_icon("telegram", size=icon_size, color=(255, 255, 255), rounded=True, radius=4)
                 tg_icon = apply_gradient_to_icon(tg_icon)
                 img.paste(tg_icon, (text_x, icon_y), tg_icon)
-                img = draw_gradient_text(img, (text_x + icon_size + 8, text_y), text, font_social, draw)
-                draw = ImageDraw.Draw(img)
-            elif platform == "discord":
-                discord_icon = load_icon("discord", size=icon_size, color=(255, 255, 255), rounded=True, radius=4)
-                discord_icon = apply_gradient_to_icon(discord_icon)
-                img.paste(discord_icon, (text_x, icon_y), discord_icon)
                 img = draw_gradient_text(img, (text_x + icon_size + 8, text_y), text, font_social, draw)
                 draw = ImageDraw.Draw(img)
             elif platform == "x":

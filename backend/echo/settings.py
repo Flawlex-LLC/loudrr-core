@@ -309,7 +309,34 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
 }
 
+# =============================================================================
+# EMAIL CONFIGURATION
+# =============================================================================
+# For production, use an SMTP service like AWS SES, SendGrid, Mailgun, etc.
+# Set these environment variables:
+#   EMAIL_HOST=smtp.sendgrid.net
+#   EMAIL_PORT=587
+#   EMAIL_HOST_USER=apikey
+#   EMAIL_HOST_PASSWORD=your-api-key
+#   EMAIL_USE_TLS=True
+#   DEFAULT_FROM_EMAIL=noreply@loudrr.com
+
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend"
+)
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Loudrr <noreply@loudrr.com>")
+EMAIL_SUBJECT_PREFIX = "[Loudrr] "
+
+# =============================================================================
 # CORS
+# =============================================================================
 # In production, set CORS_ALLOW_ALL_ORIGINS=False (defaults to DEBUG value)
 CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
 CORS_ALLOWED_ORIGINS = env.list(
@@ -344,7 +371,6 @@ MINIAPP_URL = env("MINIAPP_URL", default="http://localhost:3000")
 # Bot tokens
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", default="")
 TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", default="Loudrrbot")
-DISCORD_BOT_TOKEN = env("DISCORD_BOT_TOKEN", default="")
 
 # Twitter API (twitterapi.io) for verification (v1)
 TWITTER_API_KEY = env("TWITTER_API_KEY", default="")

@@ -10,12 +10,12 @@ from django.utils import timezone
 class UserManager(BaseUserManager):
     """Custom user manager for ECHO users."""
 
-    def create_user(self, email=None, telegram_id=None, discord_id=None, password=None, **extra_fields):
-        """Create a user with either Telegram or Discord ID."""
-        if not telegram_id and not discord_id and not email:
-            raise ValueError("User must have telegram_id, discord_id, or email")
+    def create_user(self, email=None, telegram_id=None, password=None, **extra_fields):
+        """Create a user with Telegram ID or email."""
+        if not telegram_id and not email:
+            raise ValueError("User must have telegram_id or email")
 
-        user = self.model(email=email, telegram_id=telegram_id, discord_id=discord_id, **extra_fields)
+        user = self.model(email=email, telegram_id=telegram_id, **extra_fields)
         if password:
             user.set_password(password)
         else:
@@ -34,19 +34,17 @@ class UserManager(BaseUserManager):
 
 class User(AbstractBaseUser, PermissionsMixin):
     """
-    Custom user model for ECHO.
+    Custom user model for Loudrr.
 
-    Users can link both Telegram and Discord accounts to the same identity.
-    Credits are shared across platforms.
+    Users authenticate via Telegram. Credits are managed per user.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # Platform identifiers (at least one required)
+    # Platform identifiers
     telegram_id = models.BigIntegerField(unique=True, null=True, blank=True)
     telegram_username = models.CharField(max_length=50, blank=True, db_index=True)
     telegram_photo_url = models.URLField(max_length=500, blank=True)  # Profile photo from Telegram
-    discord_id = models.BigIntegerField(unique=True, null=True, blank=True)
 
     # X/Twitter info (unique constraint skipped - duplicates exist in production)
     x_username = models.CharField(max_length=50, blank=True, null=True, db_index=True)
@@ -127,7 +125,6 @@ class User(AbstractBaseUser, PermissionsMixin):
         db_table = "users"
         indexes = [
             models.Index(fields=["telegram_id"]),
-            models.Index(fields=["discord_id"]),
             models.Index(fields=["total_engagements"]),
             models.Index(fields=["current_streak"]),
         ]
@@ -144,6 +141,21 @@ class User(AbstractBaseUser, PermissionsMixin):
                 check=models.Q(sponsored_xp__gte=0),
                 name="user_sponsored_xp_non_negative"
             ),
+            # Hard cap safety net - prevents corruption even if app logic fails
+            # Actual configurable cap is enforced via DAILY_EARN_CAP setting
+            models.CheckConstraint(
+                check=models.Q(daily_credits_earned__gte=0) & models.Q(daily_credits_earned__lte=500),
+                name="user_daily_credits_earned_valid_range"
+            ),
+            # Total earned/spent must be non-negative
+            models.CheckConstraint(
+                check=models.Q(total_credits_earned__gte=0),
+                name="user_total_credits_earned_non_negative"
+            ),
+            models.CheckConstraint(
+                check=models.Q(total_credits_spent__gte=0),
+                name="user_total_credits_spent_non_negative"
+            ),
         ]
 
     def __str__(self):
@@ -151,18 +163,14 @@ class User(AbstractBaseUser, PermissionsMixin):
             return self.display_name
         if self.telegram_id:
             return f"TG:{self.telegram_id}"
-        if self.discord_id:
-            return f"DC:{self.discord_id}"
         return str(self.id)
 
     @property
     def platform_ids(self):
-        """Get all linked platform IDs."""
+        """Get linked platform IDs."""
         ids = {}
         if self.telegram_id:
             ids["telegram"] = self.telegram_id
-        if self.discord_id:
-            ids["discord"] = self.discord_id
         return ids
 
     @property
@@ -183,6 +191,12 @@ class Transaction(models.Model):
     Record of all credit transactions.
 
     Provides audit trail for credits earned, spent, purchased, etc.
+
+    IDEMPOTENCY:
+    - idempotency_key prevents duplicate transactions from retries
+    - For engagements: use engagement_id as idempotency_key
+    - For posts: use post_id as idempotency_key
+    - Unique constraint on (user, type, idempotency_key) prevents duplicates
     """
 
     class Type(models.TextChoices):
@@ -205,6 +219,10 @@ class Transaction(models.Model):
     reference_id = models.UUIDField(null=True, blank=True)
     reference_type = models.CharField(max_length=50, blank=True)
 
+    # Idempotency key - prevents duplicate transactions from retries
+    # Set to reference_id for most transactions, or a unique key for admin operations
+    idempotency_key = models.CharField(max_length=64, blank=True, db_index=True)
+
     # Metadata
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -215,6 +233,23 @@ class Transaction(models.Model):
         indexes = [
             models.Index(fields=["user", "-created_at"]),
             models.Index(fields=["type"]),
+            models.Index(fields=["idempotency_key"]),
+        ]
+        constraints = [
+            # Prevent duplicate transactions for same operation
+            # idempotency_key can be empty for legacy transactions
+            models.UniqueConstraint(
+                fields=["user", "type", "idempotency_key"],
+                name="transaction_idempotency_unique",
+                condition=~models.Q(idempotency_key=''),  # Only enforce when key is set
+            ),
+            # Amount cannot be zero (no-op transactions)
+            models.CheckConstraint(
+                check=~models.Q(amount=0),
+                name="transaction_amount_non_zero"
+            ),
+            # Balance after transaction must be non-negative (except penalties)
+            # Note: Penalties can make balance negative temporarily
         ]
 
     def __str__(self):
@@ -468,6 +503,24 @@ class WaitlistEntry(models.Model):
     email = models.EmailField(unique=True, db_index=True)
     email_verified = models.BooleanField(default=False)
     email_verification_token = models.CharField(max_length=32, blank=True)
+
+    # Email tracking for idempotency (prevents duplicate emails)
+    email_confirmation_sent_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When confirmation email was successfully sent"
+    )
+    email_already_registered_sent_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When 'already registered' email was last sent"
+    )
+    email_send_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of email send attempts"
+    )
+    email_last_error = models.TextField(
+        blank=True, default='',
+        help_text="Last email error message for debugging"
+    )
 
     # Telegram (from deep link)
     telegram_id = models.BigIntegerField(null=True, blank=True, unique=True)

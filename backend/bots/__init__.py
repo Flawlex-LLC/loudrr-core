@@ -1,1 +1,1 @@
-# Bots app - Telegram and Discord bot runners
+# Bots app - Telegram bot runner
