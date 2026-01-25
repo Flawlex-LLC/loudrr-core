@@ -43,7 +43,7 @@ def get_font(size: int, bold: bool = False, syne: bool = False):
         if os.path.exists(path):
             try:
                 return ImageFont.truetype(path, size)
-            except:
+            except OSError:
                 continue
     return ImageFont.load_default()
 
@@ -774,8 +774,8 @@ def create_approval_card(x_username: str) -> io.BytesIO:
         icon_y = pill_top + pill_padding_y + (username_h - x_icon_size) // 2
         img.paste(x_icon, (icon_x, icon_y), x_icon)
         draw = ImageDraw.Draw(img)
-    except:
-        pass
+    except (OSError, ValueError):
+        pass  # Skip icon if loading fails
 
     text_x = center_x - pill_content_w // 2 + x_icon_size + icon_text_gap
     text_y = pill_top + pill_padding_y
