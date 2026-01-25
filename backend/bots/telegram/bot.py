@@ -17,16 +17,9 @@ from telegram.request import HTTPXRequest
 
 from .handlers import (
     start_handler,
-    balance_handler,
-    stats_handler,
-    post_handler,
-    feed_handler,
-    leaderboard_handler,
     help_handler,
     callback_handler,
-    give_handler,
-    link_handler,
-    engage_handler,
+    message_handler,
     launch_handler,
 )
 
@@ -54,20 +47,13 @@ def create_bot() -> Application:
     # Command handlers
     application.add_handler(CommandHandler("start", start_handler))
     application.add_handler(CommandHandler("help", help_handler))
-    application.add_handler(CommandHandler("balance", balance_handler))
-    application.add_handler(CommandHandler("stats", stats_handler))
-    application.add_handler(CommandHandler("post", post_handler))
-    application.add_handler(CommandHandler("feed", feed_handler))
-    application.add_handler(CommandHandler("leaderboard", leaderboard_handler))
-    application.add_handler(CommandHandler("give", give_handler))
-    application.add_handler(CommandHandler("engage", engage_handler))
     application.add_handler(CommandHandler("launch", launch_handler))
 
     # Callback query handler for inline buttons
     application.add_handler(CallbackQueryHandler(callback_handler))
 
-    # Message handler for auto-detecting X links (must be after command handlers)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, link_handler))
+    # Message handler for waitlist X username collection
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
     # Error handler
     application.add_error_handler(error_handler)

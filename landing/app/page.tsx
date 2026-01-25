@@ -42,6 +42,7 @@ function CustomCursor() {
 export default function LandingPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -74,7 +75,14 @@ export default function LandingPage() {
       }
 
       if (data.telegram_url) {
-        window.location.href = data.telegram_url;
+        // Reset loading and show success state before redirect
+        setLoading(false);
+        setSuccess(true);
+
+        // Small delay to show success feedback, then redirect
+        setTimeout(() => {
+          window.location.href = data.telegram_url;
+        }, 500);
       }
     } catch (err) {
       setError("Network error. Please try again.");
@@ -237,7 +245,7 @@ export default function LandingPage() {
             >
               <span className="whitespace-nowrap">Stand out</span>
               <br />
-              <span className="text-[#f95400] inline-block hover:scale-105 transition-transform duration-300 cursor-default whitespace-nowrap">
+              <span className="text-[#f95400] inline-block cursor-default whitespace-nowrap">
                 Go Loudrr
               </span>
             </h1>
@@ -315,7 +323,7 @@ export default function LandingPage() {
                 onBlur={() => setFocused(false)}
                 placeholder="Enter your email"
                 required
-                disabled={loading}
+                disabled={loading || success}
                 className="
                   flex-1 min-w-0
                   bg-transparent text-white
@@ -333,7 +341,7 @@ export default function LandingPage() {
               {/* Button */}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || success}
                 onMouseEnter={() => setButtonHover(true)}
                 onMouseLeave={() => setButtonHover(false)}
                 className="
@@ -362,6 +370,13 @@ export default function LandingPage() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
+                  </span>
+                ) : success ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Redirecting...
                   </span>
                 ) : (
                   "Join Waitlist"

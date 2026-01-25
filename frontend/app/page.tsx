@@ -3080,6 +3080,7 @@ function LoudTab({ user: _user }: { user: User | null }) {
   const [leaderboardData, setLeaderboardData] = useState<LoudLeaderboardResponse | null>(null);
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [successToast, setSuccessToast] = useState<{ points: number; rank: number } | null>(null);
 
   useEffect(() => {
     loadProjects();
@@ -3172,40 +3173,103 @@ function LoudTab({ user: _user }: { user: User | null }) {
 
   return (
     <div className="relative min-h-full pb-32">
+      {/* Success Toast */}
+      {successToast && (
+        <div className="fixed top-4 inset-x-4 z-50 animate-slide-down">
+          <div className="relative overflow-hidden rounded-xl border border-[#f95400]/30 bg-[#f95400] shadow-lg shadow-[#f95400]/30">
+            <div className="flex items-center gap-3 px-4 py-3">
+              <div className="w-10 h-10 rounded-full bg-black/20 flex items-center justify-center flex-shrink-0">
+                <svg className="w-6 h-6 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-black text-lg">+{successToast.points} points!</p>
+                <p className="text-black/70 text-sm">Now ranked #{successToast.rank}</p>
+              </div>
+              <button
+                onClick={() => setSuccessToast(null)}
+                className="p-1 rounded-full hover:bg-black/10 transition-colors"
+              >
+                <svg className="w-5 h-5 text-black/60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Welcome Header */}
       <div className="px-5 pt-5 pb-3">
         <h1 className="text-2xl font-bold text-white">UGC Rewards</h1>
       </div>
 
-      {/* Daily Challenge Card - Like "Today's challenge" in reference */}
+      {/* Daily Challenge Card - Multi-layer design matching Home tab */}
       <div className="px-5 mb-5">
-        <div className="relative rounded-2xl bg-gradient-to-r from-[#f95400] to-[#ff7020] p-4 overflow-hidden">
-          {/* Background pattern */}
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute -right-8 -top-8 w-32 h-32 rounded-full bg-white/20" />
-            <div className="absolute -right-4 -bottom-4 w-20 h-20 rounded-full bg-white/10" />
-          </div>
+        <div className="relative overflow-hidden rounded-2xl border border-[#f95400]/30 bg-gradient-to-br from-[#f95400]/15 via-zinc-900/50 to-black">
+          {/* Grid Pattern */}
+          <div className="absolute inset-0 opacity-[0.08]" style={{
+            backgroundImage: `linear-gradient(#f95400 1px, transparent 1px), linear-gradient(90deg, #f95400 1px, transparent 1px)`,
+            backgroundSize: '20px 20px'
+          }} />
+          {/* Scan Line */}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#f95400]/[0.04] to-transparent" />
 
-          <div className="relative flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-black/30 backdrop-blur-md border border-white/10 flex items-center justify-center">
-              <RocketIconFill className="w-6 h-6" style={ICON_GRADIENT_STYLE} />
+          <div className="relative z-10 p-5">
+            {/* Header Row */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="glass-icon glass-icon-md glass-icon-orange">
+                  <RocketIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+                </div>
+                <div>
+                  <p className="text-sm text-[#f95400] uppercase tracking-wider">Daily Submissions</p>
+                  <p className="text-xs text-white/60">UGC Rewards</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  hapticFeedback('medium');
+                  setShowSubmitModal(true);
+                }}
+                disabled={projectsData.daily_submissions_remaining === 0}
+                className="px-4 py-2 rounded-full flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.3) 0%, rgba(255, 140, 66, 0.2) 50%, rgba(249, 84, 0, 0.25) 100%)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(249, 84, 0, 0.5)',
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4), 0 1px 0 rgba(255, 140, 66, 0.2) inset'
+                }}
+              >
+                <span className="text-sm font-bold text-white">Submit</span>
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </button>
             </div>
-            <div className="flex-1">
-              <p className="text-white/80 text-sm">Daily submissions</p>
-              <p className="text-white text-xl font-bold">{projectsData.daily_submissions_remaining} remaining</p>
+
+            {/* Main Display */}
+            <div className="mb-4">
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-bold text-white">{projectsData.daily_submissions_remaining}</span>
+                <span className="text-lg text-gray-400">/ {projectsData.daily_limit} remaining</span>
+              </div>
             </div>
-            <button
-              onClick={() => {
-                hapticFeedback('medium');
-                setShowSubmitModal(true);
-              }}
-              disabled={projectsData.daily_submissions_remaining === 0}
-              className="w-12 h-12 rounded-xl bg-black/30 backdrop-blur-md border border-white/10 flex items-center justify-center hover:bg-black/40 transition-colors disabled:opacity-50"
-            >
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </button>
+
+            {/* Progress Bar with Shine */}
+            <div className="h-2.5 bg-white/10 rounded-full overflow-hidden ring-1 ring-white/10">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${(projectsData.daily_submissions_remaining / projectsData.daily_limit) * 100}%`,
+                  background: 'linear-gradient(90deg, #f95400 0%, #ff8c42 50%, #f95400 100%)',
+                  backgroundSize: '200% 100%',
+                  animation: 'progress-shine 3s ease-in-out infinite',
+                  boxShadow: '0 0 12px rgba(249, 84, 0, 0.4)'
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -3289,61 +3353,6 @@ function LoudTab({ user: _user }: { user: User | null }) {
         </div>
       </div>
 
-      {/* Stats Section - Like the third screen in reference */}
-      {selectedProject && leaderboardData?.user_entry && (
-        <div className="px-5 mb-6">
-          <div className="relative rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] p-6 text-center overflow-hidden">
-            {/* Grid pattern */}
-            <div className="absolute inset-0 opacity-[0.04]" style={{
-              backgroundImage: `linear-gradient(#f95400 1px, transparent 1px), linear-gradient(90deg, #f95400 1px, transparent 1px)`,
-              backgroundSize: '20px 20px'
-            }} />
-
-            <div className="relative z-10">
-              {/* Big rank number */}
-              <div className="mb-2">
-                <span className="text-5xl font-bold text-white">
-                  {leaderboardData.user_entry.rank ? `#${leaderboardData.user_entry.rank}` : '--'}
-                </span>
-              </div>
-              <p className="text-gray-500 text-sm mb-1">your rank in</p>
-              <p className="text-[#f95400] font-medium">{selectedProject.name}</p>
-
-              {/* Stats row */}
-              <div className="flex items-center justify-center gap-6 mt-6">
-                <div className="text-center">
-                  <div className="glass-icon glass-icon-lg glass-icon-orange mx-auto mb-2">
-                    <svg className="w-5 h-5 text-[#f95400]" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                    </svg>
-                  </div>
-                  <p className="text-xl font-bold text-white">{leaderboardData.user_entry.total_points.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">Points</p>
-                </div>
-                <div className="text-center">
-                  <div className="glass-icon glass-icon-lg glass-icon-orange mx-auto mb-2">
-                    <svg className="w-5 h-5 text-[#f95400]" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/>
-                    </svg>
-                  </div>
-                  <p className="text-xl font-bold text-white">{leaderboardData.user_entry.submission_count}</p>
-                  <p className="text-xs text-gray-500">Posts</p>
-                </div>
-                <div className="text-center">
-                  <div className="glass-icon glass-icon-lg glass-icon-orange mx-auto mb-2">
-                    <svg className="w-5 h-5 text-[#f95400]" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
-                    </svg>
-                  </div>
-                  <p className="text-xl font-bold text-white">{selectedProject.total_participants}</p>
-                  <p className="text-xs text-gray-500">Competing</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Leaderboard Section */}
       {selectedProject && (
         <div className="px-5">
@@ -3352,7 +3361,16 @@ function LoudTab({ user: _user }: { user: User | null }) {
             <span className="text-sm text-gray-500">Top 50</span>
           </div>
 
-          <div className="relative rounded-2xl bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] overflow-hidden">
+          <div className="relative overflow-hidden rounded-2xl border border-[#f95400]/20 bg-gradient-to-br from-black via-zinc-900/50 to-black">
+            {/* Grid Pattern */}
+            <div className="absolute inset-0 opacity-[0.05]" style={{
+              backgroundImage: `linear-gradient(#f95400 1px, transparent 1px), linear-gradient(90deg, #f95400 1px, transparent 1px)`,
+              backgroundSize: '20px 20px'
+            }} />
+            {/* Scan Line */}
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#f95400]/[0.03] to-transparent" />
+
+            <div className="relative z-10">
             {loadingLeaderboard ? (
               <div className="flex justify-center py-8">
                 <PixelLoader size="xs" />
@@ -3361,6 +3379,7 @@ function LoudTab({ user: _user }: { user: User | null }) {
               <div className="max-h-[400px] overflow-y-auto">
                 {leaderboardData.leaderboard.slice(0, 50).map((entry, index) => {
                   const isCurrentUser = leaderboardData.user_entry?.user_id === entry.user.id;
+                  const isTopThree = entry.rank <= 3;
 
                   return (
                     <div
@@ -3377,15 +3396,22 @@ function LoudTab({ user: _user }: { user: User | null }) {
                         }} />
                       )}
 
-                      {/* Rank */}
-                      <span className={`relative z-10 w-8 text-sm font-semibold ${
-                        entry.rank === 1 ? 'text-yellow-400' :
-                        entry.rank === 2 ? 'text-gray-400' :
-                        entry.rank === 3 ? 'text-amber-600' :
-                        isCurrentUser ? 'text-[#f95400]' : 'text-gray-500'
-                      }`}>
-                        {entry.rank}
-                      </span>
+                      {/* Rank with Medal Badges */}
+                      <div className="relative z-10 w-8 flex items-center justify-center">
+                        {entry.rank === 1 ? (
+                          <span className="text-xl">🥇</span>
+                        ) : entry.rank === 2 ? (
+                          <span className="text-xl">🥈</span>
+                        ) : entry.rank === 3 ? (
+                          <span className="text-xl">🥉</span>
+                        ) : (
+                          <span className={`text-sm font-semibold ${
+                            isCurrentUser ? 'text-[#f95400]' : 'text-gray-500'
+                          }`}>
+                            {entry.rank}
+                          </span>
+                        )}
+                      </div>
 
                       {/* Avatar */}
                       <div className={`relative z-10 w-10 h-10 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0 ${
@@ -3447,6 +3473,7 @@ function LoudTab({ user: _user }: { user: User | null }) {
                 <p className="text-gray-600 text-sm mt-1">Be the first to earn points!</p>
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
@@ -3476,8 +3503,12 @@ function LoudTab({ user: _user }: { user: User | null }) {
           projectsData={projectsData}
           preselectedProject={selectedProject}
           onClose={() => setShowSubmitModal(false)}
-          onSuccess={() => {
+          onSuccess={(result) => {
             setShowSubmitModal(false);
+            // Show success toast
+            setSuccessToast({ points: result.points_awarded ?? 0, rank: result.new_rank ?? 0 });
+            setTimeout(() => setSuccessToast(null), 4000);
+            // Refresh data
             loadProjects();
             if (selectedProject) {
               loadLeaderboard(selectedProject.slug);
@@ -3502,7 +3533,7 @@ function LoudSubmitModal({
   projectsData: LoudProjectsResponse;
   preselectedProject?: LoudProject | null;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (result: LoudSubmitResponse) => void;
 }) {
   const [selectedProject, setSelectedProject] = useState<LoudProject | null>(preselectedProject || null);
   const [xLink, setXLink] = useState('');
@@ -3546,7 +3577,7 @@ function LoudSubmitModal({
         setSubmitSuccess(result);
         hapticFeedback('success');
         setTimeout(() => {
-          onSuccess();
+          onSuccess(result);
         }, 2500);
       } else {
         setSubmitError(result.error || 'Submission failed');

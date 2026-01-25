@@ -1,0 +1,64 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div style="background: #f8d7da; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #f5c6cb;">
+    <strong>Warning:</strong> You are about to void <strong>{{ submissions.count }}</strong> submissions.
+    This will remove points from each user's total. This action is logged for audit purposes.
+</div>
+
+<h3>Submissions to Void</h3>
+<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+    <thead>
+        <tr style="background: #f0f0f0;">
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">User</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Project</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Points</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Tweet</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Date</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for sub in submissions %}
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;">{{ sub.user.display_name }}</td>
+            <td style="padding: 10px; border: 1px solid #ddd;">{{ sub.project.name }}</td>
+            <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold; color: #dc3545;">-{{ sub.points_awarded }}</td>
+            <td style="padding: 10px; border: 1px solid #ddd;">
+                <a href="{{ sub.x_link }}" target="_blank">{{ sub.tweet_id|truncatechars:20 }}</a>
+            </td>
+            <td style="padding: 10px; border: 1px solid #ddd;">{{ sub.submitted_at|date:"Y-m-d H:i" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<form method="post" style="max-width: 500px;">
+    {% csrf_token %}
+    <input type="hidden" name="apply" value="1">
+    {% for sub in submissions %}
+    <input type="hidden" name="_selected_action" value="{{ sub.pk }}">
+    {% endfor %}
+
+    <div style="margin-bottom: 15px;">
+        <label for="reason" style="display: block; font-weight: bold; margin-bottom: 5px;">
+            Reason for Voiding (Required):
+        </label>
+        <textarea name="reason" id="reason" rows="3" style="width: 100%; padding: 8px;" required></textarea>
+        <p style="color: #666; font-size: 12px; margin-top: 5px;">
+            This reason will be applied to all selected submissions.
+        </p>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <button type="submit" class="button" style="background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+            Void {{ submissions.count }} Submissions
+        </button>
+        <a href="{% url 'admin:loud_loudsubmission_changelist' %}" class="button" style="margin-left: 10px;">
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}

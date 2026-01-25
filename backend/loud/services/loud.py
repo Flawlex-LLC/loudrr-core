@@ -2,7 +2,14 @@
 Loud service for UGC rewards.
 
 Handles submissions, rate limiting, and leaderboard updates with atomic operations.
+
+Concurrency Model (100 simultaneous users to same project):
+- Each user locks their OWN User row (select_for_update) - no blocking between users
+- LoudSubmission unique constraint on tweet_id handles duplicate posts
+- LoudLeaderboardEntry uses F() expressions - no read-modify-write races
+- Each user updates their own (project, user) leaderboard entry - no conflicts
 """
+import logging
 import re
 from typing import Optional
 
@@ -15,6 +22,8 @@ from django.utils import timezone
 from core.models import User
 from core.services.settings import get_setting
 from loud.models import LoudProject, LoudSubmission, LoudLeaderboardEntry
+
+logger = logging.getLogger(__name__)
 
 
 def validate_and_normalize_x_link(url: str) -> tuple[str, str, str]:
@@ -32,6 +41,7 @@ def validate_and_normalize_x_link(url: str) -> tuple[str, str, str]:
 
     # Reject i/status pattern (anonymous links)
     if '/i/status/' in url:
+        logger.debug("URL validation failed: anonymous link", extra={'url': url[:100]})
         raise ValidationError("Anonymous links not accepted. Use link with username.")
 
     # Extract username and tweet_id
@@ -39,12 +49,14 @@ def validate_and_normalize_x_link(url: str) -> tuple[str, str, str]:
     match = re.search(pattern, url)
 
     if not match:
+        logger.debug("URL validation failed: invalid format", extra={'url': url[:100]})
         raise ValidationError("Invalid X/Twitter link format. Use: x.com/username/status/...")
 
     username, tweet_id = match.groups()
 
     # Reject special usernames
     if username.lower() in ['i', 'intent', 'share', 'search']:
+        logger.debug("URL validation failed: reserved username", extra={'url': url[:100], 'username': username})
         raise ValidationError("Invalid link format")
 
     # Normalize to x.com format
@@ -149,6 +161,16 @@ class LoudService:
         Raises:
             ValidationError: If validation fails or duplicate submission
         """
+        logger.info(
+            "LOUD submit started",
+            extra={
+                'user_id': str(self.user.id),
+                'project_id': str(project.id),
+                'project_slug': project.slug,
+                'x_link': x_link[:100],  # Truncate for safety
+            }
+        )
+
         # LOCK USER ROW FIRST - critical for preventing daily limit race conditions
         # This ensures eligibility check happens on locked data
         locked_user = User.objects.select_for_update().get(pk=self.user.pk)
@@ -157,6 +179,14 @@ class LoudService:
         # Re-check limits using the locked user context
         can, reason = self._can_submit_locked(project, locked_user)
         if not can:
+            logger.warning(
+                "LOUD submit rejected: eligibility check failed",
+                extra={
+                    'user_id': str(self.user.id),
+                    'project_id': str(project.id),
+                    'reason': reason,
+                }
+            )
             raise ValidationError(reason)
 
         # Validate and normalize URL
@@ -179,6 +209,14 @@ class LoudService:
             )
         except IntegrityError:
             # Duplicate tweet_id - another user submitted this link
+            logger.warning(
+                "LOUD submit rejected: duplicate tweet_id",
+                extra={
+                    'user_id': str(self.user.id),
+                    'project_id': str(project.id),
+                    'tweet_id': tweet_id,
+                }
+            )
             raise ValidationError("This post has already been submitted")
 
         # Update leaderboard atomically
@@ -186,6 +224,18 @@ class LoudService:
 
         # Invalidate leaderboard cache
         self._invalidate_leaderboard_cache(project.slug)
+
+        logger.info(
+            "LOUD submit success",
+            extra={
+                'user_id': str(self.user.id),
+                'project_id': str(project.id),
+                'submission_id': str(submission.id),
+                'tweet_id': tweet_id,
+                'points_awarded': points,
+                'tweetscout_score': float(score),
+            }
+        )
 
         return submission
 
@@ -244,7 +294,16 @@ class LoudService:
             last_submission_at=timezone.now(),
         )
 
-        if not updated:
+        if updated:
+            logger.debug(
+                "Leaderboard entry updated",
+                extra={
+                    'user_id': str(self.user.id),
+                    'project_id': str(project.id),
+                    'points_added': points,
+                }
+            )
+        else:
             # First submission - create entry
             try:
                 LoudLeaderboardEntry.objects.create(
@@ -254,8 +313,23 @@ class LoudService:
                     submission_count=1,
                     last_submission_at=timezone.now(),
                 )
+                logger.info(
+                    "Leaderboard entry created (first submission)",
+                    extra={
+                        'user_id': str(self.user.id),
+                        'project_id': str(project.id),
+                        'initial_points': points,
+                    }
+                )
             except IntegrityError:
                 # Race: another request created it, retry update
+                logger.warning(
+                    "Leaderboard race condition: retrying update after create conflict",
+                    extra={
+                        'user_id': str(self.user.id),
+                        'project_id': str(project.id),
+                    }
+                )
                 LoudLeaderboardEntry.objects.filter(
                     project=project,
                     user=self.user,

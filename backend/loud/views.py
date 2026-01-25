@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from core.services.settings import get_setting
@@ -17,6 +18,11 @@ from loud.services import LoudService, calculate_loud_points
 from miniapp.views import MiniAppAuthMixin
 
 logger = logging.getLogger(__name__)
+
+
+class LoudSubmitThrottle(UserRateThrottle):
+    """Rate limit LOUD submissions to 10 per minute per user."""
+    rate = '10/minute'
 
 
 class LoudProjectsView(MiniAppAuthMixin, APIView):
@@ -88,6 +94,7 @@ class LoudSubmitView(MiniAppAuthMixin, APIView):
     Submit content to a project.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [LoudSubmitThrottle]
 
     def post(self, request):
         user = self.get_user_from_request(request)
@@ -165,7 +172,14 @@ class LoudSubmitView(MiniAppAuthMixin, APIView):
             )
 
         except Exception as e:
-            logger.exception(f"Loud submission failed: {e}")
+            logger.exception(
+                "LOUD submit unexpected error",
+                extra={
+                    'user_id': str(user.id) if user else None,
+                    'project_id': project_id,
+                    'error_type': type(e).__name__,
+                }
+            )
             return Response(
                 {'success': False, 'error': 'Something went wrong. Please try again.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

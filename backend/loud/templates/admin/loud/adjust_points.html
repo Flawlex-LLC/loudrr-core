@@ -1,0 +1,86 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div style="background: #f8f8f8; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+    <h2 style="margin-top: 0;">User: {{ entry.user.display_name }}</h2>
+    <p><strong>X Username:</strong> @{{ entry.user.x_username }}</p>
+    <p><strong>Project:</strong> {{ entry.project.name }}</p>
+    <p><strong>Current Points:</strong> <span style="font-size: 24px; font-weight: bold; color: #f95400;">{{ entry.total_points }}</span></p>
+    <p><strong>Submission Count:</strong> {{ entry.submission_count }}</p>
+</div>
+
+<h3>User's Submissions in this Project</h3>
+<table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+    <thead>
+        <tr style="background: #f0f0f0;">
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Date</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Tweet ID</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Points</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Link</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for sub in submissions %}
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;">{{ sub.submitted_at|date:"Y-m-d H:i" }}</td>
+            <td style="padding: 10px; border: 1px solid #ddd;">{{ sub.tweet_id }}</td>
+            <td style="padding: 10px; border: 1px solid #ddd;">{{ sub.points_awarded }}</td>
+            <td style="padding: 10px; border: 1px solid #ddd;">
+                <a href="{{ sub.x_link }}" target="_blank">View Tweet</a>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="4" style="padding: 10px; border: 1px solid #ddd; text-align: center;">No submissions</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h3>Deduct Points</h3>
+<div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #ffc107;">
+    <strong>Warning:</strong> This action will remove points from the user's total.
+    Points cannot go below 0. This action is logged for audit purposes.
+</div>
+
+<form method="post" style="max-width: 500px;">
+    {% csrf_token %}
+    <div style="margin-bottom: 15px;">
+        <label for="id_points" style="display: block; font-weight: bold; margin-bottom: 5px;">
+            Points to Deduct:
+        </label>
+        {{ form.points }}
+        {% if form.points.help_text %}
+        <p style="color: #666; font-size: 12px; margin-top: 5px;">{{ form.points.help_text }}</p>
+        {% endif %}
+        {% if form.points.errors %}
+        <p style="color: red;">{{ form.points.errors }}</p>
+        {% endif %}
+    </div>
+
+    <div style="margin-bottom: 15px;">
+        <label for="id_reason" style="display: block; font-weight: bold; margin-bottom: 5px;">
+            Reason (Required):
+        </label>
+        {{ form.reason }}
+        {% if form.reason.help_text %}
+        <p style="color: #666; font-size: 12px; margin-top: 5px;">{{ form.reason.help_text }}</p>
+        {% endif %}
+        {% if form.reason.errors %}
+        <p style="color: red;">{{ form.reason.errors }}</p>
+        {% endif %}
+    </div>
+
+    <div style="margin-top: 20px;">
+        <button type="submit" class="button" style="background: #dc3545; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+            Deduct Points
+        </button>
+        <a href="{% url 'admin:loud_loudleaderboardentry_changelist' %}" class="button" style="margin-left: 10px;">
+            Cancel
+        </a>
+    </div>
+</form>
+{% endblock %}

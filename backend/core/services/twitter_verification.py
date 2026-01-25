@@ -277,6 +277,64 @@ class TwitterVerificationService:
             logger.error(f"Error fetching tweet content: {e}")
             return None
 
+    def get_user_info(self, username: str) -> Optional[dict]:
+        """
+        Get X user profile info (followers, avatar, display name, verified status).
+
+        Single API call via twitterapi.io - ~$0.00015 per call.
+        Used for waitlist cards to show personalized user info.
+
+        Args:
+            username: X/Twitter username (with or without @)
+
+        Returns:
+            {
+                "username": "handle",
+                "display_name": "Display Name",
+                "followers_count": 12500,
+                "avatar_url": "https://pbs.twimg.com/...",
+                "is_verified": True
+            }
+            or None if error/not found.
+        """
+        if not self.api_key:
+            logger.warning("No API key - cannot fetch user info")
+            return None
+
+        username = username.lstrip("@").lower()
+
+        try:
+            with httpx.Client(timeout=self.TIMEOUT) as client:
+                response = client.get(
+                    f"{self.BASE_URL}/user/info",
+                    headers=self._get_headers(),
+                    params={"userName": username}
+                )
+                response.raise_for_status()
+                data = response.json().get("data", {})
+
+                if not data:
+                    logger.warning(f"No user data for @{username}")
+                    return None
+
+                result = {
+                    "username": data.get("userName", username),
+                    "display_name": data.get("name", ""),
+                    "followers_count": data.get("followers", 0),
+                    "avatar_url": data.get("profilePicture", ""),
+                    "is_verified": data.get("isBlueVerified", False),
+                }
+
+                logger.info(f"Fetched X user info: @{username} ({result['followers_count']} followers)")
+                return result
+
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"API error fetching user @{username}: {e.response.status_code}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching user info for @{username}: {e}")
+            return None
+
     # Backwards compatibility alias
     def verify_engagement_sync(self, tweet_id: str, user_x_username: str) -> dict:
         """Alias for verify_reply() - backwards compatibility."""
