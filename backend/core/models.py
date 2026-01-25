@@ -530,6 +530,13 @@ class WaitlistEntry(models.Model):
     # X/Twitter (from bot popup)
     x_username = models.CharField(max_length=50, blank=True, db_index=True)
 
+    # X Profile data (fetched on submission via twitterapi.io)
+    x_display_name = models.CharField(max_length=100, blank=True)
+    x_followers_count = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    x_avatar_url = models.URLField(max_length=500, blank=True)
+    x_is_verified = models.BooleanField(default=False)
+    x_fetched_at = models.DateTimeField(null=True, blank=True)
+
     # Status
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
 
