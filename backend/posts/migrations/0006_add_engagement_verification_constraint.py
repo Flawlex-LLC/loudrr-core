@@ -23,7 +23,7 @@ def check_invalid_engagements(apps, schema_editor):
             f"Found {invalid_count} engagements with invalid state "
             f"(verified=False, credit_granted=True). "
             f"Please fix these records before running this migration:\n"
-            f"UPDATE engagements SET verified=True WHERE verified=False AND credit_granted=True;"
+            f"Engagement.objects.filter(verified=False, credit_granted=True).update(verified=True)"
         )
 
 
