@@ -25,7 +25,6 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "telegram_id",
-            "discord_id",
             "x_username",
             "display_name",
             "credits",
@@ -126,8 +125,8 @@ class LeaderboardEntrySerializer(serializers.Serializer):
 
 
 class LinkAccountSerializer(serializers.Serializer):
-    """Serializer for linking platform accounts."""
+    """Serializer for linking Telegram account."""
 
-    platform = serializers.ChoiceField(choices=["telegram", "discord"])
+    platform = serializers.ChoiceField(choices=["telegram"])
     platform_id = serializers.IntegerField()
     display_name = serializers.CharField(max_length=100, required=False)

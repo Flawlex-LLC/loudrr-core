@@ -25,10 +25,10 @@ def log_admin_action(request, obj, message):
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
     """
-    Custom User admin for telegram/discord authentication.
+    Custom User admin for Telegram authentication.
 
     Uses ModelAdmin instead of BaseUserAdmin since our User model
-    doesn't use username/password - users authenticate via Telegram/Discord.
+    doesn't use username/password - users authenticate via Telegram.
     """
     list_display = [
         "id", "display_name", "telegram_id", "telegram_username",
@@ -36,7 +36,7 @@ class UserAdmin(admin.ModelAdmin):
         "credits_display", "tier_display", "total_engagements", "current_streak", "is_banned", "created_at",
     ]
     list_filter = ["is_banned", "is_staff", "is_active"]
-    search_fields = ["display_name", "telegram_id", "telegram_username", "discord_id", "x_username"]
+    search_fields = ["display_name", "telegram_id", "telegram_username", "x_username"]
     ordering = ["-created_at"]
     actions = [
         "grant_10_credits", "grant_50_credits", "grant_100_credits", "revoke_10_credits",
@@ -47,7 +47,7 @@ class UserAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {"fields": ("display_name", "x_username")}),
-        ("Platform IDs", {"fields": ("telegram_id", "telegram_username", "discord_id")}),
+        ("Telegram", {"fields": ("telegram_id", "telegram_username")}),
         ("Credits", {"fields": (
             "credits", "total_credits_earned", "total_credits_spent",
             "daily_credits_earned",
@@ -68,7 +68,7 @@ class UserAdmin(admin.ModelAdmin):
     add_fieldsets = (
         (None, {
             "classes": ("wide",),
-            "fields": ("telegram_id", "discord_id", "display_name", "is_staff", "is_superuser"),
+            "fields": ("telegram_id", "display_name", "is_staff", "is_superuser"),
         }),
     )
 
@@ -88,7 +88,7 @@ class UserAdmin(admin.ModelAdmin):
         return super().get_fieldsets(request, obj)
 
     def save_model(self, request, obj, form, change):
-        """Set unusable password for new users (they auth via Telegram/Discord)."""
+        """Set unusable password for new users (they auth via Telegram)."""
         if not change:  # New user
             obj.set_unusable_password()
         super().save_model(request, obj, form, change)

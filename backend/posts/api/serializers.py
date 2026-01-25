@@ -36,7 +36,7 @@ class PostCreateSerializer(serializers.Serializer):
     """Serializer for creating a post."""
 
     x_link = serializers.URLField(max_length=500)
-    platform = serializers.ChoiceField(choices=["telegram", "discord", "web"])
+    platform = serializers.ChoiceField(choices=["telegram", "web"])
     channel_id = serializers.IntegerField(required=False, allow_null=True)
     message_id = serializers.IntegerField(required=False, allow_null=True)
 

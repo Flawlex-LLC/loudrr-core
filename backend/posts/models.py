@@ -27,7 +27,6 @@ class Post(models.Model):
 
     class Platform(models.TextChoices):
         TELEGRAM = "telegram", "Telegram"
-        DISCORD = "discord", "Discord"
         WEB = "web", "Web"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -106,6 +105,16 @@ class Post(models.Model):
             models.CheckConstraint(
                 check=models.Q(escrow__gte=0),
                 name="post_escrow_non_negative"
+            ),
+            # Initial escrow must be non-negative
+            models.CheckConstraint(
+                check=models.Q(initial_escrow__gte=0),
+                name="post_initial_escrow_non_negative"
+            ),
+            # Escrow can never exceed initial (prevents inflation bugs)
+            models.CheckConstraint(
+                check=models.Q(escrow__lte=models.F('initial_escrow')),
+                name="post_escrow_cannot_exceed_initial"
             ),
         ]
 
@@ -258,6 +267,16 @@ class SponsoredPost(models.Model):
             models.CheckConstraint(
                 check=models.Q(remaining_budget__gte=0),
                 name="sponsored_budget_non_negative"
+            ),
+            # Total budget must be non-negative
+            models.CheckConstraint(
+                check=models.Q(total_budget__gte=0),
+                name="sponsored_total_budget_non_negative"
+            ),
+            # Remaining budget cannot exceed total (prevents inflation)
+            models.CheckConstraint(
+                check=models.Q(remaining_budget__lte=models.F('total_budget')),
+                name="sponsored_remaining_cannot_exceed_total"
             ),
         ]
 

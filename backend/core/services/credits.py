@@ -82,6 +82,7 @@ class CreditService:
         reference_id=None,
         reference_type: str = "",
         description: str = "",
+        idempotency_key: str = "",
     ) -> Transaction:
         """
         Grant credits to user for engagement.
@@ -89,6 +90,7 @@ class CreditService:
         ROBUSTNESS:
         - Locks user row FIRST, then checks daily reset
         - Prevents race condition where two requests both reset counter
+        - Idempotency key prevents duplicate transactions from retries
 
         NOTE: TweetScout multipliers are applied in calculate_engagement_karma()
         BEFORE calling this method. This method receives the final amount.
@@ -98,9 +100,10 @@ class CreditService:
             reference_id: ID of related object (engagement, post, etc.)
             reference_type: Type of reference object
             description: Description of transaction
+            idempotency_key: Unique key for deduplication (use engagement_id for engagements)
 
         Returns:
-            Transaction record
+            Transaction record (existing if idempotent retry, new otherwise)
 
         Raises:
             DailyCapReachedError: If daily cap would be exceeded
@@ -108,6 +111,21 @@ class CreditService:
         # Ensure amount is Decimal
         if not isinstance(amount, Decimal):
             amount = Decimal(str(amount))
+
+        # Generate idempotency key from reference_id if not provided
+        if not idempotency_key and reference_id:
+            idempotency_key = str(reference_id)
+
+        # Check for existing transaction with same idempotency key (prevents duplicates)
+        if idempotency_key:
+            existing = Transaction.objects.filter(
+                user=self.user,
+                type=Transaction.Type.EARNED,
+                idempotency_key=idempotency_key,
+            ).first()
+            if existing:
+                # Idempotent retry - return existing transaction
+                return existing
 
         # LOCK USER ROW FIRST - critical for preventing race conditions
         user = User.objects.select_for_update().get(pk=self.user.pk)
@@ -143,7 +161,7 @@ class CreditService:
         # Refresh our instance
         self.user.refresh_from_db()
 
-        # Create transaction record (audit trail)
+        # Create transaction record (audit trail) with idempotency key
         return Transaction.objects.create(
             user=user,
             type=Transaction.Type.EARNED,
@@ -151,6 +169,7 @@ class CreditService:
             balance_after=user.credits,
             reference_id=reference_id,
             reference_type=reference_type,
+            idempotency_key=idempotency_key,
             description=description or f"Earned {float(final_amount):.2f} credits",
         )
 
@@ -161,6 +180,7 @@ class CreditService:
         reference_id=None,
         reference_type: str = "",
         description: str = "",
+        idempotency_key: str = "",
     ) -> Transaction:
         """
         Deduct credits from user for posting.
@@ -170,9 +190,10 @@ class CreditService:
             reference_id: ID of related object (post)
             reference_type: Type of reference object
             description: Description of transaction
+            idempotency_key: Unique key for deduplication (use post_id for posts)
 
         Returns:
-            Transaction record
+            Transaction record (existing if idempotent retry, new otherwise)
 
         Raises:
             InsufficientCreditsError: If user doesn't have enough credits
@@ -183,6 +204,21 @@ class CreditService:
 
         if amount <= Decimal('0'):
             raise ValueError("Amount must be positive")
+
+        # Generate idempotency key from reference_id if not provided
+        if not idempotency_key and reference_id:
+            idempotency_key = str(reference_id)
+
+        # Check for existing transaction with same idempotency key (prevents duplicates)
+        if idempotency_key:
+            existing = Transaction.objects.filter(
+                user=self.user,
+                type=Transaction.Type.SPENT,
+                idempotency_key=idempotency_key,
+            ).first()
+            if existing:
+                # Idempotent retry - return existing transaction
+                return existing
 
         # Lock user row for update
         user = User.objects.select_for_update().get(pk=self.user.pk)
@@ -200,7 +236,7 @@ class CreditService:
         # Refresh our instance
         self.user.refresh_from_db()
 
-        # Create transaction record (audit trail)
+        # Create transaction record (audit trail) with idempotency key
         return Transaction.objects.create(
             user=user,
             type=Transaction.Type.SPENT,
@@ -208,6 +244,7 @@ class CreditService:
             balance_after=user.credits,
             reference_id=reference_id,
             reference_type=reference_type,
+            idempotency_key=idempotency_key,
             description=description or f"Spent {float(amount):.2f} credits",
         )
 
@@ -218,6 +255,7 @@ class CreditService:
         reference_id=None,
         reference_type: str = "",
         description: str = "",
+        idempotency_key: str = "",
     ) -> Transaction:
         """
         Refund credits to user (e.g., cancelled post).
@@ -227,9 +265,10 @@ class CreditService:
             reference_id: ID of related object
             reference_type: Type of reference object
             description: Description of refund
+            idempotency_key: Unique key for deduplication
 
         Returns:
-            Transaction record
+            Transaction record (existing if idempotent retry, new otherwise)
         """
         # Ensure amount is Decimal
         if not isinstance(amount, Decimal):
@@ -237,6 +276,21 @@ class CreditService:
 
         if amount <= Decimal('0'):
             raise ValueError("Amount must be positive")
+
+        # Generate idempotency key from reference_id if not provided
+        if not idempotency_key and reference_id:
+            idempotency_key = f"refund_{reference_id}"
+
+        # Check for existing transaction with same idempotency key (prevents duplicates)
+        if idempotency_key:
+            existing = Transaction.objects.filter(
+                user=self.user,
+                type=Transaction.Type.REFUND,
+                idempotency_key=idempotency_key,
+            ).first()
+            if existing:
+                # Idempotent retry - return existing transaction
+                return existing
 
         # Lock user row for update
         user = User.objects.select_for_update().get(pk=self.user.pk)
@@ -249,7 +303,7 @@ class CreditService:
         # Refresh our instance
         self.user.refresh_from_db()
 
-        # Create transaction record (audit trail)
+        # Create transaction record (audit trail) with idempotency key
         return Transaction.objects.create(
             user=user,
             type=Transaction.Type.REFUND,
@@ -257,6 +311,7 @@ class CreditService:
             balance_after=user.credits,
             reference_id=reference_id,
             reference_type=reference_type,
+            idempotency_key=idempotency_key,
             description=description or f"Refunded {float(amount):.2f} credits",
         )
 

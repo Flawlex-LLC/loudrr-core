@@ -117,6 +117,16 @@ class LoudSubmission(models.Model):
         constraints = [
             # GLOBALLY unique - same tweet cannot be submitted anywhere
             UniqueConstraint(fields=['tweet_id'], name='unique_submission_tweet_id'),
+            # Points must be non-negative
+            models.CheckConstraint(
+                check=models.Q(points_awarded__gte=0),
+                name='loud_submission_points_non_negative'
+            ),
+            # TweetScout score snapshot must be non-negative
+            models.CheckConstraint(
+                check=models.Q(tweetscout_score_at_submission__gte=0),
+                name='loud_submission_score_non_negative'
+            ),
         ]
         indexes = [
             Index(fields=['user', 'submitted_at']),
@@ -154,6 +164,16 @@ class LoudLeaderboardEntry(models.Model):
             UniqueConstraint(
                 fields=['project', 'user'],
                 name='unique_project_user_leaderboard'
+            ),
+            # Total points must be non-negative
+            models.CheckConstraint(
+                check=models.Q(total_points__gte=0),
+                name='loud_leaderboard_points_non_negative'
+            ),
+            # Submission count must be non-negative
+            models.CheckConstraint(
+                check=models.Q(submission_count__gte=0),
+                name='loud_leaderboard_count_non_negative'
             ),
         ]
         indexes = [

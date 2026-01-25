@@ -38,7 +38,7 @@ class PostService:
 
         Args:
             x_link: The X/Twitter link to the post
-            platform: Platform where post was submitted ("telegram", "discord", "web")
+            platform: Platform where post was submitted ("telegram", "web")
             channel_id: Platform channel/chat ID
             message_id: Bot message ID for updates
 

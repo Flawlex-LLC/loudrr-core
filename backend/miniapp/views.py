@@ -1236,10 +1236,20 @@ class WaitlistSubmitView(APIView):
         try:
             existing = WaitlistEntry.objects.get(email=email)
             telegram_url = f"https://t.me/{bot_username}?start=join_{existing.join_token}"
+
+            # Send "already registered" email asynchronously (idempotent - throttled to 1/hour)
+            try:
+                from core.tasks import send_already_registered_email_task
+                send_already_registered_email_task.delay(str(existing.id))
+            except Exception as e:
+                # Don't fail the request if email sending fails
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to queue already registered email: {e}")
+
             return Response({
                 "success": True,
                 "telegram_url": telegram_url,
-                "message": "You're already on the waitlist! Open Telegram to continue.",
+                "message": "This email is already registered. Check your inbox for instructions.",
             })
         except WaitlistEntry.DoesNotExist:
             pass
@@ -1261,6 +1271,15 @@ class WaitlistSubmitView(APIView):
             entry = WaitlistEntry.objects.get(email=email)
 
         telegram_url = f"https://t.me/{bot_username}?start=join_{entry.join_token}"
+
+        # Send confirmation email asynchronously (idempotent - only sends once per entry)
+        try:
+            from core.tasks import send_waitlist_confirmation_email_task
+            send_waitlist_confirmation_email_task.delay(str(entry.id))
+        except Exception as e:
+            # Don't fail the request if email sending fails
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to queue confirmation email: {e}")
 
         return Response({
             "success": True,
