@@ -7,7 +7,6 @@ import logging
 from django import forms
 from django.contrib import admin, messages
 from django.db import transaction
-from django.db.models import F
 from django.shortcuts import render, redirect
 from django.urls import path, reverse
 from django.utils import timezone
@@ -195,7 +194,7 @@ class LoudSubmissionAdmin(admin.ModelAdmin):
             form = VoidSubmissionForm()
 
         context = {
-            'title': f'Void Submission',
+            'title': 'Void Submission',
             'submission': submission,
             'entry': entry,
             'form': form,

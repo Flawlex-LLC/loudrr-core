@@ -2,10 +2,9 @@ from django.contrib import admin
 from django.contrib.admin.models import LogEntry, CHANGE
 from django.contrib.contenttypes.models import ContentType
 from django.contrib import messages
-from django.db.models import Sum, Count
 from django.utils.html import format_html
 
-from .models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction, WaitlistEntry
+from .models import User, Transaction, SiteSetting, XProfile, XPTransaction, WaitlistEntry
 from .services.credits import CreditService
 from .services.xp import XPService
 

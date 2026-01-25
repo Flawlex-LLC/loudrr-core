@@ -11,7 +11,6 @@ ROBUSTNESS GUARANTEES:
 """
 import logging
 from django.db import transaction
-from django.utils import timezone
 
 from core.models import User, XPTransaction
 from core.services.settings import get_setting

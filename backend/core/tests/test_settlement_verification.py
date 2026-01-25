@@ -18,7 +18,6 @@ from unittest.mock import patch, MagicMock
 
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
-from django.db import connection
 
 from core.models import User, Transaction, SiteSetting
 from core.services.verification import (
@@ -28,7 +27,6 @@ from core.services.verification import (
 )
 from core.services.settlement import SettlementService
 from core.services.posts import get_feed_posts, get_feed_count
-from core.services.tweet_score import get_tweet_score_multiplier
 from posts.models import Post, Engagement
 
 

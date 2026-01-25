@@ -16,7 +16,7 @@ DECIMAL KARMA SYSTEM:
 """
 import base64
 import hashlib
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
 

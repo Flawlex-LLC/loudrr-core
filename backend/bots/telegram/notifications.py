@@ -6,7 +6,6 @@ Send notifications to users for various events (waitlist approval, etc).
 import logging
 from django.conf import settings
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application
 
 from core.models import WaitlistEntry
 

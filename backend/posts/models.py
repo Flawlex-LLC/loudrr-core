@@ -170,7 +170,7 @@ class Post(models.Model):
                 amount=self.escrow,
                 reference_id=self.id,
                 reference_type="post",
-                description=f"Refund for cancelled post",
+                description="Refund for cancelled post",
             )
 
         self.status = self.Status.CANCELLED

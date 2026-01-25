@@ -11,10 +11,9 @@ Tests:
 from decimal import Decimal
 
 from django.test import TestCase, TransactionTestCase
-from django.utils import timezone
 
 from core.models import User, Transaction
-from core.services.credits import CreditService, DailyCapReachedError
+from core.services.credits import CreditService
 from core.services.tweet_score import (
     calculate_engagement_karma,
     get_tweet_score_multiplier,

@@ -101,7 +101,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"\n{len(created_users)} test users ready"))
 
             # Step 2: Simulate engagement flow for each user
-            self.stdout.write(f"\nSimulating engagements...")
+            self.stdout.write("\nSimulating engagements...")
 
             # Get active posts (exclude posts owned by test users)
             posts = list(Post.objects.filter(
@@ -142,7 +142,7 @@ class Command(BaseCommand):
             ))
 
             # Step 3: Queue claims for each user
-            self.stdout.write(f"\nQueuing verification batches...")
+            self.stdout.write("\nQueuing verification batches...")
 
             from posts.tasks import process_verification_batch
 

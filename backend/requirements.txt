@@ -34,7 +34,9 @@ requests>=2.31,<3.0
 Pillow>=10.0,<11.0
 numpy>=1.26,<2.0
 
-# Development
+# Development & Testing
 black>=24.0,<25.0
 isort>=5.13,<6.0
 flake8>=7.0,<8.0
+pytest>=9.0,<10.0
+hypothesis>=6.100,<7.0
