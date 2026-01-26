@@ -18,10 +18,8 @@ Options:
 import random
 import time
 from decimal import Decimal
-from typing import Optional
 
 from django.core.management.base import BaseCommand
-from django.db import transaction
 from django.utils import timezone
 
 from core.models import User, XProfile, XPTransaction, Transaction
@@ -239,7 +237,7 @@ class Command(BaseCommand):
                     user.display_name = name
                     user.credits = Decimal('100')
                     user.save(update_fields=["display_name", "credits", "updated_at"])
-                    self.stdout.write(f"  -> User already exists, updated")
+                    self.stdout.write("  -> User already exists, updated")
 
                 # Link X account (fetch TweetScout data)
                 if not self.skip_api:
@@ -479,7 +477,7 @@ class Command(BaseCommand):
                         amount=Decimal(str(karma_amount)),
                         reference_id=post.id,
                         reference_type="post",
-                        description=f"Integration test post",
+                        description="Integration test post",
                     )
 
                     user.refresh_from_db()
@@ -746,7 +744,7 @@ class Command(BaseCommand):
         total_verified = self.engagement_stats['total_passed'] + self.engagement_stats['total_failed']
         overall_pass_rate = (self.engagement_stats['total_passed'] / total_verified * 100) if total_verified > 0 else 0
 
-        self.stdout.write(self.style.SUCCESS(f"\n  ENGAGEMENT SUMMARY:"))
+        self.stdout.write(self.style.SUCCESS("\n  ENGAGEMENT SUMMARY:"))
         self.stdout.write(f"  Total Clicks: {self.engagement_stats['total_clicks']}")
         self.stdout.write(f"  Total Verified: {total_verified}")
         self.stdout.write(f"  Passed: {self.engagement_stats['total_passed']} ({overall_pass_rate:.1f}%)")
@@ -971,7 +969,7 @@ class Command(BaseCommand):
         total_initial_escrow = sum(p.initial_escrow for p in self.created_posts.values())
         escrow_used = total_initial_escrow - total_escrow
 
-        self.stdout.write(f"\nEscrow Stats:")
+        self.stdout.write("\nEscrow Stats:")
         self.stdout.write(f"  Total Initial Escrow: {float(total_initial_escrow):.2f} karma")
         self.stdout.write(f"  Remaining Escrow: {float(total_escrow):.2f} karma")
         self.stdout.write(f"  Distributed to Engagers: {float(escrow_used):.2f} karma")
@@ -979,7 +977,7 @@ class Command(BaseCommand):
         # =====================================================================
         # TEST RESULTS
         # =====================================================================
-        self.stdout.write(self.style.SUCCESS(f"\n\nTEST RESULTS"))
+        self.stdout.write(self.style.SUCCESS("\n\nTEST RESULTS"))
         self.stdout.write("-" * 70)
         self.stdout.write(f"Successes: {len(self.successes)}")
         for success in self.successes[:10]:

@@ -22,7 +22,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from core.models import User, XProfile, SiteSetting
+from core.models import User, XProfile
 from core.services.credits import CreditService
 from core.services.tweet_score import (
     get_tweet_score_tier,
@@ -32,7 +32,7 @@ from core.services.tweet_score import (
 from core.services.twitter_verification import twitter_verification
 from core.services.tweetscout import get_tweetscout_service
 from core.services.settings import get_setting
-from core.services.xp import XPService, get_xp_for_sponsored_engagement
+from core.services.xp import get_xp_for_sponsored_engagement
 from posts.models import Post, Engagement, SponsoredPost
 
 
@@ -503,7 +503,7 @@ class Command(BaseCommand):
             tweet_id = test_eng.post.tweet_id or twitter_verification.extract_tweet_id(test_eng.post.x_link)
 
             if tweet_id and engager.x_username:
-                self.stdout.write(f"\n  Testing Twitter API verification...")
+                self.stdout.write("\n  Testing Twitter API verification...")
                 self.stdout.write(f"    Tweet: {tweet_id}")
                 self.stdout.write(f"    User: @{engager.x_username}")
 
@@ -523,7 +523,7 @@ class Command(BaseCommand):
 
         # Test honesty score drop calculation
         test_failures = [1, 2, 3, 4, 5, 8, 10]
-        self.stdout.write(f"\n  Honesty score drop formula: ceil(failures/2)")
+        self.stdout.write("\n  Honesty score drop formula: ceil(failures/2)")
         for failures in test_failures:
             expected_drop = max(1, math.ceil(failures / 2))
             self.stdout.write(f"    {failures} failures -> -{expected_drop} honesty")
@@ -679,7 +679,7 @@ class Command(BaseCommand):
         }
 
         total_cost = Decimal("0")
-        self.stdout.write(f"\n  API Calls Made:")
+        self.stdout.write("\n  API Calls Made:")
 
         for api, count in self.api_calls.items():
             cost = Decimal(str(COSTS.get(api, 0))) * count

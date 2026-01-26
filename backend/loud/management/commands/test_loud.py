@@ -211,7 +211,7 @@ class Command(BaseCommand):
         fake_tweet_id = str(random.randint(10**18, 10**19))
         fake_url = f'https://x.com/{x_username}/status/{fake_tweet_id}'
 
-        self.stdout.write(f'\n  Testing submission:')
+        self.stdout.write('\n  Testing submission:')
         self.stdout.write(f'    URL: {fake_url}')
 
         try:
@@ -221,7 +221,7 @@ class Command(BaseCommand):
         except ValidationError as e:
             self.stdout.write(self.style.WARNING(f'    Validation error: {e}'))
         except IntegrityError:
-            self.stdout.write(self.style.WARNING(f'    Already submitted (duplicate tweet_id)'))
+            self.stdout.write(self.style.WARNING('    Already submitted (duplicate tweet_id)'))
 
     def test_rate_limiting(self):
         """Test rate limiting (daily limit and per-project limit)"""
@@ -270,11 +270,11 @@ class Command(BaseCommand):
             self.stdout.write(f'    Total participants: {stats["total_participants"]}')
 
             if leaderboard:
-                self.stdout.write(f'    Top entries:')
+                self.stdout.write('    Top entries:')
                 for entry in leaderboard:
                     self.stdout.write(f'      #{entry["rank"]} {entry["user"]["display_name"]}: {entry["total_points"]} pts ({entry["submission_count"]} posts)')
             else:
-                self.stdout.write(f'    No submissions yet')
+                self.stdout.write('    No submissions yet')
 
             if user_entry:
                 self.stdout.write(f'    Your rank: #{user_entry["rank"]} with {user_entry["total_points"]} pts')
@@ -308,4 +308,4 @@ class Command(BaseCommand):
         except ValidationError as e:
             self.stdout.write(self.style.SUCCESS(f'  PASS: Correctly rejected - {e}'))
         except IntegrityError:
-            self.stdout.write(self.style.SUCCESS(f'  PASS: Correctly rejected at DB level'))
+            self.stdout.write(self.style.SUCCESS('  PASS: Correctly rejected at DB level'))

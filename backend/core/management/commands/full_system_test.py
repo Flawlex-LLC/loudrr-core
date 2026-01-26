@@ -17,19 +17,17 @@ Usage:
     python manage.py full_system_test --verbose    # Detailed output
 """
 import random
-import time
 from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from django.core.management.base import BaseCommand
-from django.db import transaction, connection
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from core.models import User, Transaction, SiteSetting
-from core.services.credits import CreditService, InsufficientCreditsError, DailyCapReachedError
+from core.models import User, Transaction
+from core.services.credits import CreditService, InsufficientCreditsError
 from core.services.tweet_score import calculate_engagement_karma, get_tier_name
-from core.services.settings import get_setting
 from posts.models import Engagement, Post, VerificationBatch
 
 

@@ -793,7 +793,7 @@ class SubmitPostView(MiniAppAuthMixin, APIView):
             amount=Decimal(str(karma_amount)),
             reference_id=post.id,
             reference_type="post",
-            description=f"Posted X link",
+            description="Posted X link",
         )
 
         user.refresh_from_db()

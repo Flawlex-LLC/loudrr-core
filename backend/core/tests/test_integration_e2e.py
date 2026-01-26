@@ -12,10 +12,8 @@ For individual unit test assertions:
 """
 from decimal import Decimal
 from django.test import TestCase
-from django.db import connection
-from django.utils import timezone
 
-from core.models import User, XProfile
+from core.models import User
 from core.services.tweet_score import (
     get_tweet_score_tier,
     get_tweet_score_multiplier,

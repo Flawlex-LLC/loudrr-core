@@ -3,11 +3,10 @@ Gamification service.
 
 Handles streaks, tiers, leaderboards, and achievements.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import List, Dict, Any
 
-from django.db.models import Sum, Count, F
-from django.db.models.functions import TruncDate
+from django.db.models import Sum, Count
 from django.utils import timezone
 
 from core.models import User, Transaction

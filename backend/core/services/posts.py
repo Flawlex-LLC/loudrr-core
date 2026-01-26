@@ -4,12 +4,10 @@ Post service.
 Handles creating posts, managing escrow, and post lifecycle.
 """
 from typing import Optional, List
-from django.conf import settings
 from django.db import transaction
-from django.db.models import Q
 
 from core.models import User
-from core.services.credits import CreditService, InsufficientCreditsError
+from core.services.credits import CreditService
 from core.services.settings import get_setting
 from posts.models import Post, Engagement
 
@@ -55,7 +53,7 @@ class PostService:
         credit_service.spend(
             amount=post_cost,
             reference_type="post",
-            description=f"Created new post",
+            description="Created new post",
         )
 
         # Create post

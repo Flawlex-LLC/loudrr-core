@@ -10,17 +10,14 @@ Tests the entire flow from frontend perspective, attempting to:
 Run with: python manage.py test core.tests.test_e2e_gaming -v 2
 """
 import json
-import time
 import threading
 from decimal import Decimal
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from unittest.mock import patch
 
 from django.test import TestCase, TransactionTestCase, Client
 from django.utils import timezone
-from django.db import connection
 
-from core.models import User, Transaction, SiteSetting
+from core.models import User, SiteSetting
 from posts.models import Post, Engagement
 from core.services.credits import CreditService
 
@@ -116,7 +113,7 @@ class TestEngagementFlow(TransactionTestCase):
         post = self.posts[0]
 
         response = self.client.post(
-            f'/api/miniapp/session/click/?telegram_id=111111111',
+            '/api/miniapp/session/click/?telegram_id=111111111',
             data=json.dumps({'post_id': str(post.id)}),
             content_type='application/json'
         )
@@ -139,7 +136,7 @@ class TestEngagementFlow(TransactionTestCase):
 
         # First click
         response1 = self.client.post(
-            f'/api/miniapp/session/click/?telegram_id=111111111',
+            '/api/miniapp/session/click/?telegram_id=111111111',
             data=json.dumps({'post_id': str(post.id)}),
             content_type='application/json'
         )
@@ -147,7 +144,7 @@ class TestEngagementFlow(TransactionTestCase):
 
         # Second click - should not fail
         response2 = self.client.post(
-            f'/api/miniapp/session/click/?telegram_id=111111111',
+            '/api/miniapp/session/click/?telegram_id=111111111',
             data=json.dumps({'post_id': str(post.id)}),
             content_type='application/json'
         )
@@ -171,7 +168,7 @@ class TestEngagementFlow(TransactionTestCase):
         )
 
         response = self.client.post(
-            f'/api/miniapp/session/click/?telegram_id=111111111',
+            '/api/miniapp/session/click/?telegram_id=111111111',
             data=json.dumps({'post_id': str(own_post.id)}),
             content_type='application/json'
         )
@@ -382,7 +379,7 @@ class TestConcurrencyRaceConditions(TransactionTestCase):
             try:
                 client = Client()
                 response = client.post(
-                    f'/api/miniapp/session/click/?telegram_id=666666666',
+                    '/api/miniapp/session/click/?telegram_id=666666666',
                     data=json.dumps({'post_id': str(self.post.id)}),
                     content_type='application/json'
                 )
@@ -579,7 +576,7 @@ class TestGamingAttempts(TransactionTestCase):
         # Simulate clicking 10 posts very fast
         for post in self.posts[:10]:
             response = self.client.post(
-                f'/api/miniapp/session/click/?telegram_id=999999999',
+                '/api/miniapp/session/click/?telegram_id=999999999',
                 data=json.dumps({'post_id': str(post.id)}),
                 content_type='application/json'
             )
@@ -678,7 +675,6 @@ class TestCreditSystem(TransactionTestCase):
 
 def run_all_tests():
     """Helper to run all tests from shell."""
-    import django
     from django.test.utils import get_runner
     from django.conf import settings
 

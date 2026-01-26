@@ -16,24 +16,6 @@ from core.models import User, WaitlistEntry
 logger = logging.getLogger(__name__)
 
 
-def get_or_create_user(telegram_id: int, display_name: str = "", username: str = "") -> tuple[User, bool]:
-    """Get or create a user by Telegram ID."""
-    try:
-        user = User.objects.get(telegram_id=telegram_id)
-        # Update username if changed
-        if username and user.telegram_username != username:
-            user.telegram_username = username
-            user.save(update_fields=["telegram_username"])
-        return user, False
-    except User.DoesNotExist:
-        user = User.objects.create(
-            telegram_id=telegram_id,
-            display_name=display_name,
-            telegram_username=username,
-        )
-        return user, True
-
-
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command - onboarding or waitlist deep link."""
     telegram_user = update.effective_user

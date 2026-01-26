@@ -4,14 +4,11 @@ Populate Loud with test submissions from various users.
 Usage: python manage.py populate_loud
 """
 import random
-from datetime import timedelta
 from django.core.management.base import BaseCommand
-from django.utils import timezone
-from django.db import IntegrityError
 
 from core.models import User
-from loud.models import LoudProject, LoudSubmission, LoudLeaderboardEntry
-from loud.services import LoudService, calculate_loud_points
+from loud.models import LoudProject, LoudLeaderboardEntry
+from loud.services import LoudService
 
 
 class Command(BaseCommand):
@@ -75,7 +72,7 @@ class Command(BaseCommand):
                         submission = service.submit(project, fake_url)
                         total_submissions += 1
                         self.stdout.write(f'  + {user.display_name}: {submission.points_awarded} pts')
-                    except Exception as e:
+                    except Exception:
                         # Skip duplicates or validation errors
                         pass
 
