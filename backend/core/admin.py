@@ -4,7 +4,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib import messages
 from django.utils.html import format_html
 
-from .models import User, Transaction, SiteSetting, XProfile, XPTransaction, WaitlistEntry
+from .models import User, Transaction, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest
 from .services.credits import CreditService
 from .services.xp import XPService
 
@@ -788,3 +788,47 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
             status=WaitlistEntry.Status.REJECTED
         )
         self.message_user(request, f"Rejected {count} entries.", messages.WARNING)
+
+
+@admin.register(FeatureInterest)
+class FeatureInterestAdmin(admin.ModelAdmin):
+    """
+    Admin for feature interest registrations.
+
+    Shows users who have expressed interest in upcoming features.
+    """
+    list_display = ["user_link", "feature", "interests_display", "created_at"]
+    list_filter = ["feature", "created_at"]
+    search_fields = ["user__display_name", "user__telegram_username", "feature"]
+    ordering = ["-created_at"]
+    readonly_fields = ["id", "user", "feature", "interests", "created_at"]
+
+    # Efficient loading
+    list_select_related = ['user']
+    list_per_page = 50
+    show_full_result_count = False
+
+    def has_add_permission(self, request):
+        """Feature interests are created via API only."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Feature interests are read-only."""
+        return False
+
+    def user_link(self, obj):
+        """Clickable link to user admin page."""
+        if obj.user:
+            return format_html(
+                '<a href="/loudrr-admin/core/user/{}/change/">{}</a>',
+                obj.user.pk, obj.user.display_name or str(obj.user)
+            )
+        return "-"
+    user_link.short_description = "User"
+
+    def interests_display(self, obj):
+        """Display interests as comma-separated list."""
+        if obj.interests:
+            return ", ".join(obj.interests)
+        return "-"
+    interests_display.short_description = "Interests"

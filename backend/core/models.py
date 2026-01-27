@@ -478,6 +478,27 @@ class SiteSetting(models.Model):
         super().save(*args, **kwargs)
 
 
+class FeatureInterest(models.Model):
+    """
+    Track user interest in upcoming features.
+    Used for "Register Interest" functionality on coming soon features.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='feature_interests')
+    feature = models.CharField(max_length=50, db_index=True)  # e.g., 'campaigns', 'earn', 'loud'
+    interests = models.JSONField(default=list)  # Selected interest options
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'feature']
+        verbose_name = 'Feature Interest'
+        verbose_name_plural = 'Feature Interests'
+
+    def __str__(self):
+        return f"{self.user} interested in {self.feature}"
+
+
 class WaitlistEntry(models.Model):
     """
     Waitlist entries for users wanting to join Loudrr.
