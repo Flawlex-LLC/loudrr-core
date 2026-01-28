@@ -119,6 +119,8 @@ export interface User {
   engaged_today?: number;
   // Whitelist status
   is_whitelisted?: boolean;
+  // Feature access
+  loud_access?: boolean;
 }
 
 export interface Post {

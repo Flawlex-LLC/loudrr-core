@@ -51,6 +51,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     # Whitelist (for gated access)
     is_whitelisted = models.BooleanField(default=False, db_index=True)
 
+    # Feature access flags (toggle from admin)
+    loud_access = models.BooleanField(default=False, db_index=True, help_text="Enable LOUD feature for this user")
+
     # Admin login (optional, only for superusers)
     email = models.EmailField(unique=True, null=True, blank=True)
 

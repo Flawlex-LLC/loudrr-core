@@ -32,9 +32,10 @@ class UserAdmin(admin.ModelAdmin):
     list_display = [
         "id", "display_name", "telegram_id", "telegram_username",
         "x_username_display", "tweetscout_display", "xp_display",
-        "credits_display", "tier_display", "total_engagements", "current_streak", "is_banned", "created_at",
+        "credits_display", "tier_display", "total_engagements", "current_streak", "loud_access", "is_banned", "created_at",
     ]
-    list_filter = ["is_banned", "is_staff", "is_active"]
+    list_filter = ["is_banned", "is_staff", "is_active", "loud_access"]
+    list_editable = ["loud_access"]  # Toggle directly from list view
     search_fields = ["display_name", "telegram_id", "telegram_username", "x_username"]
     ordering = ["-created_at"]
     actions = [
@@ -60,6 +61,7 @@ class UserAdmin(admin.ModelAdmin):
         )}),
         ("TweetScout", {"fields": ("tweetscout_score",)}),
         ("Status", {"fields": ("is_active", "is_banned", "ban_reason")}),
+        ("Feature Access", {"fields": ("loud_access",)}),
         ("Permissions", {"fields": ("is_staff", "is_superuser", "groups", "user_permissions")}),
     )
 

@@ -625,6 +625,7 @@ class UserInfoView(MiniAppAuthMixin, APIView):
             "available_posts": available_posts,
             "engaged_today": engaged_today,
             "is_whitelisted": getattr(user, 'is_whitelisted', True),
+            "loud_access": getattr(user, 'loud_access', False),
         })
 
 

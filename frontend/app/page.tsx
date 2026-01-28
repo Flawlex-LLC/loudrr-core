@@ -401,10 +401,14 @@ export default function MiniApp() {
               icon={<FireIconFill />}
               iconOutline={<FireIcon />}
               label="Loud"
-              active={false}
+              active={!!(user?.loud_access && activeTab === 'loud')}
               onClick={() => {
-                hapticFeedback('light');
-                showComingSoonToast('LOUD Campaigns will be launching soon!');
+                if (user?.loud_access) {
+                  handleTabChange('loud');
+                } else {
+                  hapticFeedback('light');
+                  showComingSoonToast('LOUD Campaigns will be launching soon!');
+                }
               }}
             />
           </div>
@@ -1729,33 +1733,58 @@ function EngageTab({
   // Mandatory refresh popup - shown when posts are 20+ minutes old
   if (showMandatoryRefresh) {
     return (
-      <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
-        <div className="w-full max-w-sm bg-black/95 border border-[#f95400]/30 rounded-2xl p-6 text-center shadow-2xl shadow-black/50">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+        <div
+          className="relative w-full max-w-sm rounded-2xl p-5 animate-slide-up text-center"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+            backdropFilter: 'blur(32px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+            border: '1px solid rgba(249, 84, 0, 0.15)',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset',
+          }}
+        >
           {/* Icon */}
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-[#f95400]/20 flex items-center justify-center">
-            <svg className="w-10 h-10 text-[#f95400]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+          <div className="flex justify-center mb-4">
+            <div className="glass-icon glass-icon-md glass-icon-orange">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="url(#iconGradient)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <defs>
+                  <linearGradient id="iconGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#f95400" />
+                    <stop offset="100%" stopColor="#ff8c42" />
+                  </linearGradient>
+                </defs>
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
           </div>
 
           {/* Title */}
-          <h3 className="text-xl font-bold mb-2">Posts Outdated</h3>
+          <h3 className="text-lg font-semibold mb-2">Posts Outdated</h3>
 
           {/* Description */}
-          <p className="text-gray-400 mb-4 text-sm">
-            Your posts are more than 20 minutes old.<br />
-            Refresh to see the latest available posts.
+          <p className="text-gray-400 mb-5 text-sm">
+            Your posts are more than 20 minutes old. Refresh to see the latest available posts.
           </p>
 
           {/* CTA Button */}
           <button
             onClick={handleMandatoryRefresh}
             disabled={refreshing}
-            className="btn-primary w-full"
+            className="w-full h-12 rounded-xl font-medium text-sm transition-all duration-200 flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(249, 84, 0, 0.4)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+              color: 'white',
+            }}
           >
             {refreshing ? (
               <span className="flex items-center justify-center gap-2">
-                <span className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Refreshing...
               </span>
             ) : (
@@ -1993,15 +2022,15 @@ function EngageTab({
         <div className="mb-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-white">Engage</h2>
+              <h2 className="text-xl font-bold text-white leading-none">Engage</h2>
               <button
                 onClick={() => {
                   hapticFeedback('light');
                   setShowEngageInfo(true);
                 }}
-                className="w-5 h-5 rounded-full bg-white/[0.05] flex items-center justify-center hover:bg-white/[0.1] transition-colors"
+                className="w-5 h-5 rounded-full bg-white/[0.05] flex items-center justify-center hover:bg-white/[0.1] transition-colors -mt-0.5"
               >
-                <span className="text-[10px] text-gray-500 font-medium">i</span>
+                <span className="text-[10px] text-gray-500 font-medium leading-none">i</span>
               </button>
             </div>
             <div className="flex items-center gap-2">
