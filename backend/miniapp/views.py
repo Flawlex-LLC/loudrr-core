@@ -31,7 +31,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
-from core.models import User, WaitlistEntry
+from core.models import User, WaitlistEntry, FeatureInterest
 from core.services.credits import CreditService
 from core.services.posts import get_feed_posts
 from core.services.twitter_verification import twitter_verification
@@ -625,6 +625,7 @@ class UserInfoView(MiniAppAuthMixin, APIView):
             "available_posts": available_posts,
             "engaged_today": engaged_today,
             "is_whitelisted": getattr(user, 'is_whitelisted', True),
+            "loud_access": getattr(user, 'loud_access', False),
         })
 
 
@@ -1393,3 +1394,75 @@ class CompleteOnboardingView(MiniAppAuthMixin, APIView):
             "followers_count": info.get("followers_count", 0),
             "display_name": info.get("name", ""),
         })
+
+
+class FeatureInterestView(MiniAppAuthMixin, APIView):
+    """
+    Register or check interest in upcoming features.
+
+    POST: Register interest in a feature with specific interests
+    GET: Check if user has already registered interest
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response(
+                {"error": "Invalid authentication"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        feature = request.data.get('feature', '').strip()
+        interests = request.data.get('interests', [])
+
+        if not feature:
+            return Response(
+                {"error": "Feature is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate feature name (alphanumeric + underscore/hyphen, max 50 chars)
+        import re
+        if not re.match(r'^[a-zA-Z0-9_-]{1,50}$', feature):
+            return Response(
+                {"error": "Invalid feature name"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Ensure interests is a list of strings
+        if not isinstance(interests, list):
+            interests = []
+        interests = [str(i)[:100] for i in interests[:10]]  # Max 10 interests, 100 chars each
+
+        # Create or update interest registration
+        FeatureInterest.objects.update_or_create(
+            user=user,
+            feature=feature,
+            defaults={'interests': interests}
+        )
+
+        return Response({"success": True})
+
+    def get(self, request):
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response(
+                {"error": "Invalid authentication"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        feature = request.query_params.get('feature', '').strip()
+
+        if not feature:
+            return Response(
+                {"error": "Feature parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        registered = FeatureInterest.objects.filter(
+            user=user,
+            feature=feature
+        ).exists()
+
+        return Response({"registered": registered})

@@ -119,6 +119,8 @@ export interface User {
   engaged_today?: number;
   // Whitelist status
   is_whitelisted?: boolean;
+  // Feature access
+  loud_access?: boolean;
 }
 
 export interface Post {
@@ -388,6 +390,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+
+  /**
+   * Register interest in a coming feature
+   */
+  registerFeatureInterest: (feature: string, interests: string[]) =>
+    apiRequest<{ success: boolean }>('/feature-interest/', {
+      method: 'POST',
+      body: JSON.stringify({ feature, interests }),
+    }),
+
+  /**
+   * Check if user has registered interest in a feature
+   */
+  getFeatureInterest: (feature: string) =>
+    apiRequest<{ registered: boolean }>(`/feature-interest/?feature=${feature}`),
 };
 
 // =============================================================================

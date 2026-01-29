@@ -51,6 +51,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     # Whitelist (for gated access)
     is_whitelisted = models.BooleanField(default=False, db_index=True)
 
+    # Feature access flags (toggle from admin)
+    loud_access = models.BooleanField(default=False, db_index=True, help_text="Enable LOUD feature for this user")
+
     # Admin login (optional, only for superusers)
     email = models.EmailField(unique=True, null=True, blank=True)
 
@@ -476,6 +479,27 @@ class SiteSetting(models.Model):
         from django.core.cache import cache
         cache.delete(f'setting:{self.key}')
         super().save(*args, **kwargs)
+
+
+class FeatureInterest(models.Model):
+    """
+    Track user interest in upcoming features.
+    Used for "Register Interest" functionality on coming soon features.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='feature_interests')
+    feature = models.CharField(max_length=50, db_index=True)  # e.g., 'campaigns', 'earn', 'loud'
+    interests = models.JSONField(default=list)  # Selected interest options
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['user', 'feature']
+        verbose_name = 'Feature Interest'
+        verbose_name_plural = 'Feature Interests'
+
+    def __str__(self):
+        return f"{self.user} interested in {self.feature}"
 
 
 class WaitlistEntry(models.Model):

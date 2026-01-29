@@ -150,6 +150,20 @@ export default function MiniApp() {
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showLinkXModal, setShowLinkXModal] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [comingSoonToast, setComingSoonToast] = useState<string | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const comingSoonTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showComingSoonToast = (message: string) => {
+    if (comingSoonTimeoutRef.current) clearTimeout(comingSoonTimeoutRef.current);
+    setComingSoonToast(message);
+    setToastVisible(true);
+    // Short display, then fade up and out
+    comingSoonTimeoutRef.current = setTimeout(() => {
+      setToastVisible(false);
+      setTimeout(() => setComingSoonToast(null), 400);
+    }, 1500);
+  };
 
   // Lifted engage state - persists across tab switches
   const [engageData, setEngageData] = useState<EngageData>({
@@ -311,7 +325,7 @@ export default function MiniApp() {
           <EngageTab user={user} onUserUpdate={loadUser} engageData={engageData} setEngageData={setEngageData} settings={settings} activeTab={activeTab} />
         </div>
         <div style={{ display: activeTab === 'campaigns' ? 'block' : 'none' }}>
-          <CampaignsTab />
+          <CampaignsTab user={user} />
         </div>
         <div style={{ display: activeTab === 'earn' ? 'block' : 'none' }}>
           <EarnTab />
@@ -321,16 +335,29 @@ export default function MiniApp() {
         </div>
       </div>
 
-      {/* Bottom Tab Bar - Floating Glassmorphism Pill */}
-      <div className="fixed bottom-0 left-0 right-0 flex justify-center px-6 pb-8 tg-safe-area-bottom pointer-events-none">
+      {/* Coming Soon Toast - Simple fade up */}
+      {comingSoonToast && (
+        <div
+          className={`fixed bottom-28 left-0 right-0 flex justify-center z-50 pointer-events-none transition-all duration-400 ease-out ${
+            toastVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-6'
+          }`}
+        >
+          <div className="px-4 py-2.5 rounded-full text-sm text-white/80 text-center whitespace-pre-line bg-black/70 backdrop-blur-sm">
+            {comingSoonToast}
+          </div>
+        </div>
+      )}
+
+      {/* Bottom Tab Bar - Floating Glassmorphism Pill with Magic UI */}
+      <div className="fixed bottom-0 left-0 right-0 flex justify-center px-6 tg-safe-area-bottom pointer-events-none">
         <div
           className="relative rounded-3xl p-2 pointer-events-auto"
           style={{
-            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.08) 0%, rgba(15, 10, 11, 0.9) 50%, rgba(249, 84, 0, 0.06) 100%)',
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.1) 0%, rgba(15, 10, 11, 0.92) 50%, rgba(249, 84, 0, 0.08) 100%)',
             backdropFilter: 'blur(40px) saturate(180%)',
             WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-            border: '1px solid rgba(249, 84, 0, 0.25)',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(249, 84, 0, 0.1) inset'
+            border: '1px solid rgba(249, 84, 0, 0.3)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 40px rgba(249, 84, 0, 0.08), 0 1px 0 rgba(249, 84, 0, 0.15) inset'
           }}
         >
           <div className="flex items-center gap-1">
@@ -352,27 +379,37 @@ export default function MiniApp() {
             />
             <TabButton
               tabId="campaigns"
-              icon={<MegaphoneIconFill />}
-              iconOutline={<MegaphoneIcon />}
+              icon={<TargetIconFill className="w-6 h-6" />}
+              iconOutline={<TargetIcon className="w-6 h-6" />}
               label="Campaigns"
               active={activeTab === 'campaigns'}
               onClick={() => handleTabChange('campaigns')}
             />
             <TabButton
               tabId="earn"
-              icon={<GiftIconFill />}
-              iconOutline={<GiftIcon />}
+              icon={<StarIconFill />}
+              iconOutline={<StarIcon />}
               label="Earn"
-              active={activeTab === 'earn'}
-              onClick={() => handleTabChange('earn')}
+              active={false}
+              onClick={() => {
+                hapticFeedback('light');
+                showComingSoonToast('Earn is coming soon.\nKarma will play main role here.');
+              }}
             />
             <TabButton
               tabId="loud"
-              icon={<RocketIconFill />}
-              iconOutline={<RocketIcon />}
+              icon={<FireIconFill />}
+              iconOutline={<FireIcon />}
               label="Loud"
-              active={activeTab === 'loud'}
-              onClick={() => handleTabChange('loud')}
+              active={!!(user?.loud_access && activeTab === 'loud')}
+              onClick={() => {
+                if (user?.loud_access) {
+                  handleTabChange('loud');
+                } else {
+                  hapticFeedback('light');
+                  showComingSoonToast('LOUD Campaigns will be launching soon!');
+                }
+              }}
             />
           </div>
         </div>
@@ -423,14 +460,21 @@ function TabButton({
     <button
       onClick={onClick}
       data-tab={tabId}
-      className={`relative z-10 flex flex-col items-center justify-center flex-1 px-3 py-2 rounded-2xl transition-all ${
-        active ? 'text-[#f95400]' : 'text-gray-500 hover:text-gray-300'
+      className={`relative z-10 flex flex-col items-center justify-center flex-1 px-3 py-2 rounded-2xl transition-all active:scale-95 ${
+        active ? 'text-[#f95400]' : 'text-gray-500 hover:text-gray-400'
       }`}
     >
-      <div className="w-6 h-6 flex items-center justify-center mb-1 transition-all">
+      <div
+        className="w-6 h-6 flex items-center justify-center mb-1 transition-all"
+        style={{
+          filter: active ? 'drop-shadow(0 0 8px rgba(249, 84, 0, 0.6))' : 'none',
+        }}
+      >
         <div className="w-5 h-5">{active ? icon : iconOutline}</div>
       </div>
-      <span className={`text-[9px] font-semibold text-center w-full ${active ? 'text-[#f95400]' : ''}`}>{label}</span>
+      <span className={`text-[9px] font-semibold text-center w-full ${active ? 'text-[#f95400]' : ''}`}>
+        {label}
+      </span>
     </button>
   );
 }
@@ -473,7 +517,7 @@ function Header({
             }}
             className="glass-pill flex items-center gap-2 hover:bg-white/10 transition-all"
           >
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#f95400] to-[#ff7020] flex items-center justify-center">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#f95400] to-[#ff7020] flex items-center justify-center">
               <span className="text-xs font-bold text-black">
                 {telegramUsername.charAt(0).toUpperCase()}
               </span>
@@ -502,10 +546,8 @@ function Header({
                 {/* Telegram Account */}
                 <div className="px-4 py-3 border-b border-white/[0.06]">
                   <div className="flex items-center gap-3">
-                    <div className="glass-icon glass-icon-md glass-icon-orange rounded-full">
-                      <span className="text-sm font-bold text-[#f95400]">
-                        {telegramUsername.charAt(0).toUpperCase()}
-                      </span>
+                    <div className="glass-icon glass-icon-md">
+                      <TelegramIcon className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-gray-400">Telegram</p>
@@ -568,8 +610,8 @@ function Header({
                   }}
                   className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/[0.04] transition-colors"
                 >
-                  <div className="glass-icon glass-icon-md glass-icon-orange">
-                    <ChartIconFill className="w-5 h-5 text-[#f95400]" />
+                  <div className="glass-icon glass-icon-md">
+                    <ChartIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                   </div>
                   <div className="flex-1 text-left">
                     <p className="text-sm font-medium text-white">Stats</p>
@@ -763,7 +805,7 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
         >
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#f95400]/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
           <div className="glass-icon glass-icon-md glass-icon-orange mb-2">
-            <MegaphoneIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+            <TargetIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
           </div>
           <p className="text-sm font-semibold text-white">Campaigns</p>
           <p className="text-xs text-gray-500">Coming soon</p>
@@ -775,32 +817,52 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
 
       {/* Tier Info Modal */}
       {showTierInfo && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 pb-20">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-md"
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
             onClick={() => setShowTierInfo(false)}
           />
 
-          {/* Modal - Compact Glass Card */}
-          <div className="relative w-full max-w-sm glass-card rounded-2xl p-4 animate-slide-up">
-            {/* Header with close */}
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-xs text-gray-500">
-                  <span className="text-[#f95400] font-medium">{Math.round(tweetscoutScore)} pts</span> on sorsa.io
-                </p>
+          {/* Modal */}
+          <div
+            className="relative w-full max-w-sm rounded-2xl p-5 animate-slide-up"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+              backdropFilter: 'blur(32px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+              border: '1px solid rgba(249, 84, 0, 0.15)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset',
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(249, 84, 0, 0.08) 100%)',
+                    border: '1px solid rgba(249, 84, 0, 0.3)',
+                  }}
+                >
+                  <TrophyIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+                </div>
+                <h3 className="text-base font-semibold text-white">Creator Tiers</h3>
               </div>
               <button
                 onClick={() => setShowTierInfo(false)}
-                className="w-6 h-6 rounded-full bg-white/[0.06] flex items-center justify-center hover:bg-white/10"
+                className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors hover:bg-white/10"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                }}
               >
-                <XIconFill className="w-3 h-3 text-gray-500" />
+                <XIconFill className="w-4 h-4 text-gray-400" />
               </button>
             </div>
 
-            {/* Tiers Grid - Compact */}
-            <div className="space-y-1">
+            {/* Tiers List */}
+            <div className="space-y-2 mb-5">
               {tierData.map((tier) => {
                 const isCurrentTier = tier.name === scoreTier;
                 const isAchieved = tweetscoutScore >= tier.minPoints;
@@ -808,20 +870,31 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
                 return (
                   <div
                     key={tier.name}
-                    className={`flex items-center justify-between py-2 px-3 rounded-lg ${
-                      isCurrentTier
-                        ? 'bg-[#f95400]/10 border border-[#f95400]/20'
-                        : 'border border-transparent'
-                    } ${!isAchieved && !isCurrentTier ? 'opacity-40' : ''}`}
+                    className="flex items-center justify-between py-2.5 px-3 rounded-xl transition-all"
+                    style={{
+                      background: isCurrentTier
+                        ? 'linear-gradient(135deg, rgba(249, 84, 0, 0.15) 0%, rgba(249, 84, 0, 0.05) 100%)'
+                        : 'transparent',
+                      border: isCurrentTier
+                        ? '1px solid rgba(249, 84, 0, 0.4)'
+                        : '1px solid rgba(255, 255, 255, 0.06)',
+                      opacity: !isAchieved && !isCurrentTier ? 0.4 : 1,
+                    }}
                   >
                     <span className={`text-sm font-medium ${isCurrentTier ? 'text-[#f95400]' : 'text-white'}`}>
                       {tier.name}
                     </span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-gray-500 w-14 text-right">
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs text-gray-500">
                         {tier.minPoints}+ pts
                       </span>
-                      <span className={`text-xs font-mono w-10 text-right ${isCurrentTier ? 'text-[#f95400]' : 'text-gray-400'}`}>
+                      <span
+                        className="text-xs font-mono font-semibold px-2 py-0.5 rounded-md"
+                        style={{
+                          background: isCurrentTier ? 'rgba(249, 84, 0, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                          color: isCurrentTier ? '#f95400' : '#9ca3af',
+                        }}
+                      >
                         {tier.multiplier}
                       </span>
                     </div>
@@ -829,6 +902,11 @@ function HomeTab({ user, onRefresh }: { user: User | null; onRefresh: () => void
                 );
               })}
             </div>
+
+            {/* Note */}
+            <p className="text-xs text-gray-500 text-center">
+              Your TweetScout score is <span className="text-[#f95400]">{Math.round(tweetscoutScore)}</span> and determines your multiplier
+            </p>
           </div>
         </div>
       )}
@@ -926,21 +1004,248 @@ function StreakCard({ currentStreak }: { currentStreak: number }) {
   );
 }
 
-// CAMPAIGNS TAB (Coming Soon)
-function CampaignsTab() {
+// CAMPAIGNS TAB (Interest Registration)
+function CampaignsTab({ user }: { user: User | null }) {
+  const [showInterestModal, setShowInterestModal] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
+
+  // Check if user already registered interest
+  useEffect(() => {
+    const checkRegistration = async () => {
+      if (!user) {
+        setCheckingStatus(false);
+        return;
+      }
+      try {
+        const response = await api.getFeatureInterest('campaigns');
+        setRegistered(response.registered);
+      } catch {
+        // Ignore errors
+      } finally {
+        setCheckingStatus(false);
+      }
+    };
+    checkRegistration();
+  }, [user]);
+
+  const glassCardStyle = {
+    background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+    backdropFilter: 'blur(32px) saturate(160%)',
+    WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+    border: '1px solid rgba(249, 84, 0, 0.15)',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset'
+  };
+
   return (
-    <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
-      <div className="text-center max-w-sm">
-        <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-[#f95400]/20 to-[#CC5500]/20 border border-[#f95400]/30 flex items-center justify-center">
-          <MegaphoneIconFill className="w-12 h-12 text-[#f95400]/60" />
+    <div className="flex items-center justify-center min-h-[70vh] p-4">
+      {/* Popup Card */}
+      <div
+        className="w-full max-w-sm rounded-2xl p-5"
+        style={{
+          background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+          backdropFilter: 'blur(32px) saturate(160%)',
+          WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+          border: '1px solid rgba(249, 84, 0, 0.15)',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset',
+        }}
+      >
+        {/* Header */}
+        <div className="flex flex-col items-center mb-5">
+          <div className="glass-icon glass-icon-lg glass-icon-orange mb-4">
+            <TargetIconFill className="w-6 h-6" style={ICON_GRADIENT_STYLE} />
+          </div>
+          <h3 className="text-base font-semibold text-white mb-1">Campaigns</h3>
+          <span
+            className="text-xs font-mono font-semibold px-3 py-1 rounded-full"
+            style={{ background: 'rgba(249, 84, 0, 0.2)', color: '#f95400' }}
+          >
+            Coming Soon
+          </span>
         </div>
-        <h2 className="text-2xl font-bold mb-2 gold-gradient-text">Campaigns</h2>
-        <p className="text-gray-400 mb-4">
-          XP reward campaigns will be available here.
+
+        {/* Description */}
+        <p className="text-xs text-gray-500 text-center mb-5">
+          Exclusive reward campaigns from top projects. Register your interest to get notified when we launch.
         </p>
-        <div className="px-4 py-2 rounded-full bg-[#f95400]/10 border border-[#f95400]/20">
-          <span className="text-sm text-[#f95400] font-medium">Coming Soon</span>
+
+        {/* CTA */}
+        {checkingStatus ? (
+          <div className="flex justify-center py-3">
+            <div className="w-6 h-6 border-2 border-[#f95400]/30 border-t-[#f95400] rounded-full animate-spin" />
+          </div>
+        ) : registered ? (
+          <div
+            className="h-12 rounded-2xl flex items-center justify-center gap-2"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+              border: '1px solid rgba(249, 84, 0, 0.4)',
+            }}
+          >
+            <CheckIconFill className="w-5 h-5 text-white" />
+            <span className="text-white font-semibold text-sm">You&apos;re on the list!</span>
+          </div>
+        ) : (
+          <button
+            onClick={() => {
+              hapticFeedback('medium');
+              setShowInterestModal(true);
+            }}
+            className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(249, 84, 0, 0.4)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+              color: 'white',
+            }}
+          >
+            Register Interest
+          </button>
+        )}
+      </div>
+
+      {/* Interest Modal */}
+      <CampaignInterestModal
+        isOpen={showInterestModal}
+        onClose={() => setShowInterestModal(false)}
+        onSuccess={() => {
+          setRegistered(true);
+          setShowInterestModal(false);
+          hapticFeedback('success');
+        }}
+      />
+    </div>
+  );
+}
+
+// Campaign Interest Modal
+function CampaignInterestModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const options = [
+    { id: 'airdrops', label: 'Airdrops' },
+    { id: 'token_rewards', label: 'Token Rewards' },
+    { id: 'nfts', label: 'NFTs' },
+    { id: 'exclusive_access', label: 'Exclusive Access' },
+  ];
+
+  const toggleOption = (id: string) => {
+    hapticFeedback('light');
+    setSelected(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      await api.registerFeatureInterest('campaigns', selected);
+      onSuccess();
+    } catch {
+      hapticFeedback('error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Modal */}
+      <div
+        className="relative w-full max-w-sm rounded-2xl p-5 animate-slide-up"
+        style={{
+          background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+          backdropFilter: 'blur(32px) saturate(160%)',
+          WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+          border: '1px solid rgba(249, 84, 0, 0.15)',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset',
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-3">
+            <div className="glass-icon glass-icon-sm glass-icon-orange">
+              <TargetIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+            </div>
+            <h3 className="text-base font-semibold text-white">What interests you?</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors hover:bg-white/10"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+          >
+            <XIconFill className="w-4 h-4 text-gray-400" />
+          </button>
         </div>
+
+        {/* Options */}
+        <div className="space-y-2 mb-5">
+          {options.map(option => (
+            <button
+              key={option.id}
+              onClick={() => toggleOption(option.id)}
+              className="w-full py-2.5 px-3 rounded-xl text-left transition-all flex items-center justify-between"
+              style={{
+                background: selected.includes(option.id)
+                  ? 'linear-gradient(135deg, rgba(249, 84, 0, 0.15) 0%, rgba(249, 84, 0, 0.05) 100%)'
+                  : 'transparent',
+                border: selected.includes(option.id)
+                  ? '1px solid rgba(249, 84, 0, 0.4)'
+                  : '1px solid rgba(255, 255, 255, 0.06)',
+              }}
+            >
+              <span className={`text-sm font-medium ${selected.includes(option.id) ? 'text-[#f95400]' : 'text-white'}`}>
+                {option.label}
+              </span>
+              {selected.includes(option.id) && (
+                <CheckIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Submit */}
+        <button
+          onClick={handleSubmit}
+          disabled={selected.length === 0 || submitting}
+          className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(249, 84, 0, 0.4)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+            color: 'white',
+          }}
+        >
+          {submitting ? (
+            <>
+              <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Submitting...
+            </>
+          ) : (
+            'Submit'
+          )}
+        </button>
       </div>
     </div>
   );
@@ -952,7 +1257,7 @@ function EarnTab() {
     <div className="p-4 flex flex-col items-center justify-center min-h-[60vh]">
       <div className="text-center max-w-sm">
         <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-gradient-to-br from-[#f95400]/20 to-[#CC5500]/20 border border-[#f95400]/30 flex items-center justify-center">
-          <GiftIconFill className="w-12 h-12 text-[#f95400]/60" />
+          <StarIconFill className="w-12 h-12 text-[#f95400]/60" />
         </div>
         <h2 className="text-2xl font-bold mb-2 gold-gradient-text">Earn Rewards</h2>
         <p className="text-gray-400 mb-4">
@@ -995,9 +1300,11 @@ function EngageTab({
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [likeIntentEnabled, setLikeIntentEnabled] = useState(true); // Default ON
   const [refreshing, setRefreshing] = useState(false);
+  const [showClaimTooltip, setShowClaimTooltip] = useState(false);
   const [showFailurePopup, setShowFailurePopup] = useState(false);
   const [failedCount, setFailedCount] = useState(0);
   const [earnedKarma, setEarnedKarma] = useState(0); // Karma earned in the batch (shown in popup)
+  const [showEngageInfo, setShowEngageInfo] = useState(false);
 
   // Refs
   const carouselRef = useRef<HTMLDivElement>(null);
@@ -1006,8 +1313,7 @@ function EngageTab({
   const engagedPostsRef = useRef<Set<string>>(new Set());
   const currentPostIndexRef = useRef(0);
   const isScrollingRef = useRef(false); // Flag to disable onScroll during programmatic scroll
-  const touchStartXRef = useRef<number>(0); // For touch scroll lock
-  const scrollStartRef = useRef<number>(0); // For touch scroll lock
+  const claimTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Check if posts are stale (20+ minutes old)
   const isStale = lastFetchedAt && (Date.now() - lastFetchedAt > STALE_THRESHOLD_MS);
@@ -1146,46 +1452,8 @@ function EngageTab({
     }
   }, [activeTab, state, user]);
 
-  // NOTE: Scroll sync useEffect removed - no longer needed since tabs use CSS display:none
-  // instead of conditional rendering. DOM element stays mounted, preserving scroll position.
-
-  // HARD SCROLL LOCK: Use native event listeners with passive: false to completely block forward scroll
-  useEffect(() => {
-    const container = carouselRef.current;
-    if (!container) return;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      touchStartXRef.current = e.touches[0].clientX;
-      scrollStartRef.current = container.scrollLeft;
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      const deltaX = touchStartXRef.current - e.touches[0].clientX; // Positive = scrolling right (forward)
-
-      // Calculate max allowed scroll position
-      const cardWidth = container.offsetWidth * 0.8;
-      const gap = 12;
-      const spacerWidth = container.offsetWidth * 0.1;
-      const maxAllowedIndex = currentPostIndexRef.current;
-      const maxAllowedScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
-
-      // If trying to scroll forward past max allowed, BLOCK completely
-      if (scrollStartRef.current + deltaX > maxAllowedScroll) {
-        e.preventDefault(); // This works because passive: false
-        e.stopPropagation();
-        container.scrollLeft = maxAllowedScroll;
-      }
-    };
-
-    // Add listeners with passive: false to enable preventDefault
-    container.addEventListener('touchstart', handleTouchStart, { passive: true });
-    container.addEventListener('touchmove', handleTouchMove, { passive: false });
-
-    return () => {
-      container.removeEventListener('touchstart', handleTouchStart);
-      container.removeEventListener('touchmove', handleTouchMove);
-    };
-  }, [state, session]); // Re-attach when session changes
+  // NOTE: Scroll lock no longer needed - we only render cards up to maxAllowed + 1
+  // so there's nothing to scroll to beyond unlocked cards
 
   const startSession = async (skipPendingRestore = false) => {
     try {
@@ -1418,31 +1686,35 @@ function EngageTab({
       // Success - verification queued!
       hapticFeedback('success');
 
-      // Fetch updated claim history and fresh cards in parallel (background, no loading state)
+      // Immediately clear engaged posts for instant visual feedback
+      engagedPostsRef.current = new Set<string>();
+      currentPostIndexRef.current = 0;
+      updateEngageData({
+        engagedPosts: new Set<string>(),
+        currentPostIndex: 0,
+        hasProcessingBatch: true, // Show "Processing..." immediately
+      });
+
+      // Scroll carousel to first card instantly
+      if (carouselRef.current) {
+        carouselRef.current.scrollTo({ left: 0, behavior: 'instant' });
+      }
+
+      // Fetch updated claim history and fresh cards in parallel (background)
       const [historyData, sessionData] = await Promise.all([
         fetchClaimHistory(),
         api.startSession(),
       ]);
 
-      // Update everything at once - no loading screen, just swap cards
-      engagedPostsRef.current = new Set<string>();
-      currentPostIndexRef.current = 0;
-
+      // Update with fresh cards - smooth swap
       updateEngageData({
         state: 'ready',
         session: sessionData,
-        engagedPosts: new Set<string>(),
-        currentPostIndex: 0,
         claimHistory: historyData?.batches || [],
         hasProcessingBatch: historyData?.has_processing || true,
         isClaimLoading: false,
         lastFetchedAt: Date.now(),
       });
-
-      // Scroll carousel to first card
-      if (carouselRef.current) {
-        carouselRef.current.scrollTo({ left: 0, behavior: 'instant' });
-      }
 
     } catch (err) {
       updateEngageData({
@@ -1461,27 +1733,60 @@ function EngageTab({
   // Mandatory refresh popup - shown when posts are 20+ minutes old
   if (showMandatoryRefresh) {
     return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden bg-black p-4">
-        <div className="card-base p-6 text-center max-w-sm">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[#f95400]/20 flex items-center justify-center">
-            <svg className="w-8 h-8 text-[#f95400]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+        <div
+          className="relative w-full max-w-sm rounded-2xl p-5 animate-slide-up text-center"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+            backdropFilter: 'blur(32px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+            border: '1px solid rgba(249, 84, 0, 0.15)',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset',
+          }}
+        >
+          {/* Icon */}
+          <div className="flex justify-center mb-4">
+            <div className="glass-icon glass-icon-md glass-icon-orange">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="url(#iconGradient)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <defs>
+                  <linearGradient id="iconGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#f95400" />
+                    <stop offset="100%" stopColor="#ff8c42" />
+                  </linearGradient>
+                </defs>
+                <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
           </div>
-          <h3 className="text-xl font-bold mb-2">Posts Outdated</h3>
-          <p className="text-gray-400 mb-6">
+
+          {/* Title */}
+          <h3 className="text-lg font-semibold mb-2">Posts Outdated</h3>
+
+          {/* Description */}
+          <p className="text-gray-400 mb-5 text-sm">
             Your posts are more than 20 minutes old. Refresh to see the latest available posts.
           </p>
+
+          {/* CTA Button */}
           <button
             onClick={handleMandatoryRefresh}
             disabled={refreshing}
-            className="btn-primary w-full flex items-center justify-center gap-2"
+            className="w-full h-12 rounded-xl font-medium text-sm transition-all duration-200 flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(249, 84, 0, 0.4)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+              color: 'white',
+            }}
           >
             {refreshing ? (
-              <>
-                <PixelLoader size="xs" />
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Refreshing...
-              </>
+              </span>
             ) : (
               'Refresh Posts'
             )}
@@ -1542,14 +1847,47 @@ function EngageTab({
   // Error state
   if (state === 'error') {
     return (
-      <div className="fixed inset-0 flex items-center justify-center overflow-hidden bg-black p-4">
-        <div className="text-center max-w-sm">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-black/50 border border-[#f95400]/30 flex items-center justify-center">
-            <XIconFill className="w-10 h-10 text-[#f95400]" />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
+
+        {/* Modal */}
+        <div
+          className="relative w-full max-w-sm rounded-2xl p-5 animate-slide-up"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+            backdropFilter: 'blur(32px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+            border: '1px solid rgba(249, 84, 0, 0.15)',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset',
+          }}
+        >
+          {/* Header */}
+          <div className="flex flex-col items-center mb-5">
+            <div className="glass-icon glass-icon-md glass-icon-orange mb-4">
+              <XIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+            </div>
+            <h3 className="text-base font-semibold text-white">Something went wrong</h3>
           </div>
-          <h2 className="text-xl font-bold mb-2">Something went wrong</h2>
-          <p className="text-gray-400 mb-6">{error}</p>
-          <button onClick={() => startSession()} className="btn-primary w-full">Try Again</button>
+
+          {/* Error message */}
+          <p className="text-xs text-gray-500 text-center mb-5">{error}</p>
+
+          {/* Button */}
+          <button
+            onClick={() => startSession()}
+            className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center transition-all active:scale-95"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(249, 84, 0, 0.4)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+              color: 'white',
+            }}
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
@@ -1682,28 +2020,86 @@ function EngageTab({
     <>
       <div className="p-4">
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-bold">Engage</h2>
-            <span className="text-sm text-[#f95400]">{engagedPosts.size}/10 queued</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-white leading-none">Engage</h2>
+              <button
+                onClick={() => {
+                  hapticFeedback('light');
+                  setShowEngageInfo(true);
+                }}
+                className="w-5 h-5 rounded-full bg-white/[0.05] flex items-center justify-center hover:bg-white/[0.1] transition-colors -mt-0.5"
+              >
+                <span className="text-[10px] text-gray-500 font-medium leading-none">i</span>
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <div
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-sm"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                }}
+              >
+                <span className="font-semibold">{(session?.posts?.length || 0) - engagedPosts.size}</span>
+                <span className="text-xs opacity-70">available</span>
+              </div>
+              <div
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-sm"
+                style={{
+                  background: engagedPosts.size > 0
+                    ? 'linear-gradient(135deg, rgba(249, 84, 0, 0.25) 0%, rgba(249, 84, 0, 0.15) 100%)'
+                    : 'rgba(255, 255, 255, 0.05)',
+                  border: engagedPosts.size > 0 ? '1px solid rgba(249, 84, 0, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+                  color: engagedPosts.size > 0 ? '#ff8c42' : 'rgba(255, 255, 255, 0.6)',
+                }}
+              >
+                <span className="font-semibold">{engagedPosts.size}</span>
+                <span className="text-xs opacity-70">queue</span>
+              </div>
+            </div>
           </div>
-          <div className="progress-bar h-2">
-            <div className="progress-fill" style={{ width: `${progress}%` }} />
+          <div className="h-2.5 bg-white/10 rounded-full overflow-hidden ring-1 ring-white/20">
+            <div
+              className="h-full rounded-full transition-all duration-500 relative overflow-hidden"
+              style={{
+                background: 'linear-gradient(90deg, #f95400 0%, #ff8c42 50%, #f95400 100%)',
+                backgroundSize: '200% 100%',
+                animation: 'progress-shine 3s ease-in-out infinite',
+                boxShadow: '0 0 12px rgba(249, 84, 0, 0.3), 0 1px 0 rgba(255, 140, 66, 0.4) inset',
+                width: `${progress}%`
+              }}
+            />
           </div>
           <p className="text-xs text-gray-500 mt-1">Post {currentPostIndex + 1} of {session?.posts?.length || 0}</p>
 
           {/* Like Intent Toggle */}
-          <div className="flex items-center justify-between mt-3 p-3 rounded-xl bg-white/5 border border-white/10">
+          <div
+            className="flex items-center justify-between mt-3 p-3 rounded-xl transition-all"
+            style={{
+              background: likeIntentEnabled
+                ? 'linear-gradient(135deg, rgba(249, 84, 0, 0.08) 0%, rgba(15, 10, 11, 0.6) 100%)'
+                : 'linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(15, 10, 11, 0.6) 100%)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              border: likeIntentEnabled ? '1px solid rgba(249, 84, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+              boxShadow: likeIntentEnabled ? '0 0 20px rgba(249, 84, 0, 0.1)' : 'none'
+            }}
+          >
             <div className="flex items-center gap-2">
-              <HeartIconFill className="w-4 h-4 text-[#f95400]" />
-              <span className="text-sm text-gray-300">Quick Like</span>
+              <div className="glass-icon glass-icon-sm glass-icon-orange">
+                <HeartIconFill className="w-3.5 h-3.5" style={ICON_GRADIENT_STYLE} />
+              </div>
+              <span className="text-sm font-medium text-white">Quick Like</span>
             </div>
             <button
               onClick={() => {
                 hapticFeedback('light');
                 setLikeIntentEnabled(!likeIntentEnabled);
               }}
-              className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-                likeIntentEnabled ? 'bg-[#f95400]' : 'bg-gray-600'
+              className={`relative w-11 h-6 rounded-full transition-all duration-200 ${
+                likeIntentEnabled ? 'bg-[#f95400] shadow-[0_0_12px_rgba(249,84,0,0.4)]' : 'bg-white/20'
               }`}
             >
               <span
@@ -1716,15 +2112,15 @@ function EngageTab({
         </div>
 
         {/* Card Carousel */}
-        <div className="relative overflow-hidden">
+        <div className="overflow-hidden">
+          {/* Cards with nav buttons wrapper */}
+          <div className="relative">
           {/* Left navigation button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
-              console.log('[LeftBtn] Clicked, currentPostIndex:', currentPostIndex);
               if (currentPostIndex > 0) {
                 const newIndex = currentPostIndex - 1;
-                console.log('[LeftBtn] Moving to index:', newIndex);
                 updateEngageData({ currentPostIndex: newIndex });
                 const container = carouselRef.current;
                 if (container) {
@@ -1732,21 +2128,27 @@ function EngageTab({
                   const cardWidth = container.offsetWidth * 0.8;
                   const spacerWidth = container.offsetWidth * 0.1;
                   const targetScroll = spacerWidth + (newIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
-                  console.log('[LeftBtn] Scrolling to:', Math.round(targetScroll));
                   container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
                   setTimeout(() => { isScrollingRef.current = false; }, 350);
                 }
               }
             }}
             disabled={currentPostIndex <= 0}
-            className={`absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-              currentPostIndex > 0
-                ? 'bg-black/60 text-white hover:bg-black/80'
-                : 'bg-black/20 text-gray-600 cursor-not-allowed'
-            }`}
+            className="absolute left-2 top-[140px] -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
+            style={{
+              background: currentPostIndex > 0
+                ? 'linear-gradient(135deg, rgba(249, 84, 0, 0.15) 0%, rgba(0, 0, 0, 0.6) 100%)'
+                : 'rgba(255, 255, 255, 0.05)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              border: currentPostIndex > 0 ? '1px solid rgba(249, 84, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+              color: currentPostIndex > 0 ? '#fff' : 'rgba(255, 255, 255, 0.3)',
+              cursor: currentPostIndex <= 0 ? 'not-allowed' : 'pointer',
+              boxShadow: currentPostIndex > 0 ? '0 4px 12px rgba(0, 0, 0, 0.4)' : 'none'
+            }}
           >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
 
@@ -1755,10 +2157,8 @@ function EngageTab({
             onClick={(e) => {
               e.stopPropagation();
               const maxAllowed = currentPostIndexRef.current;
-              console.log('[RightBtn] Clicked, currentPostIndex:', currentPostIndex, 'maxAllowed:', maxAllowed);
               if (currentPostIndex < maxAllowed) {
                 const newIndex = currentPostIndex + 1;
-                console.log('[RightBtn] Moving to index:', newIndex);
                 updateEngageData({ currentPostIndex: newIndex });
                 const container = carouselRef.current;
                 if (container) {
@@ -1766,21 +2166,27 @@ function EngageTab({
                   const cardWidth = container.offsetWidth * 0.8;
                   const spacerWidth = container.offsetWidth * 0.1;
                   const targetScroll = spacerWidth + (newIndex * (cardWidth + 12)) - (container.offsetWidth - cardWidth) / 2;
-                  console.log('[RightBtn] Scrolling to:', Math.round(targetScroll));
                   container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
                   setTimeout(() => { isScrollingRef.current = false; }, 350);
                 }
               }
             }}
             disabled={currentPostIndex >= currentPostIndexRef.current}
-            className={`absolute right-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all ${
-              currentPostIndex < currentPostIndexRef.current
-                ? 'bg-black/60 text-white hover:bg-black/80'
-                : 'bg-black/20 text-gray-600 cursor-not-allowed'
-            }`}
+            className="absolute right-2 top-[140px] -translate-y-1/2 z-10 w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
+            style={{
+              background: currentPostIndex < currentPostIndexRef.current
+                ? 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(0, 0, 0, 0.6) 100%)'
+                : 'rgba(255, 255, 255, 0.05)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              border: currentPostIndex < currentPostIndexRef.current ? '1px solid rgba(249, 84, 0, 0.4)' : '1px solid rgba(255, 255, 255, 0.1)',
+              color: currentPostIndex < currentPostIndexRef.current ? '#fff' : 'rgba(255, 255, 255, 0.3)',
+              cursor: currentPostIndex >= currentPostIndexRef.current ? 'not-allowed' : 'pointer',
+              boxShadow: currentPostIndex < currentPostIndexRef.current ? '0 4px 12px rgba(0, 0, 0, 0.4), 0 0 16px rgba(249, 84, 0, 0.15)' : 'none'
+            }}
           >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
           </button>
 
@@ -1800,18 +2206,8 @@ function EngageTab({
               const gap = 12;
               const spacerWidth = container.offsetWidth * 0.1;
               const newIndex = Math.round((container.scrollLeft - spacerWidth) / (cardWidth + gap));
-              const maxAllowedIndex = currentPostIndexRef.current;
 
-              // LOCK: Block forward scroll past unengaged posts immediately (backup for non-touch)
-              if (newIndex > maxAllowedIndex) {
-                isScrollingRef.current = true;
-                const targetScroll = spacerWidth + (maxAllowedIndex * (cardWidth + gap)) - (container.offsetWidth - cardWidth) / 2;
-                container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'instant' });
-                requestAnimationFrame(() => { isScrollingRef.current = false; });
-                return;
-              }
-
-              // Normal scroll within bounds
+              // Update current index based on scroll position
               if (newIndex >= 0 && newIndex !== currentPostIndex) {
                 updateEngageData({ currentPostIndex: newIndex });
               }
@@ -1820,7 +2216,7 @@ function EngageTab({
             {/* Left spacer for centering first card */}
             <div className="flex-shrink-0 w-[10%]" />
 
-            {session?.posts?.map((post, index) => {
+            {session?.posts?.slice(0, engagedPosts.size + 1).map((post, index) => {
               const isCenter = index === currentPostIndex;
               const isEngaged = engagedPosts.has(post.id);
               const canAccess = index <= currentPostIndex || isEngaged;
@@ -1852,9 +2248,22 @@ function EngageTab({
                     // Side cards: no action
                   }}
                 >
-                  <div className={`card-gold p-5 min-h-[160px] relative transition-all flex flex-col justify-start ${
-                    isCenter ? 'ring-2 ring-[#f95400]/50 cursor-pointer' : ''
-                  }`}>
+                  <div
+                    className={`p-5 min-h-[160px] relative transition-all flex flex-col justify-start rounded-2xl overflow-hidden ${
+                      isCenter ? 'cursor-pointer' : ''
+                    }`}
+                    style={{
+                      background: isCenter
+                        ? 'linear-gradient(135deg, rgba(249, 84, 0, 0.08) 0%, rgba(15, 10, 11, 0.85) 50%, rgba(249, 84, 0, 0.04) 100%)'
+                        : 'linear-gradient(135deg, rgba(249, 84, 0, 0.03) 0%, rgba(15, 10, 11, 0.7) 50%, rgba(249, 84, 0, 0.02) 100%)',
+                      backdropFilter: 'blur(32px) saturate(160%)',
+                      WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+                      border: isCenter ? '1px solid rgba(249, 84, 0, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+                      boxShadow: isCenter
+                        ? '0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(249, 84, 0, 0.15), 0 1px 0 rgba(249, 84, 0, 0.1) inset'
+                        : '0 4px 20px rgba(0, 0, 0, 0.4)'
+                    }}
+                  >
                     {/* Top right icons */}
                     <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
                       <XLogoIcon className="w-5 h-5 text-gray-400" />
@@ -1943,81 +2352,142 @@ function EngageTab({
             })}
 
             {/* "Come back later" card at the end */}
-            <div
-              className={`snap-center flex-shrink-0 transition-all duration-300 w-[80%] ${
-                currentPostIndex === (session?.posts?.length || 0)
-                  ? 'scale-100 opacity-100'
-                  : 'scale-95 opacity-50'
-              }`}
-            >
-              <div className={`card-gold p-5 min-h-[160px] flex flex-col items-center justify-center text-center ${
-                currentPostIndex === (session?.posts?.length || 0) ? 'ring-2 ring-[#f95400]/50' : ''
-              }`}>
-                <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
-                  <ClockIconFill className="w-8 h-8 text-gray-400" />
+            {/* Only show "all caught up" card when ALL posts are engaged */}
+            {engagedPosts.size >= (session?.posts?.length || 0) && (
+              <div
+                className={`snap-center flex-shrink-0 transition-all duration-300 w-[80%] ${
+                  currentPostIndex === (session?.posts?.length || 0)
+                    ? 'scale-100 opacity-100'
+                    : 'scale-95 opacity-50'
+                }`}
+              >
+                <div className={`card-gold p-5 min-h-[160px] flex flex-col items-center justify-center text-center ${
+                  currentPostIndex === (session?.posts?.length || 0) ? 'ring-2 ring-[#f95400]/50' : ''
+                }`}>
+                  <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
+                    <ClockIconFill className="w-8 h-8 text-gray-400" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-white mb-2">You're all caught up!</h3>
+                  <p className="text-gray-400 text-sm">Come back later for more posts to engage with</p>
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-2">You're all caught up!</h3>
-                <p className="text-gray-400 text-sm">Come back later for more posts to engage with</p>
               </div>
-            </div>
+            )}
 
             {/* Right spacer for centering last card */}
             <div className="flex-shrink-0 w-[10%]" />
           </div>
+          </div>{/* End of cards + nav buttons wrapper */}
 
-          {/* Scroll indicators - includes all posts + "come back later" card */}
+          {/* Scroll indicators - only show for rendered cards */}
           <div className="flex justify-center gap-1.5 mt-3">
-            {[...(session?.posts || []), { id: 'end-card' }].map((_, index) => (
+            {session?.posts?.slice(0, engagedPosts.size + 1).map((_, index) => (
               <div
                 key={index}
                 className={`h-1.5 rounded-full transition-all ${
                   index === currentPostIndex
                     ? 'w-6 bg-[#f95400]'
-                    : index < currentPostIndex
+                    : engagedPosts.size > index
                       ? 'w-1.5 bg-[#f95400]/50'
                       : 'w-1.5 bg-gray-600'
                 }`}
               />
             ))}
+            {/* Show end indicator only when all posts engaged */}
+            {engagedPosts.size >= (session?.posts?.length || 0) && (
+              <div
+                className={`h-1.5 rounded-full transition-all ${
+                  currentPostIndex === session?.posts?.length
+                    ? 'w-6 bg-[#f95400]'
+                    : 'w-1.5 bg-[#f95400]/50'
+                }`}
+              />
+            )}
           </div>
 
-          {/* Claim Rewards Button - always visible, active when 10+ engagements */}
-          <button
-            onClick={() => {
-              if (engagedPosts.size >= 10 && !isClaimLoading && !hasProcessingBatch) {
-                hapticFeedback('medium');
-                completeSession();
-              } else if (engagedPosts.size < 10) {
-                hapticFeedback('error');
-              }
-            }}
-            disabled={engagedPosts.size < 10 || isClaimLoading || hasProcessingBatch}
-            className={`mt-4 w-full py-3 px-6 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
-              engagedPosts.size >= 10 && !isClaimLoading && !hasProcessingBatch
-                ? 'gold-gradient-bg text-black shadow-lg shadow-[#f95400]/30 hover:shadow-[#f95400]/50 btn-glossy'
-                : 'bg-white/10 text-white/40 cursor-not-allowed opacity-50'
-            }`}
-          >
-            {isClaimLoading ? (
-              <>
-                <ClockIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
-                Queuing...
-              </>
-            ) : hasProcessingBatch ? (
-              <>
-                <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <BoltIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
-                {engagedPosts.size >= 10
-                  ? `Claim ${engagedPosts.size} Rewards`
-                  : `${engagedPosts.size}/10 to Claim`
+          {/* Action Buttons - Claim and Submit side by side */}
+          <div className="mt-4 flex gap-3 relative">
+            <button
+              onClick={() => {
+                if (engagedPosts.size >= 10 && !isClaimLoading && !hasProcessingBatch) {
+                  hapticFeedback('medium');
+                  completeSession();
+                } else if (engagedPosts.size < 10) {
+                  hapticFeedback('error');
+                  // Show tooltip
+                  if (claimTooltipTimeoutRef.current) {
+                    clearTimeout(claimTooltipTimeoutRef.current);
+                  }
+                  setShowClaimTooltip(true);
+                  claimTooltipTimeoutRef.current = setTimeout(() => {
+                    setShowClaimTooltip(false);
+                  }, 2000);
                 }
-              </>
-            )}
-          </button>
+              }}
+              disabled={engagedPosts.size < 10 || isClaimLoading || hasProcessingBatch}
+              className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95"
+              style={{
+                background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid rgba(249, 84, 0, 0.4)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+                color: 'white',
+              }}
+            >
+              {isClaimLoading ? (
+                <>
+                  <ClockIconFill className="w-5 h-5 text-white" />
+                  Queuing...
+                </>
+              ) : hasProcessingBatch ? (
+                <>
+                  <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <BoltIconFill className="w-5 h-5 text-white" />
+                  {engagedPosts.size >= 10 ? 'Claim' : `${engagedPosts.size}/10`}
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => {
+                hapticFeedback('light');
+                setShowSubmitModal(true);
+              }}
+              className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95"
+              style={{
+                background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid rgba(249, 84, 0, 0.4)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+                color: 'white',
+              }}
+            >
+              <SendIconFill className="w-5 h-5 text-white" />
+              Submit
+            </button>
+
+            {/* Claim tooltip message */}
+            <div
+              className={`absolute -top-12 left-0 right-0 flex justify-center transition-all duration-300 ${
+                showClaimTooltip ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'
+              }`}
+            >
+              <div
+                className="px-4 py-2 rounded-xl text-sm text-white/90"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(15, 10, 11, 0.9) 100%)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(249, 84, 0, 0.3)',
+                }}
+              >
+                Minimum 10 queues to claim
+              </div>
+            </div>
+          </div>
 
           {/* Claim History - shows queued verification batches */}
           <div className="mt-4">
@@ -2091,17 +2561,6 @@ function EngageTab({
           </div>
         </div>
       </div>
-
-      {/* Floating Submit Button */}
-      <button
-        onClick={() => {
-          hapticFeedback('light');
-          setShowSubmitModal(true);
-        }}
-        className="fixed bottom-24 right-4 w-14 h-14 rounded-full glass-icon glass-icon-orange float-animation glow-pulse flex items-center justify-center shadow-lg shadow-[#f95400]/20 z-10 hover:scale-105 active:scale-95 transition-all"
-      >
-        <PlusIconFill className="w-7 h-7 text-[#f95400]" />
-      </button>
 
       <SubmitModal
         isOpen={showSubmitModal}
@@ -2178,6 +2637,73 @@ function EngageTab({
           </div>
         </div>
       )}
+
+      {/* Engage Info Modal */}
+      {showEngageInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowEngageInfo(false)}
+          />
+
+          {/* Modal */}
+          <div
+            className="relative w-full max-w-sm rounded-2xl p-5 animate-slide-up"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+              backdropFilter: 'blur(32px) saturate(160%)',
+              WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+              border: '1px solid rgba(249, 84, 0, 0.15)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset',
+            }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(249, 84, 0, 0.08) 100%)',
+                    border: '1px solid rgba(249, 84, 0, 0.3)',
+                  }}
+                >
+                  <BoltIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+                </div>
+                <h3 className="text-base font-semibold text-white">What is Karma?</h3>
+              </div>
+              <button
+                onClick={() => setShowEngageInfo(false)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors hover:bg-white/10"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                }}
+              >
+                <XIconFill className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="space-y-3 mb-5">
+              <p className="text-sm text-gray-400">
+                <span className="text-[#f95400] font-medium">1.</span> <span className="text-white font-medium">Boost your posts</span> by spending karma to get engagements
+              </p>
+              <p className="text-sm text-gray-400">
+                <span className="text-[#f95400] font-medium">2.</span> <span className="text-white font-medium">Join USDT raffles</span> by using karma in Earn section, requires engagement on XP posts (Partner posts)
+              </p>
+              <p className="text-sm text-gray-400">
+                <span className="text-[#f95400] font-medium">3.</span> <span className="text-white font-medium">Join token giveaways</span> on the Earn section
+              </p>
+            </div>
+
+            {/* Note */}
+            <p className="text-xs text-gray-500 text-center">
+              Engage with posts to earn <span className="text-[#f95400]">karma</span>, the currency of Loudrr
+            </p>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -2250,6 +2776,15 @@ function SubmitModal({
 
   if (!isOpen) return null;
 
+  // Glass card style matching Stats modal
+  const glassCardStyle = {
+    background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+    backdropFilter: 'blur(32px) saturate(160%)',
+    WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+    border: '1px solid rgba(249, 84, 0, 0.15)',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset'
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       {/* Backdrop */}
@@ -2259,7 +2794,17 @@ function SubmitModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg bg-black/95 backdrop-blur-xl border-t border-x border-[#f95400]/20 rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up frosted">
+      <div
+        className="relative w-full max-w-lg rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up"
+        style={{
+          background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.95) 50%, rgba(249, 84, 0, 0.02) 100%)',
+          backdropFilter: 'blur(32px) saturate(160%)',
+          WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+          border: '1px solid rgba(249, 84, 0, 0.2)',
+          borderBottom: 'none',
+          boxShadow: '0 -4px 40px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.1) inset'
+        }}
+      >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-2">
           <div className="w-10 h-1 rounded-full bg-[#f95400]/40" />
@@ -2273,7 +2818,8 @@ function SubmitModal({
           </div>
           <button
             onClick={handleClose}
-            className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center"
+            className="w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/10"
+            style={{ background: 'rgba(0, 0, 0, 0.3)' }}
           >
             <XIconFill className="w-5 h-5 text-gray-400" />
           </button>
@@ -2281,11 +2827,11 @@ function SubmitModal({
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Karma Budget Slider */}
-          <div className="card p-4 space-y-4">
+          {/* Karma Selection */}
+          <div className="p-4 space-y-4 rounded-2xl" style={glassCardStyle}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Karma Budget</p>
+                <p className="text-sm text-gray-400">Karma to Spend</p>
                 <p className="text-2xl font-bold gold-gradient-text">{formatKarma(karmaAmount)}</p>
               </div>
               <div className="text-right">
@@ -2296,29 +2842,42 @@ function SubmitModal({
               </div>
             </div>
 
-            {/* Slider */}
+            {/* Karma Slider - dynamic based on minCost/maxCost from settings */}
             <div className="space-y-2">
               <input
                 type="range"
                 min={minCost}
                 max={maxCost}
-                step={1}
+                step={5}
                 value={karmaAmount}
                 onChange={(e) => {
                   hapticFeedback('light');
                   setKarmaAmount(Number(e.target.value));
                 }}
-                className="w-full h-2 bg-black/50 rounded-full appearance-none cursor-pointer accent-[#f95400] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#f95400] [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-[#f95400]/30"
+                className="w-full h-2 bg-black/50 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#f95400] [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-[#f95400]/30 [&::-webkit-slider-thumb]:cursor-grab [&::-webkit-slider-thumb]:active:cursor-grabbing"
                 disabled={submitting}
               />
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>{minCost} min</span>
-                <span>{maxCost} max</span>
+              {/* Number labels */}
+              <div className="flex justify-between px-[2px]">
+                {Array.from({ length: Math.floor((maxCost - minCost) / 5) + 1 }, (_, i) => minCost + i * 5).map((amount) => (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => {
+                      hapticFeedback('light');
+                      setKarmaAmount(amount);
+                    }}
+                    disabled={submitting}
+                    className={`text-xs transition-all ${karmaAmount === amount ? 'text-[#f95400] font-semibold' : 'text-gray-500'}`}
+                  >
+                    {amount}
+                  </button>
+                ))}
               </div>
             </div>
 
             <p className="text-xs text-gray-500 text-center">
-              Higher budget = more engagements on your post
+              Higher karma = more engagements · Rewards based on engager tiers
             </p>
           </div>
 
@@ -2331,19 +2890,23 @@ function SubmitModal({
                 value={xLink}
                 onChange={(e) => setXLink(e.target.value)}
                 placeholder="https://x.com/username/status/..."
-                className="input-field"
+                className="w-full px-4 py-3 rounded-xl text-white placeholder-gray-500 transition-all focus:outline-none focus:ring-2 focus:ring-[#f95400]/50"
+                style={{
+                  background: 'rgba(0, 0, 0, 0.4)',
+                  border: '1px solid rgba(249, 84, 0, 0.2)',
+                }}
                 disabled={submitting}
               />
             </div>
 
             {error && (
-              <div className="bg-black/50 border border-[#f95400]/30 rounded-xl p-4">
+              <div className="rounded-xl p-4" style={{ ...glassCardStyle, border: '1px solid rgba(249, 84, 0, 0.3)' }}>
                 <p className="text-[#f95400] text-sm">{error}</p>
               </div>
             )}
 
             {result?.success && (
-              <div className="bg-black/50 border border-[#f95400]/50 rounded-xl p-4">
+              <div className="rounded-xl p-4" style={{ ...glassCardStyle, border: '1px solid rgba(249, 84, 0, 0.4)' }}>
                 <p className="text-[#f95400] text-sm">{result.message}</p>
               </div>
             )}
@@ -2351,16 +2914,22 @@ function SubmitModal({
             <button
               type="submit"
               disabled={!canSubmit || !xLink.trim() || submitting}
-              className={`btn-primary w-full py-4 text-lg ${
-                (!canSubmit || !xLink.trim() || submitting) ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+              className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              style={{
+                background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid rgba(249, 84, 0, 0.4)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+                color: 'white',
+              }}
             >
-              {submitting ? 'Submitting...' : `Submit Post (${formatKarma(karmaAmount)} karma)`}
+              {submitting ? 'Submitting...' : 'Submit Post'}
             </button>
           </form>
 
           {!canSubmit && user && (
-            <div className="card-gold p-4">
+            <div className="p-4 rounded-2xl" style={{ ...glassCardStyle, border: '1px solid rgba(249, 84, 0, 0.25)' }}>
               <p className="text-sm text-gray-300">
                 You need <span className="gold-gradient-text font-semibold">{formatKarma(karmaAmount - user.credits)} more karma</span> to submit a post.
                 Engage with posts to earn karma!
@@ -2369,16 +2938,19 @@ function SubmitModal({
           )}
 
           {/* How it works */}
-          <div className="space-y-3 pb-4">
+          <div className="space-y-3 pb-2">
             <h3 className="text-sm font-semibold text-gray-400">How it works</h3>
             <div className="space-y-2">
               {[
-                `You set your karma budget (${minCost}-${maxCost})`,
+                `Select how much karma to spend (${minCost}-${maxCost})`,
                 'Other users engage with your post',
-                'They earn ~1 karma per engagement until your budget is depleted',
+                'They earn karma based on their tier until yours is depleted',
               ].map((text, i) => (
                 <div key={i} className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-black/50 flex items-center justify-center flex-shrink-0">
+                  <div
+                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: 'rgba(249, 84, 0, 0.15)', border: '1px solid rgba(249, 84, 0, 0.3)' }}
+                  >
                     <span className="text-xs gold-gradient-text">{i + 1}</span>
                   </div>
                   <p className="text-sm text-gray-400">{text}</p>
@@ -2386,6 +2958,11 @@ function SubmitModal({
               ))}
             </div>
           </div>
+
+          {/* Tier note */}
+          <p className="text-xs text-gray-500 text-center pb-4">
+            Your karma is spent based on engager tiers. Same tier users are prioritized to balance your engagements.
+          </p>
         </div>
       </div>
     </div>
@@ -2432,6 +3009,27 @@ function StatsModal({
   const givenHeight = stats ? (stats.engagements.given / maxEngagements) * 100 : 0;
   const receivedHeight = stats ? (stats.engagements.received / maxEngagements) * 100 : 0;
 
+  // Glass card style
+  const glassCardStyle = {
+    background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+    backdropFilter: 'blur(32px) saturate(160%)',
+    WebkitBackdropFilter: 'blur(32px) saturate(160%)',
+    border: '1px solid rgba(249, 84, 0, 0.15)',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(249, 84, 0, 0.08) inset'
+  };
+
+  // Glass bar style
+  const glassBarStyle = {
+    background: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: '6px',
+  };
+
+  const barFillStyle = {
+    background: 'linear-gradient(180deg, #ff8c42 0%, #f95400 100%)',
+    borderRadius: '6px',
+    boxShadow: '0 0 12px rgba(249, 84, 0, 0.4)',
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       {/* Backdrop */}
@@ -2441,108 +3039,139 @@ function StatsModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg bg-black/95 backdrop-blur-xl border-t border-x border-[#f95400]/20 rounded-t-3xl max-h-[85vh] flex flex-col animate-slide-up frosted">
+      <div
+        className="relative w-full max-w-lg max-h-[85vh] flex flex-col animate-slide-up rounded-t-3xl overflow-hidden"
+        style={{
+          background: 'linear-gradient(180deg, rgba(15, 10, 11, 0.98) 0%, rgba(10, 10, 10, 0.99) 100%)',
+          backdropFilter: 'blur(40px)',
+          WebkitBackdropFilter: 'blur(40px)',
+          border: '1px solid rgba(249, 84, 0, 0.2)',
+          borderBottom: 'none',
+          boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.8), 0 0 60px rgba(249, 84, 0, 0.05)'
+        }}
+      >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-2">
-          <div className="w-10 h-1 rounded-full bg-[#f95400]/40" />
+          <div className="w-10 h-1 rounded-full bg-gradient-to-r from-[#f95400]/40 via-[#ff8c42]/60 to-[#f95400]/40" />
         </div>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 pb-4 border-b border-[#f95400]/15">
-          <div>
-            <h2 className="text-xl font-bold">Your Stats</h2>
-            <p className="text-gray-400 text-sm">Lifetime performance overview</p>
+        <div className="flex items-center justify-between px-5 pb-4 border-b border-white/[0.06]">
+          <div className="flex items-center gap-3">
+            <div className="glass-icon glass-icon-md">
+              <ChartIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Your Stats</h2>
+              <p className="text-gray-400 text-sm">Lifetime performance</p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center"
+            className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
           >
             <XIconFill className="w-5 h-5 text-gray-400" />
           </button>
         </div>
 
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <PixelLoader size="sm" />
+        {/* Loading State - Full modal */}
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center py-16">
+            <div className="w-8 h-8 border-2 border-[#f95400]/30 border-t-[#f95400] rounded-full animate-spin" />
+          </div>
+        ) : error || !stats ? (
+          <div className="flex-1 flex flex-col items-center justify-center py-16">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+            }}>
+              <XIconFill className="w-8 h-8 text-gray-500" />
             </div>
-          ) : error || !stats ? (
-            <div className="text-center py-12">
-              <p className="text-gray-400 mb-4">{error || 'Could not load stats'}</p>
-              <button onClick={loadStats} className="btn-primary">Retry</button>
-            </div>
-          ) : (
-            <>
+            <p className="text-gray-400 mb-4">{error || 'Could not load stats'}</p>
+            <button onClick={loadStats} className="btn-primary px-6 py-3">Retry</button>
+          </div>
+        ) : (
+          /* Scrollable Content */
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
               {/* Karma Flow & Engagements - Side by Side */}
               <div className="grid grid-cols-2 gap-3">
                 {/* Karma Flow */}
-                <div className="card-gold p-4 relative overflow-hidden">
-                  <div className="relative z-10">
-                    <h3 className="text-xs font-semibold text-gray-400 mb-3">Karma Flow</h3>
-                    <div className="flex items-end justify-center gap-4 h-20 mb-2">
-                      <div className="flex flex-col items-center">
-                        <div className="w-8 stats-bar h-14 flex items-end">
-                          <div
-                            className="w-full stats-bar-fill"
-                            style={{ height: `${earnedHeight}%` }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-gray-400 mt-1">Earned</p>
-                        <p className="text-sm font-bold gold-gradient-text">{formatKarma(stats.user.total_credits_earned)}</p>
+                <div className="p-4 pb-3 rounded-2xl" style={glassCardStyle}>
+                  <h3 className="flex items-center gap-2 text-xs font-semibold text-gray-300 mb-5">
+                    <TrendingUpIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+                    Karma Flow
+                  </h3>
+                  <div className="flex items-end justify-center gap-8">
+                    <div className="flex flex-col items-center">
+                      <div className="w-9 h-14 flex items-end rounded-md overflow-hidden" style={glassBarStyle}>
+                        <div
+                          className="w-full transition-all duration-500"
+                          style={{ ...barFillStyle, height: `${earnedHeight}%` }}
+                        />
                       </div>
-                      <div className="flex flex-col items-center">
-                        <div className="w-8 stats-bar h-14 flex items-end">
-                          <div
-                            className="w-full stats-bar-fill opacity-60"
-                            style={{ height: `${spentHeight}%` }}
-                          />
-                        </div>
-                        <p className="text-[10px] text-gray-400 mt-1">Spent</p>
-                        <p className="text-sm font-bold text-gray-300">{formatKarma(stats.user.total_credits_spent)}</p>
+                      <p className="text-[10px] text-gray-400 mt-2">Earned</p>
+                      <p className="text-sm font-bold" style={{ color: '#ff8c42' }}>{formatKarma(stats.user.total_credits_earned)}</p>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-9 h-14 flex items-end rounded-md overflow-hidden" style={glassBarStyle}>
+                        <div
+                          className="w-full transition-all duration-500 opacity-60"
+                          style={{ ...barFillStyle, height: `${spentHeight}%` }}
+                        />
                       </div>
+                      <p className="text-[10px] text-gray-400 mt-2">Spent</p>
+                      <p className="text-sm font-bold text-gray-300">{formatKarma(stats.user.total_credits_spent)}</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Engagements */}
-                <div className="card p-4">
-                  <h3 className="text-xs font-semibold text-gray-400 mb-3">Engagements</h3>
-                  <div className="flex items-end justify-center gap-4 h-20 mb-2">
+                <div className="p-4 pb-3 rounded-2xl" style={glassCardStyle}>
+                  <h3 className="flex items-center gap-2 text-xs font-semibold text-gray-300 mb-5">
+                    <BoltIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+                    Engagements
+                  </h3>
+                  <div className="flex items-end justify-center gap-8">
                     <div className="flex flex-col items-center">
-                      <div className="w-8 stats-bar h-14 flex items-end">
+                      <div className="w-9 h-14 flex items-end rounded-md overflow-hidden" style={glassBarStyle}>
                         <div
-                          className="w-full stats-bar-fill"
-                          style={{ height: `${givenHeight}%` }}
+                          className="w-full transition-all duration-500"
+                          style={{ ...barFillStyle, height: `${givenHeight}%` }}
                         />
                       </div>
-                      <p className="text-[10px] text-gray-400 mt-1">Given</p>
-                      <p className="text-sm font-bold gold-gradient-text">{stats.engagements.given}</p>
+                      <p className="text-[10px] text-gray-400 mt-2">Given</p>
+                      <p className="text-sm font-bold" style={{ color: '#ff8c42' }}>{stats.engagements.given}</p>
                     </div>
                     <div className="flex flex-col items-center">
-                      <div className="w-8 stats-bar h-14 flex items-end">
+                      <div className="w-9 h-14 flex items-end rounded-md overflow-hidden" style={glassBarStyle}>
                         <div
-                          className="w-full stats-bar-fill"
-                          style={{ height: `${receivedHeight}%` }}
+                          className="w-full transition-all duration-500"
+                          style={{ ...barFillStyle, height: `${receivedHeight}%` }}
                         />
                       </div>
-                      <p className="text-[10px] text-gray-400 mt-1">Received</p>
-                      <p className="text-sm font-bold gold-gradient-text">{stats.engagements.received}</p>
+                      <p className="text-[10px] text-gray-400 mt-2">Received</p>
+                      <p className="text-sm font-bold" style={{ color: '#ff8c42' }}>{stats.engagements.received}</p>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Posts Stats */}
-              <div className="card p-4">
-                <h3 className="text-sm font-semibold text-gray-400 mb-4">Your Posts</h3>
+              <div className="p-4 rounded-2xl" style={glassCardStyle}>
+                <div className="flex items-center gap-2 mb-4">
+                  <SendIconFill className="w-4 h-4" style={ICON_GRADIENT_STYLE} />
+                  <h3 className="text-sm font-semibold text-gray-300">Your Posts</h3>
+                </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center">
-                    <p className="text-2xl font-bold gold-gradient-text">{stats.posts.total}</p>
+                    <p className="text-2xl font-bold" style={{ color: '#ff8c42' }}>{stats.posts.total}</p>
                     <p className="text-xs text-gray-400">Total</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold gold-gradient-text">{stats.posts.active}</p>
+                    <p className="text-2xl font-bold" style={{ color: '#ff8c42' }}>{stats.posts.active}</p>
                     <p className="text-xs text-gray-400">Active</p>
                   </div>
                   <div className="text-center">
@@ -2555,33 +3184,44 @@ function StatsModal({
               {/* Recent Posts */}
               {stats.recent_posts.length > 0 && (
                 <div className="space-y-3 pb-4">
-                  <h3 className="text-sm font-semibold text-gray-400">Recent Posts</h3>
+                  <h3 className="text-sm font-semibold text-gray-300 px-1">Recent Posts</h3>
                   {stats.recent_posts.map((post) => (
-                    <div key={post.id} className="card p-4">
+                    <div key={post.id} className="p-4 rounded-2xl" style={glassCardStyle}>
                       <div className="flex items-center justify-between mb-2">
-                        <span className={`badge-outline ${
-                          post.status === 'active' ? '' : 'opacity-60'
-                        }`}>
+                        <span
+                          className="px-2 py-0.5 rounded-full text-xs font-medium"
+                          style={{
+                            background: post.status === 'active' ? 'rgba(249, 84, 0, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                            color: post.status === 'active' ? '#ff8c42' : 'rgba(255, 255, 255, 0.5)',
+                            border: post.status === 'active' ? '1px solid rgba(249, 84, 0, 0.3)' : '1px solid rgba(255, 255, 255, 0.1)',
+                          }}
+                        >
                           {post.status}
                         </span>
                         <span className="text-xs text-gray-500">
                           {new Date(post.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-300 truncate mb-2">{post.x_link}</p>
-                      <div className="progress-bar h-1">
-                        <div className="progress-fill" style={{ width: `${post.engagement_progress}%` }} />
+                      <p className="text-sm text-gray-300 truncate mb-3">{post.x_link}</p>
+                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            background: 'linear-gradient(90deg, #f95400 0%, #ff8c42 100%)',
+                            boxShadow: '0 0 8px rgba(249, 84, 0, 0.3)',
+                            width: `${post.engagement_progress}%`
+                          }}
+                        />
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {post.engagement_progress}% complete - {formatKarma(post.escrow_remaining)} karma remaining
+                      <p className="text-xs text-gray-500 mt-2">
+                        {post.engagement_progress}% complete • {formatKarma(post.escrow_remaining)} karma remaining
                       </p>
                     </div>
                   ))}
                 </div>
               )}
-            </>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2652,7 +3292,7 @@ function OnboardingScreen({
       <button
         onClick={handleStart}
         disabled={loading}
-        className="px-8 py-4 gold-gradient-bg text-black font-bold rounded-xl text-lg shadow-lg shadow-[#f95400]/30 hover:shadow-[#f95400]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+        className="px-8 py-4 btn-primary text-lg flex items-center gap-2"
       >
         {loading ? (
           <>
@@ -2785,285 +3425,373 @@ function LinkXModal({
 }
 
 // FILLED ICONS
-function HomeIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function HomeIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M11.47 3.84a.75.75 0 011.06 0l8.69 8.69a.75.75 0 101.06-1.06l-8.689-8.69a2.25 2.25 0 00-3.182 0l-8.69 8.69a.75.75 0 001.061 1.06l8.69-8.69z" />
       <path d="M12 5.432l8.159 8.159c.03.03.06.058.091.086v6.198c0 1.035-.84 1.875-1.875 1.875H15a.75.75 0 01-.75-.75v-4.5a.75.75 0 00-.75-.75h-3a.75.75 0 00-.75.75V21a.75.75 0 01-.75.75H5.625a1.875 1.875 0 01-1.875-1.875v-6.198a2.29 2.29 0 00.091-.086L12 5.43z" />
     </svg>
   );
 }
 
-function HomeIcon({ className = "w-6 h-6" }: { className?: string }) {
+function HomeIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
     </svg>
   );
 }
 
-function BoltIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function BoltIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M14.615 1.595a.75.75 0 01.359.852L12.982 9.75h7.268a.75.75 0 01.548 1.262l-10.5 11.25a.75.75 0 01-1.272-.71l1.992-7.302H3.75a.75.75 0 01-.548-1.262l10.5-11.25a.75.75 0 01.913-.143z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function BoltIcon({ className = "w-6 h-6" }: { className?: string }) {
+function BoltIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
     </svg>
   );
 }
 
-function PlusIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function PlusIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12.75 9a.75.75 0 00-1.5 0v2.25H9a.75.75 0 000 1.5h2.25V15a.75.75 0 001.5 0v-2.25H15a.75.75 0 000-1.5h-2.25V9z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function PlusIcon({ className = "w-6 h-6" }: { className?: string }) {
+function PlusIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   );
 }
 
-function ChartIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function ChartIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M18.375 2.25c-1.035 0-1.875.84-1.875 1.875v15.75c0 1.035.84 1.875 1.875 1.875h.75c1.035 0 1.875-.84 1.875-1.875V4.125c0-1.036-.84-1.875-1.875-1.875h-.75zM9.75 8.625c0-1.036.84-1.875 1.875-1.875h.75c1.036 0 1.875.84 1.875 1.875v11.25c0 1.035-.84 1.875-1.875 1.875h-.75a1.875 1.875 0 01-1.875-1.875V8.625zM3 13.125c0-1.036.84-1.875 1.875-1.875h.75c1.036 0 1.875.84 1.875 1.875v6.75c0 1.035-.84 1.875-1.875 1.875h-.75A1.875 1.875 0 013 19.875v-6.75z" />
     </svg>
   );
 }
 
-function ChartIcon({ className = "w-6 h-6" }: { className?: string }) {
+function ChartIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
     </svg>
   );
 }
 
-function WalletIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function WalletIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M2.273 5.625A4.483 4.483 0 015.25 4.5h13.5c1.141 0 2.183.425 2.977 1.125A3 3 0 0018.75 3H5.25a3 3 0 00-2.977 2.625zM2.273 8.625A4.483 4.483 0 015.25 7.5h13.5c1.141 0 2.183.425 2.977 1.125A3 3 0 0018.75 6H5.25a3 3 0 00-2.977 2.625zM5.25 9a3 3 0 00-3 3v6a3 3 0 003 3h13.5a3 3 0 003-3v-6a3 3 0 00-3-3H15a.75.75 0 00-.75.75 2.25 2.25 0 01-4.5 0A.75.75 0 009 9H5.25z" />
     </svg>
   );
 }
 
-function FireIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function FireIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M12.963 2.286a.75.75 0 00-1.071-.136 9.742 9.742 0 00-3.539 6.177A7.547 7.547 0 016.648 6.61a.75.75 0 00-1.152.082A9 9 0 1015.68 4.534a7.46 7.46 0 01-2.717-2.248zM15.75 14.25a3.75 3.75 0 11-7.313-1.172c.628.465 1.35.81 2.133 1a5.99 5.99 0 011.925-3.545 3.75 3.75 0 013.255 3.717z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function TrophyIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function FireIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.047 8.287 8.287 0 009 9.601a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.468 5.99 5.99 0 00-1.925 3.547 5.975 5.975 0 01-2.133-1.001A3.75 3.75 0 0012 18z" />
+    </svg>
+  );
+}
+
+function TrophyIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M5.166 2.621v.858c-1.035.148-2.059.33-3.071.543a.75.75 0 00-.584.859 6.753 6.753 0 006.138 5.6 6.73 6.73 0 002.743 1.346A6.707 6.707 0 019.279 15H8.54c-1.036 0-1.875.84-1.875 1.875V19.5h-.75a2.25 2.25 0 00-2.25 2.25c0 .414.336.75.75.75h15a.75.75 0 00.75-.75 2.25 2.25 0 00-2.25-2.25h-.75v-2.625c0-1.036-.84-1.875-1.875-1.875h-.739a6.706 6.706 0 01-1.112-3.173 6.73 6.73 0 002.743-1.347 6.753 6.753 0 006.139-5.6.75.75 0 00-.585-.858 47.077 47.077 0 00-3.07-.543V2.62a.75.75 0 00-.658-.744 49.22 49.22 0 00-6.093-.377c-2.063 0-4.096.128-6.093.377a.75.75 0 00-.657.744zm0 2.629c0 1.196.312 2.32.857 3.294A5.266 5.266 0 013.16 5.337a45.6 45.6 0 012.006-.343v.256zm13.5 0v-.256c.674.1 1.343.214 2.006.343a5.265 5.265 0 01-2.863 3.207 6.72 6.72 0 00.857-3.294z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function CheckIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function CheckIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function HeartIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function HeartIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M11.645 20.91l-.007-.003-.022-.012a15.247 15.247 0 01-.383-.218 25.18 25.18 0 01-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0112 5.052 5.5 5.5 0 0116.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 01-4.244 3.17 15.247 15.247 0 01-.383.219l-.022.012-.007.004-.003.001a.752.752 0 01-.704 0l-.003-.001z" />
     </svg>
   );
 }
 
-function XIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function XIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zm-1.72 6.97a.75.75 0 10-1.06 1.06L10.94 12l-1.72 1.72a.75.75 0 101.06 1.06L12 13.06l1.72 1.72a.75.75 0 101.06-1.06L13.06 12l1.72-1.72a.75.75 0 10-1.06-1.06L12 10.94l-1.72-1.72z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function ExternalLinkIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function ExternalLinkIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M15.75 2.25H21a.75.75 0 01.75.75v5.25a.75.75 0 01-1.5 0V4.81l-8.97 8.97a.75.75 0 01-1.06-1.06l8.97-8.97h-3.44a.75.75 0 010-1.5zm-10.5 4.5a1.5 1.5 0 00-1.5 1.5v10.5a1.5 1.5 0 001.5 1.5h10.5a1.5 1.5 0 001.5-1.5V10.5a.75.75 0 011.5 0v8.25a3 3 0 01-3 3H5.25a3 3 0 01-3-3V8.25a3 3 0 013-3h8.25a.75.75 0 010 1.5H5.25z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function InfoIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function InfoIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 01.67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 11-.671-1.34l.041-.022zM12 9a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function InfoIcon({ className = "w-6 h-6" }: { className?: string }) {
+function InfoIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
     </svg>
   );
 }
 
-function CheckIcon({ className = "w-6 h-6" }: { className?: string }) {
+function CheckIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
     </svg>
   );
 }
 
-function XLogoIcon({ className = "w-6 h-6" }: { className?: string }) {
+function XLogoIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
     </svg>
   );
 }
 
-function ChevronDownIcon({ className = "w-6 h-6" }: { className?: string }) {
+function ChevronDownIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
     </svg>
   );
 }
 
-function ChevronDownIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function ChevronDownIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 20 20" fill="currentColor">
       <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function ChevronRightIcon({ className = "w-6 h-6" }: { className?: string }) {
+function ChevronRightIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
     </svg>
   );
 }
 
-function ChevronRightIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function ChevronRightIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 20 20" fill="currentColor">
       <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function ClockIcon({ className = "w-6 h-6" }: { className?: string }) {
+function ClockIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   );
 }
 
-function ClockIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function ClockIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 20 20" fill="currentColor">
       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function DiscordIcon({ className = "w-6 h-6" }: { className?: string }) {
+function DiscordIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z" />
     </svg>
   );
 }
 
-function SparklesIcon({ className = "w-6 h-6" }: { className?: string }) {
+function TelegramIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+    </svg>
+  );
+}
+
+function SparklesIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5zM18 1.5a.75.75 0 01.728.568l.258 1.036c.236.94.97 1.674 1.91 1.91l1.036.258a.75.75 0 010 1.456l-1.036.258c-.94.236-1.674.97-1.91 1.91l-.258 1.036a.75.75 0 01-1.456 0l-.258-1.036a2.625 2.625 0 00-1.91-1.91l-1.036-.258a.75.75 0 010-1.456l1.036-.258a2.625 2.625 0 001.91-1.91l.258-1.036A.75.75 0 0118 1.5zM16.5 15a.75.75 0 01.712.513l.394 1.183c.15.447.5.799.948.948l1.183.395a.75.75 0 010 1.422l-1.183.395c-.447.15-.799.5-.948.948l-.395 1.183a.75.75 0 01-1.422 0l-.395-1.183a1.5 1.5 0 00-.948-.948l-1.183-.395a.75.75 0 010-1.422l1.183-.395c.447-.15.799-.5.948-.948l.395-1.183A.75.75 0 0116.5 15z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function CalendarIcon({ className = "w-6 h-6" }: { className?: string }) {
+function CalendarIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
     </svg>
   );
 }
 
-function MegaphoneIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function MegaphoneIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M16.881 4.346A23.112 23.112 0 018.25 6H7.5a5.25 5.25 0 00-.88 10.427 21.593 21.593 0 001.378 3.94c.464 1.004 1.674 1.32 2.582.796l.657-.379c.88-.508 1.165-1.592.772-2.468a17.116 17.116 0 01-.628-1.607c1.918.258 3.76.75 5.5 1.446A21.727 21.727 0 0018 11.25c0-2.413-.393-4.735-1.119-6.904zM18.26 3.74a23.22 23.22 0 011.24 7.51 23.22 23.22 0 01-1.24 7.51c-.055.161-.111.322-.17.482a.75.75 0 101.409.516 24.555 24.555 0 001.415-6.43 2.992 2.992 0 00.836-2.078c0-.806-.319-1.54-.836-2.078a24.65 24.65 0 00-1.415-6.43.75.75 0 10-1.409.516c.059.16.116.321.17.483z" />
     </svg>
   );
 }
 
-function MegaphoneIcon({ className = "w-6 h-6" }: { className?: string }) {
+function MegaphoneIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 110-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 01-1.44-4.282m3.102.069a18.03 18.03 0 01-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 018.835 2.535M10.34 6.66a23.847 23.847 0 008.835-2.535m0 0A23.74 23.74 0 0018.795 3m.38 1.125a23.91 23.91 0 011.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 001.014-5.395m0-3.46c.495.413.811 1.035.811 1.73 0 .695-.316 1.317-.811 1.73m0-3.46a24.347 24.347 0 010 3.46" />
     </svg>
   );
 }
 
-function GiftIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function GiftIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path d="M9.375 3a1.875 1.875 0 000 3.75h1.875v4.5H3.375A1.875 1.875 0 011.5 9.375v-.75c0-1.036.84-1.875 1.875-1.875h3.193A3.375 3.375 0 0112 2.753a3.375 3.375 0 015.432 3.997h3.193c1.035 0 1.875.84 1.875 1.875v.75c0 1.036-.84 1.875-1.875 1.875H12.75v-4.5h1.875a1.875 1.875 0 10-1.875-1.875V6.75h-1.5V4.875C11.25 3.839 10.41 3 9.375 3zM11.25 12.75H3v6.75a2.25 2.25 0 002.25 2.25h6v-9zM12.75 12.75v9h6a2.25 2.25 0 002.25-2.25v-6.75h-8.25z" />
     </svg>
   );
 }
 
-function GiftIcon({ className = "w-6 h-6" }: { className?: string }) {
+function GiftIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
     </svg>
   );
 }
 
 // Loud tab icons (rocket boost)
-function RocketIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function RocketIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
       <path fillRule="evenodd" d="M9.315 7.584C12.195 3.883 16.695 1.5 21.75 1.5a.75.75 0 01.75.75c0 5.056-2.383 9.555-6.084 12.436A6.75 6.75 0 019.75 22.5a.75.75 0 01-.75-.75v-4.131A15.838 15.838 0 016.382 15H2.25a.75.75 0 01-.75-.75 6.75 6.75 0 017.815-6.666zM15 6.75a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z" clipRule="evenodd" />
       <path d="M5.26 17.242a.75.75 0 10-.897-1.203 5.243 5.243 0 00-2.05 5.022.75.75 0 00.625.627 5.243 5.243 0 005.022-2.051.75.75 0 10-1.202-.897 3.744 3.744 0 01-3.008 1.51c0-1.23.592-2.323 1.51-3.008z" />
     </svg>
   );
 }
 
-function TrendingUpIconFill({ className = "w-6 h-6" }: { className?: string }) {
+function TrendingUpIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+    <svg className={className} style={style} viewBox="0 0 20 20" fill="currentColor">
       <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
     </svg>
   );
 }
 
-function RocketIcon({ className = "w-6 h-6" }: { className?: string }) {
+function RocketIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
   return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+    </svg>
+  );
+}
+
+// Send/Arrow icon for Submit
+function SendIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M3.478 2.404a.75.75 0 00-.926.941l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.404z" />
+    </svg>
+  );
+}
+
+function SendIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.125A59.768 59.768 0 0121.485 12 59.768 59.768 0 013.27 20.875L5.999 12zm0 0h7.5" />
+    </svg>
+  );
+}
+
+// Speaker/Volume wave for LOUD
+function SpeakerWaveIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.508c-1.141 0-2.318.664-2.66 1.905A9.76 9.76 0 001.5 12c0 .898.121 1.768.35 2.595.341 1.24 1.518 1.905 2.659 1.905h1.93l4.5 4.5c.945.945 2.561.276 2.561-1.06V4.06zM18.584 5.106a.75.75 0 011.06 0c3.808 3.807 3.808 9.98 0 13.788a.75.75 0 11-1.06-1.06 8.25 8.25 0 000-11.668.75.75 0 010-1.06z" />
+      <path d="M15.932 7.757a.75.75 0 011.061 0 6 6 0 010 8.486.75.75 0 01-1.06-1.061 4.5 4.5 0 000-6.364.75.75 0 010-1.06z" />
+    </svg>
+  );
+}
+
+function SpeakerWaveIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+    </svg>
+  );
+}
+
+// Star icon for Earn
+function StarIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
+      <path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function StarIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.562.562 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.562.562 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
+    </svg>
+  );
+}
+
+// Target/Bullseye icon for Campaigns
+function TargetIconFill({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="currentColor">
+      <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM12 6a.75.75 0 01.75.75v.5a4.752 4.752 0 013.75 3.75h.5a.75.75 0 010 1.5h-.5a4.752 4.752 0 01-3.75 3.75v.5a.75.75 0 01-1.5 0v-.5a4.752 4.752 0 01-3.75-3.75h-.5a.75.75 0 010-1.5h.5A4.752 4.752 0 0111.25 7.25v-.5A.75.75 0 0112 6zm0 3.75a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function TargetIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9V6m0 9v3M9 12H6m9 0h3" />
     </svg>
   );
 }
@@ -3160,7 +3888,7 @@ function LoudTab({ user: _user }: { user: User | null }) {
       <div className="p-5">
         <div className="rounded-2xl bg-[#1a1a1a] p-8 text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-white/5 flex items-center justify-center">
-            <RocketIconFill className="w-8 h-8 text-gray-600" />
+            <FireIconFill className="w-8 h-8 text-gray-600" />
           </div>
           <h3 className="text-lg font-semibold text-white mb-2">No Active Campaigns</h3>
           <p className="text-gray-500 text-sm">
@@ -3221,7 +3949,7 @@ function LoudTab({ user: _user }: { user: User | null }) {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="glass-icon glass-icon-md glass-icon-orange">
-                  <RocketIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+                  <FireIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                 </div>
                 <div>
                   <p className="text-sm text-[#f95400] uppercase tracking-wider">Daily Submissions</p>
@@ -3467,7 +4195,7 @@ function LoudTab({ user: _user }: { user: User | null }) {
             ) : (
               <div className="text-center py-10">
                 <div className="w-14 h-14 mx-auto mb-3 rounded-full bg-white/[0.06] backdrop-blur border border-white/[0.08] flex items-center justify-center">
-                  <RocketIconFill className="w-7 h-7 text-gray-600" />
+                  <FireIconFill className="w-7 h-7 text-gray-600" />
                 </div>
                 <p className="text-gray-400 font-medium">No submissions yet</p>
                 <p className="text-gray-600 text-sm mt-1">Be the first to earn points!</p>
@@ -3734,11 +4462,7 @@ function LoudSubmitModal({
                   <button
                     onClick={handleSubmit}
                     disabled={!urlValidation.valid || submitting}
-                    className={`w-full py-4 rounded-xl font-semibold text-lg transition-all flex items-center justify-center gap-2 ${
-                      urlValidation.valid && !submitting
-                        ? 'gold-gradient-bg text-black shadow-lg shadow-[#f95400]/30 hover:shadow-[#f95400]/50 active:scale-[0.98]'
-                        : 'bg-white/10 text-white/40 cursor-not-allowed'
-                    }`}
+                    className="w-full py-4 btn-primary text-lg flex items-center justify-center gap-2"
                   >
                     {submitting ? (
                       <>
@@ -3747,7 +4471,7 @@ function LoudSubmitModal({
                       </>
                     ) : (
                       <>
-                        <RocketIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+                        <FireIconFill className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
                         Submit & Earn
                       </>
                     )}

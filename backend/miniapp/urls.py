@@ -28,4 +28,7 @@ urlpatterns = [
     # Queue-based verification (like spot trading)
     path("session/queue-claim/", views.QueueClaimView.as_view(), name="miniapp-queue-claim"),
     path("claims/history/", views.ClaimHistoryView.as_view(), name="miniapp-claim-history"),
+
+    # Feature interest registration
+    path("feature-interest/", views.FeatureInterestView.as_view(), name="miniapp-feature-interest"),
 ]
