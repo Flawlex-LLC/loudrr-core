@@ -139,13 +139,29 @@ async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         return
 
-    # Link Telegram to entry
-    entry.telegram_id = telegram_user.id
-    entry.telegram_username = telegram_user.username or ""
-    entry.telegram_display_name = telegram_user.full_name or ""
-    entry.save(update_fields=[
-        'telegram_id', 'telegram_username', 'telegram_display_name', 'updated_at'
-    ])
+    # Check if this telegram_id is already linked to a DIFFERENT entry
+    existing_entry = WaitlistEntry.objects.filter(telegram_id=telegram_user.id).first()
+    if existing_entry and existing_entry.id != entry.id:
+        # User already registered with a different email
+        logger.info(
+            f"Telegram {telegram_user.id} already linked to different entry {existing_entry.id}"
+        )
+        await update.message.reply_text(
+            f"✅ You're already on the waitlist!\n\n"
+            f"📧 {existing_entry.email}\n"
+            f"🐦 @{existing_entry.x_username or 'Not set'}\n\n"
+            "_We'll notify you here when you get access._"
+        )
+        return
+
+    # Link Telegram to entry (only if not already linked)
+    if entry.telegram_id != telegram_user.id:
+        entry.telegram_id = telegram_user.id
+        entry.telegram_username = telegram_user.username or ""
+        entry.telegram_display_name = telegram_user.full_name or ""
+        entry.save(update_fields=[
+            'telegram_id', 'telegram_username', 'telegram_display_name', 'updated_at'
+        ])
 
     logger.info(
         "Waitlist Telegram linked",
