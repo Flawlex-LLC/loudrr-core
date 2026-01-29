@@ -101,22 +101,20 @@ def validate_telegram_webapp_data(init_data: str) -> dict:
 
 
 def get_user_from_telegram_data(user_data: dict) -> User:
-    """Get or create user from Telegram Web App data."""
+    """
+    Get user from Telegram Web App data.
+
+    Does NOT auto-create users. Users must be created via waitlist approval.
+    Returns None if user doesn't exist (will show "not whitelisted" in frontend).
+    """
     telegram_id = user_data.get("id")
     if not telegram_id:
         return None
 
-    user, created = User.objects.get_or_create(
-        telegram_id=telegram_id,
-        defaults={
-            "display_name": user_data.get("first_name", ""),
-            "telegram_username": user_data.get("username", ""),
-            "telegram_photo_url": user_data.get("photo_url", ""),
-        }
-    )
+    try:
+        user = User.objects.get(telegram_id=telegram_id)
 
-    # Update user info if changed
-    if not created:
+        # Update user info if changed
         new_name = user_data.get("first_name", "")
         new_username = user_data.get("username", "")
         new_photo = user_data.get("photo_url", "")
@@ -136,7 +134,10 @@ def get_user_from_telegram_data(user_data: dict) -> User:
             update_fields.append("updated_at")
             user.save(update_fields=update_fields)
 
-    return user
+        return user
+
+    except User.DoesNotExist:
+        return None
 
 
 class MiniAppAuthMixin:
@@ -1287,6 +1288,168 @@ class WaitlistSubmitView(APIView):
             "success": True,
             "telegram_url": telegram_url,
         })
+
+
+class WaitlistRegisterView(APIView):
+    """
+    Register for waitlist directly from mini app.
+
+    Security measures:
+    - Rate limited (5/hour per IP via WaitlistThrottle)
+    - Telegram init data HMAC validation + auth_date expiry check
+    - Email validation via Django EmailValidator (RFC 5322)
+    - X username format validation
+    - Race condition handling via IntegrityError catch
+    - Idempotent (returns success for duplicate telegram_id)
+
+    After successful registration:
+    - Sends waitlist confirmation card to user via Telegram
+    - Notifies admin about new registration
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [WaitlistThrottle]
+
+    def post(self, request):
+        import logging
+        import re
+        import secrets
+        from django.core.validators import validate_email
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        logger = logging.getLogger(__name__)
+
+        # 1. VALIDATE TELEGRAM INIT DATA (HMAC + auth_date expiry)
+        init_data = request.headers.get("X-Telegram-Init-Data", "")
+        user_data = validate_telegram_webapp_data(init_data)
+        if not user_data:
+            logger.warning("[WAITLIST] Invalid or expired Telegram init data")
+            return Response({"error": "Invalid Telegram data"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        telegram_id = user_data.get("id")
+        if not telegram_id:
+            return Response({"error": "Missing Telegram ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. VALIDATE EMAIL (RFC 5322 compliance)
+        email = request.data.get("email", "").strip().lower()
+        if not email:
+            return Response({"error": "Email is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if len(email) > 254:
+            return Response({"error": "Email too long"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return Response({"error": "Invalid email format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. VALIDATE X USERNAME (alphanumeric + underscore, 1-15 chars)
+        x_username = request.data.get("x_username", "").strip().lstrip("@")
+        x_username_regex = r'^[a-zA-Z0-9_]{1,15}$'
+        if not x_username or not re.match(x_username_regex, x_username):
+            return Response(
+                {"error": "Invalid X username (1-15 chars, alphanumeric and underscore only)"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 4. CHECK FOR EXISTING REGISTRATION (idempotent - same telegram_id = success)
+        existing_by_telegram = WaitlistEntry.objects.filter(telegram_id=telegram_id).first()
+        if existing_by_telegram:
+            logger.info(f"[WAITLIST] Telegram {telegram_id} already registered")
+            return Response({
+                "status": "already_registered",
+                "message": "You're already on the waitlist"
+            })
+
+        # 5. CHECK FOR EMAIL/USERNAME CONFLICTS (different users)
+        if WaitlistEntry.objects.filter(email=email).exists():
+            return Response({"error": "Email already registered"}, status=status.HTTP_400_BAD_REQUEST)
+        if WaitlistEntry.objects.filter(x_username__iexact=x_username).exists():
+            return Response({"error": "X username already registered"}, status=status.HTTP_400_BAD_REQUEST)
+        if User.objects.filter(x_username__iexact=x_username).exists():
+            return Response({"error": "X username already in use"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 6. FETCH X PROFILE DATA (outside transaction - external API call)
+        x_info = None
+        try:
+            x_info = twitter_verification.get_user_info(x_username)
+        except Exception as e:
+            logger.warning(f"[WAITLIST] Failed to fetch X profile for @{x_username}: {e}")
+            # Continue without X info - not blocking
+
+        # 7. CREATE ENTRY (atomic + IntegrityError handling for race conditions)
+        try:
+            with transaction.atomic():
+                entry = WaitlistEntry.objects.create(
+                    email=email,
+                    join_token=secrets.token_urlsafe(16),
+                    telegram_id=telegram_id,
+                    telegram_username=user_data.get("username", ""),
+                    telegram_display_name=user_data.get("first_name", ""),
+                    x_username=x_username,
+                    status=WaitlistEntry.Status.SUBMITTED,
+                    # X profile data (if available)
+                    x_display_name=x_info.get("display_name", "") if x_info else "",
+                    x_followers_count=x_info.get("followers_count") if x_info else None,
+                    x_avatar_url=x_info.get("avatar_url", "") if x_info else "",
+                    x_is_verified=x_info.get("is_verified", False) if x_info else False,
+                    x_fetched_at=timezone.now() if x_info else None,
+                )
+                logger.info(f"[WAITLIST] Created entry for {email}, telegram_id={telegram_id}")
+        except IntegrityError as e:
+            # Race condition - concurrent request created entry
+            logger.warning(f"[WAITLIST] IntegrityError for telegram_id={telegram_id}: {e}")
+            return Response({
+                "status": "already_registered",
+                "message": "You're already on the waitlist"
+            })
+
+        # 8. SEND WAITLIST CARD TO USER (async, after transaction commits)
+        def queue_card():
+            from bots.telegram.tasks import send_waitlist_confirmation_task
+            # Send waitlist confirmation card to user via Telegram
+            send_waitlist_confirmation_task.delay(str(entry.id))
+
+        transaction.on_commit(queue_card)
+
+        return Response({
+            "status": "registered",
+            "message": "Successfully registered for waitlist"
+        })
+
+
+class WaitlistStatusView(APIView):
+    """
+    Check waitlist status for current telegram user.
+
+    Returns:
+    - "approved" if User exists with this telegram_id
+    - "waitlisted" if WaitlistEntry exists (pending approval)
+    - "not_registered" if neither exists
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        init_data = request.headers.get("X-Telegram-Init-Data", "")
+        user_data = validate_telegram_webapp_data(init_data)
+        if not user_data:
+            return Response({"error": "Invalid Telegram data"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        telegram_id = user_data.get("id")
+        if not telegram_id:
+            return Response({"error": "Missing Telegram ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if user exists (already approved)
+        if User.objects.filter(telegram_id=telegram_id).exists():
+            return Response({"status": "approved"})
+
+        # Check if on waitlist
+        entry = WaitlistEntry.objects.filter(telegram_id=telegram_id).first()
+        if entry:
+            return Response({
+                "status": "waitlisted",
+                "x_username": entry.x_username,
+                "submitted_at": entry.created_at.isoformat()
+            })
+
+        return Response({"status": "not_registered"})
 
 
 class CompleteOnboardingView(MiniAppAuthMixin, APIView):

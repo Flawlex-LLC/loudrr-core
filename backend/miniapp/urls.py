@@ -11,6 +11,8 @@ urlpatterns = [
 
     # Waitlist (public, no auth)
     path("waitlist/submit/", views.WaitlistSubmitView.as_view(), name="waitlist-submit"),
+    path("waitlist/register/", views.WaitlistRegisterView.as_view(), name="waitlist-register"),
+    path("waitlist/status/", views.WaitlistStatusView.as_view(), name="waitlist-status"),
 
     # Onboarding
     path("onboarding/complete/", views.CompleteOnboardingView.as_view(), name="onboarding-complete"),
