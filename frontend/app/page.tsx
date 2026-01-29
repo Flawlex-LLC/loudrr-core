@@ -228,9 +228,10 @@ export default function MiniApp() {
     }
   }, [loading]);
 
-  // Auto-show Link X modal if user hasn't linked their X account
+  // Auto-show Link X modal only for non-whitelisted users who haven't linked X
+  // Whitelisted users already provided X username via Telegram bot during waitlist
   useEffect(() => {
-    if (!loading && user && !user.x_username) {
+    if (!loading && user && !user.x_username && !user.is_whitelisted) {
       setShowLinkXModal(true);
     }
   }, [loading, user]);
@@ -290,8 +291,9 @@ export default function MiniApp() {
     );
   }
 
-  // Show onboarding screen for new whitelisted users (tweetscout_score == 0)
-  if (user && user.is_whitelisted && (user.tweetscout_score === 0 || user.tweetscout_score === undefined) && user.x_username) {
+  // Show onboarding screen only if TweetScout was never fetched (fallback for old users)
+  // New users get TweetScout fetched on admin approval, so this should rarely trigger
+  if (user && user.is_whitelisted && !user.tweetscout_last_updated && user.x_username) {
     return (
       <OnboardingScreen
         user={user}

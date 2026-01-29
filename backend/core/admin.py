@@ -1,10 +1,15 @@
+import logging
+
 from django.contrib import admin
 from django.contrib.admin.models import LogEntry, CHANGE
 from django.contrib.contenttypes.models import ContentType
 from django.contrib import messages
+from django.utils import timezone
 from django.utils.html import format_html
 
 from .models import User, Transaction, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest
+
+logger = logging.getLogger(__name__)
 from .services.credits import CreditService
 from .services.xp import XPService
 
@@ -250,7 +255,6 @@ class UserAdmin(admin.ModelAdmin):
         with avatar, display_name, score, followers, etc.
         """
         from .services.tweetscout import TweetScoutService
-        from django.utils import timezone
 
         tweetscout = TweetScoutService()
         success_count = 0
@@ -722,8 +726,13 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
 
     @admin.action(description="✅ Approve selected entries")
     def approve_entries(self, request, queryset):
-        """Approve selected waitlist entries and create users."""
-        from django.utils import timezone
+        """
+        Approve selected waitlist entries and create users.
+
+        Uses Celery task for TweetScout fetch (non-blocking).
+        User is created immediately with tweetscout_last_updated set,
+        so they can use the app while TweetScout data is fetched in background.
+        """
         from django.db import transaction as db_transaction
 
         approved = 0
@@ -750,29 +759,34 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
                         errors.append(f"{entry.email}: X username already registered")
                         continue
 
-                    # Create user
+                    # Create user with timestamp set (so frontend skips onboarding)
                     user = User.objects.create(
                         telegram_id=entry.telegram_id,
                         telegram_username=entry.telegram_username or "",
                         display_name=entry.telegram_display_name or "",
                         x_username=entry.x_username,
                         is_whitelisted=True,
+                        tweetscout_score=0,  # Will be updated by Celery task
+                        tweetscout_last_updated=timezone.now(),  # Set now to skip onboarding
                     )
 
-                    # Update entry (notification sent automatically via post_save signal)
+                    # Update entry status (triggers notification via post_save signal)
                     entry.status = WaitlistEntry.Status.APPROVED
                     entry.approved_at = timezone.now()
                     entry.created_user = user
                     entry.save(update_fields=['status', 'approved_at', 'created_user', 'updated_at'])
 
-                    # Note: Telegram notification is sent automatically by post_save signal
-                    # See core/signals.py:send_approval_notification_on_approve
-                    # - Uses dispatch_uid to prevent duplicates
-                    # - Uses transaction.on_commit for reliability
-                    # - Delegates to Celery background task (non-blocking)
-
                     log_admin_action(request, entry, f"Approved and created user {user.id}")
                     approved += 1
+
+                # Queue TweetScout fetch AFTER transaction commits (via on_commit)
+                def queue_tweetscout_task(user_id):
+                    def _queue():
+                        from core.tasks import fetch_tweetscout_for_user_task
+                        fetch_tweetscout_for_user_task.delay(str(user_id))
+                    return _queue
+
+                db_transaction.on_commit(queue_tweetscout_task(user.id))
 
             except Exception as e:
                 errors.append(f"{entry.email}: {str(e)}")
@@ -792,7 +806,8 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
         self.message_user(request, f"Rejected {count} entries.", messages.WARNING)
 
 
-@admin.register(FeatureInterest)
+# FeatureInterest is registered in echo/urls.py with loudrr_admin
+# Do NOT use @admin.register here to avoid duplicate registration
 class FeatureInterestAdmin(admin.ModelAdmin):
     """
     Admin for feature interest registrations.

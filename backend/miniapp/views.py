@@ -621,6 +621,7 @@ class UserInfoView(MiniAppAuthMixin, APIView):
             "tier": user.tier,
             "current_streak": user.current_streak,
             "tweetscout_score": user.tweetscout_score or 0,
+            "tweetscout_last_updated": user.tweetscout_last_updated.isoformat() if user.tweetscout_last_updated else None,
             "honesty_score": getattr(user, 'honesty_score', 10),
             "available_posts": available_posts,
             "engaged_today": engaged_today,

@@ -109,6 +109,7 @@ export interface User {
   is_pro?: boolean;
   x_username?: string;
   tweetscout_score?: number;
+  tweetscout_last_updated?: string | null;  // ISO timestamp, null if never fetched
   // XProfile fields
   x_followers_count?: number;
   x_display_name?: string;

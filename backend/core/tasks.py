@@ -216,3 +216,100 @@ def send_already_registered_email_task(self, entry_id: str):
     except WaitlistEntry.DoesNotExist:
         logger.error(f"[EMAIL] Entry {entry_id} not found")
         return {"status": "error", "error": "Entry not found"}
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+    autoretry_for=(ConnectionError, TimeoutError),
+    retry_backoff=True,
+    name='core.fetch_tweetscout_for_user'
+)
+def fetch_tweetscout_for_user_task(self, user_id: str):
+    """
+    Fetch TweetScout data for a newly approved user.
+
+    Called asynchronously after admin approval to avoid blocking.
+    Creates XProfile and updates User with TweetScout score.
+
+    Args:
+        user_id: UUID of the User
+
+    Returns:
+        dict with status: 'success', 'no_data', or 'error'
+    """
+    from datetime import datetime
+    from core.models import User, XProfile
+    from core.services.tweetscout import get_tweetscout_service
+
+    logger.info(f"[TWEETSCOUT] Fetching data for user {user_id}")
+
+    try:
+        user = User.objects.get(id=user_id)
+
+        if not user.x_username:
+            logger.warning(f"[TWEETSCOUT] User {user_id} has no X username")
+            return {"status": "error", "error": "No X username"}
+
+        # Check if XProfile already exists (idempotency)
+        if XProfile.objects.filter(user=user).exists():
+            logger.info(f"[TWEETSCOUT] XProfile already exists for user {user_id}, skipping")
+            return {"status": "already_exists"}
+
+        # Fetch TweetScout data
+        tweetscout = get_tweetscout_service()
+        tweetscout_data = tweetscout.get_user_data(user.x_username)
+
+        if not tweetscout_data:
+            logger.warning(f"[TWEETSCOUT] No data returned for @{user.x_username}")
+            return {"status": "no_data", "username": user.x_username}
+
+        score = tweetscout_data.get("score", 0) or 0
+
+        # Parse X account creation date
+        x_created_at = None
+        if tweetscout_data.get("register_date"):
+            try:
+                x_created_at = datetime.strptime(
+                    tweetscout_data["register_date"], "%Y-%m-%d"
+                ).date()
+            except (ValueError, TypeError):
+                pass
+
+        # Create XProfile with TweetScout data
+        with transaction.atomic():
+            XProfile.objects.update_or_create(
+                user=user,
+                defaults={
+                    "x_user_id": str(tweetscout_data.get("id", "")),
+                    "username": tweetscout_data.get("screen_name", user.x_username),
+                    "display_name": tweetscout_data.get("name", ""),
+                    "bio": tweetscout_data.get("description", "") or "",
+                    "followers_count": tweetscout_data.get("followers_count", 0) or 0,
+                    "following_count": tweetscout_data.get("friends_count", 0) or 0,
+                    "tweets_count": tweetscout_data.get("tweets_count", 0) or 0,
+                    "score": score,
+                    "avatar_url": tweetscout_data.get("avatar", "") or "",
+                    "banner_url": tweetscout_data.get("banner", "") or "",
+                    "is_verified": bool(tweetscout_data.get("verified", False)),
+                    "can_dm": bool(tweetscout_data.get("can_dm", False)),
+                    "x_created_at": x_created_at,
+                    "raw_tweetscout_data": tweetscout_data,
+                }
+            )
+
+            # Update user with actual TweetScout score
+            user.tweetscout_score = score
+            user.save(update_fields=['tweetscout_score', 'updated_at'])
+
+        logger.info(f"[TWEETSCOUT] Successfully fetched data for user {user_id}, score: {score}")
+        return {"status": "success", "score": score, "username": user.x_username}
+
+    except User.DoesNotExist:
+        logger.error(f"[TWEETSCOUT] User {user_id} not found")
+        return {"status": "error", "error": "User not found"}
+
+    except Exception as e:
+        logger.exception(f"[TWEETSCOUT] Error fetching data for user {user_id}")
+        raise self.retry(exc=e)
