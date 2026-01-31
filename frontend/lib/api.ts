@@ -109,6 +109,7 @@ export interface User {
   is_pro?: boolean;
   x_username?: string;
   tweetscout_score?: number;
+  tweetscout_last_updated?: string | null;  // ISO timestamp, null if never fetched
   // XProfile fields
   x_followers_count?: number;
   x_display_name?: string;
@@ -405,6 +406,35 @@ export const api = {
    */
   getFeatureInterest: (feature: string) =>
     apiRequest<{ registered: boolean }>(`/feature-interest/?feature=${feature}`),
+
+  // =============================================================================
+  // WAITLIST - In-App Registration
+  // =============================================================================
+
+  /**
+   * Check waitlist status for current Telegram user
+   * Returns: "approved" | "waitlisted" | "not_registered"
+   */
+  checkWaitlistStatus: () =>
+    apiRequest<{
+      status: 'approved' | 'waitlisted' | 'not_registered';
+      x_username?: string;
+      submitted_at?: string;
+    }>('/waitlist/status/'),
+
+  /**
+   * Register for waitlist directly from mini app
+   * Requires email + X username
+   * Sends waitlist card to user via Telegram on success
+   */
+  registerWaitlist: (email: string, x_username: string) =>
+    apiRequest<{
+      status: 'registered' | 'already_registered';
+      message: string;
+    }>('/waitlist/register/', {
+      method: 'POST',
+      body: JSON.stringify({ email, x_username }),
+    }),
 };
 
 // =============================================================================

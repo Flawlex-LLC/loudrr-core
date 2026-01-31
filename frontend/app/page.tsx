@@ -139,6 +139,12 @@ function PixelLoader({ isComplete, size: sizeProp = 'default' }: { isComplete?: 
   );
 }
 
+// Waitlist data type for in-app registration flow
+type WaitlistData = {
+  x_username?: string;
+  submitted_at?: string;
+};
+
 export default function MiniApp() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [user, setUser] = useState<User | null>(null);
@@ -153,6 +159,10 @@ export default function MiniApp() {
   const [comingSoonToast, setComingSoonToast] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
   const comingSoonTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auth state for waitlist flow
+  const [authState, setAuthState] = useState<'loading' | 'not_registered' | 'waitlisted' | 'approved'>('loading');
+  const [waitlistData, setWaitlistData] = useState<WaitlistData | null>(null);
 
   const showComingSoonToast = (message: string) => {
     if (comingSoonTimeoutRef.current) clearTimeout(comingSoonTimeoutRef.current);
@@ -187,13 +197,52 @@ export default function MiniApp() {
   const loadInitialData = async () => {
     try {
       setServerError(null);
-      // Load user and settings in parallel
-      const [userData, settingsData] = await Promise.all([
-        api.getUser(),
-        api.getSettings(),
-      ]);
-      setUser(userData);
-      setSettings(settingsData);
+
+      // First, try to get user (approved users)
+      try {
+        const [userData, settingsData] = await Promise.all([
+          api.getUser(),
+          api.getSettings(),
+        ]);
+        setUser(userData);
+        setSettings(settingsData);
+        setAuthState('approved');
+      } catch (userErr) {
+        // User doesn't exist - check waitlist status
+        console.log('User not found, checking waitlist status...');
+
+        try {
+          // Still load settings for consistency
+          const settingsData = await api.getSettings();
+          setSettings(settingsData);
+        } catch {
+          // Settings load failed, continue anyway
+        }
+
+        try {
+          const waitlistStatus = await api.checkWaitlistStatus();
+
+          if (waitlistStatus.status === 'approved') {
+            // Rare case: approved but user fetch failed, retry user fetch
+            const userData = await api.getUser();
+            setUser(userData);
+            setAuthState('approved');
+          } else if (waitlistStatus.status === 'waitlisted') {
+            setWaitlistData({
+              x_username: waitlistStatus.x_username,
+              submitted_at: waitlistStatus.submitted_at,
+            });
+            setAuthState('waitlisted');
+          } else {
+            // not_registered - show registration form
+            setAuthState('not_registered');
+          }
+        } catch (statusErr) {
+          // Waitlist status check failed - assume not registered
+          console.error('Failed to check waitlist status:', statusErr);
+          setAuthState('not_registered');
+        }
+      }
     } catch (err) {
       console.error('Failed to load initial data:', err);
       setServerError(err instanceof Error ? err.message : 'Failed to connect to server');
@@ -228,9 +277,10 @@ export default function MiniApp() {
     }
   }, [loading]);
 
-  // Auto-show Link X modal if user hasn't linked their X account
+  // Auto-show Link X modal only for non-whitelisted users who haven't linked X
+  // Whitelisted users already provided X username via Telegram bot during waitlist
   useEffect(() => {
-    if (!loading && user && !user.x_username) {
+    if (!loading && user && !user.x_username && !user.is_whitelisted) {
       setShowLinkXModal(true);
     }
   }, [loading, user]);
@@ -290,8 +340,26 @@ export default function MiniApp() {
     );
   }
 
-  // Show onboarding screen for new whitelisted users (tweetscout_score == 0)
-  if (user && user.is_whitelisted && (user.tweetscout_score === 0 || user.tweetscout_score === undefined) && user.x_username) {
+  // Show waitlist registration screen for new users (not on waitlist yet)
+  if (authState === 'not_registered') {
+    return (
+      <WaitlistRegistrationScreen
+        onSuccess={(data) => {
+          setWaitlistData(data);
+          setAuthState('waitlisted');
+        }}
+      />
+    );
+  }
+
+  // Show waitlist pending screen for users already on waitlist
+  if (authState === 'waitlisted') {
+    return <WaitlistPendingScreen xUsername={waitlistData?.x_username} />;
+  }
+
+  // Show onboarding screen only if TweetScout was never fetched (fallback for old users)
+  // New users get TweetScout fetched on admin approval, so this should rarely trigger
+  if (user && user.is_whitelisted && !user.tweetscout_last_updated && user.x_username) {
     return (
       <OnboardingScreen
         user={user}
@@ -3223,6 +3291,195 @@ function StatsModal({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// WAITLIST REGISTRATION SCREEN - for users who open app directly without account
+// =============================================================================
+function WaitlistRegistrationScreen({
+  onSuccess,
+}: {
+  onSuccess: (data: { x_username: string }) => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [xUsername, setXUsername] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (!email || !xUsername) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await api.registerWaitlist(email, xUsername);
+      if (result.status === 'registered' || result.status === 'already_registered') {
+        hapticFeedback('success');
+        onSuccess({ x_username: xUsername });
+      }
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
+      hapticFeedback('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      {/* Logo */}
+      <div className="mb-6">
+        <img src="/loudrr-icon.png" alt="Loudrr" className="w-20 h-20" />
+      </div>
+
+      {/* Title */}
+      <h1 className="text-2xl font-bold text-white mb-2">Join the Waitlist</h1>
+      <p className="text-gray-400 text-center mb-8 max-w-sm">
+        Get early access to Loudrr and start earning karma for your engagement.
+      </p>
+
+      {/* Form Card */}
+      <div
+        className="w-full max-w-sm rounded-2xl p-6"
+        style={{
+          background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+          backdropFilter: 'blur(32px)',
+          border: '1px solid rgba(249, 84, 0, 0.15)',
+        }}
+      >
+        {/* Email Input with Icon */}
+        <div className="mb-4">
+          <label className="text-sm text-gray-400 mb-2 block">Email</label>
+          <div className="flex items-center gap-3">
+            <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="url(#emailGrad)" strokeWidth={2}>
+                <defs>
+                  <linearGradient id="emailGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#FF9500" />
+                    <stop offset="50%" stopColor="#f95400" />
+                    <stop offset="100%" stopColor="#CC5500" />
+                  </linearGradient>
+                </defs>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              className="flex-1 px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#f95400]/50"
+              style={{
+                background: 'rgba(0, 0, 0, 0.4)',
+                border: '1px solid rgba(249, 84, 0, 0.2)',
+              }}
+              disabled={loading}
+            />
+          </div>
+        </div>
+
+        {/* X Username Input with Icon */}
+        <div className="mb-6">
+          <label className="text-sm text-gray-400 mb-2 block">X Username</label>
+          <div className="flex items-center gap-3">
+            <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
+              <XLogoIcon className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+            </div>
+            <div className="flex-1 relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">@</span>
+              <input
+                type="text"
+                value={xUsername}
+                onChange={(e) => setXUsername(e.target.value.replace(/[@\s]/g, ''))}
+                placeholder="username"
+                className="w-full pl-8 pr-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#f95400]/50"
+                style={{
+                  background: 'rgba(0, 0, 0, 0.4)',
+                  border: '1px solid rgba(249, 84, 0, 0.2)',
+                }}
+                disabled={loading}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <p className="text-red-400 text-sm mb-4 text-center">{error}</p>
+        )}
+
+        {/* Submit Button (engage tab style) */}
+        <button
+          onClick={handleSubmit}
+          disabled={!email || !xUsername || loading}
+          className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(249, 84, 0, 0.4)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+            color: 'white',
+          }}
+        >
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Registering...
+            </>
+          ) : (
+            <>
+              <BoltIconFill className="w-5 h-5" />
+              Join Waitlist
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// WAITLIST PENDING SCREEN - for users already on waitlist awaiting approval
+// =============================================================================
+function WaitlistPendingScreen({ xUsername }: { xUsername?: string }) {
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      {/* Logo */}
+      <div className="mb-6">
+        <img src="/loudrr-icon.png" alt="Loudrr" className="w-20 h-20" />
+      </div>
+
+      {/* Status Icon */}
+      <div className="glass-icon glass-icon-lg glass-icon-orange mb-6 pointer-events-none">
+        <ClockIconFill className="w-6 h-6" style={ICON_GRADIENT_STYLE} />
+      </div>
+
+      {/* Message */}
+      <h1 className="text-2xl font-bold text-white mb-2">You're on the Waitlist</h1>
+      <p className="text-gray-400 text-center mb-4 max-w-sm">
+        We'll notify you on Telegram when your account is approved.
+      </p>
+
+      {/* X Username Display */}
+      {xUsername && (
+        <div
+          className="px-6 py-3 rounded-xl mb-6"
+          style={{
+            background: 'rgba(249, 84, 0, 0.1)',
+            border: '1px solid rgba(249, 84, 0, 0.3)',
+          }}
+        >
+          <span className="text-[#f95400] font-medium">@{xUsername}</span>
+        </div>
+      )}
+
+      {/* Info */}
+      <p className="text-gray-500 text-sm text-center max-w-xs">
+        Thank you for your patience. High-quality accounts are prioritized.
+      </p>
     </div>
   );
 }

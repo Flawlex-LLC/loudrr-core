@@ -19,13 +19,9 @@ logger = logging.getLogger(__name__)
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command - onboarding or waitlist deep link."""
     telegram_user = update.effective_user
+    miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
 
-    # Check for waitlist deep link: /start join_TOKEN
-    if context.args and context.args[0].startswith('join_'):
-        await handle_waitlist_join(update, context)
-        return
-
-    # Regular /start - check if user exists
+    # First check if user already has an account (approved user)
     try:
         user = User.objects.get(telegram_id=telegram_user.id)
         # Existing user - show welcome back
@@ -67,6 +63,30 @@ async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYP
     5. Fetch X profile, save, send waitlist card image
     """
     telegram_user = update.effective_user
+    miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
+
+    # First check if user already has an approved account
+    # If so, show welcome back instead of waitlist flow
+    try:
+        user = User.objects.get(telegram_id=telegram_user.id)
+        # User is already approved - show welcome back
+        welcome_text = (
+            f"Welcome back, {telegram_user.first_name}!\n\n"
+            f"Karma: {user.credits}\n"
+            f"Streak: {user.current_streak} days\n\n"
+            "Tap below to start engaging!"
+        )
+
+        keyboard = [[InlineKeyboardButton(
+            "Open Loudrr",
+            web_app=WebAppInfo(url=miniapp_url)
+        )]]
+
+        await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+    except User.DoesNotExist:
+        pass  # Not an approved user, continue with waitlist flow
+
     token = context.args[0].replace('join_', '')
 
     logger.info(
@@ -139,13 +159,29 @@ async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYP
             )
         return
 
-    # Link Telegram to entry
-    entry.telegram_id = telegram_user.id
-    entry.telegram_username = telegram_user.username or ""
-    entry.telegram_display_name = telegram_user.full_name or ""
-    entry.save(update_fields=[
-        'telegram_id', 'telegram_username', 'telegram_display_name', 'updated_at'
-    ])
+    # Check if this telegram_id is already linked to a DIFFERENT entry
+    existing_entry = WaitlistEntry.objects.filter(telegram_id=telegram_user.id).first()
+    if existing_entry and existing_entry.id != entry.id:
+        # User already registered with a different email
+        logger.info(
+            f"Telegram {telegram_user.id} already linked to different entry {existing_entry.id}"
+        )
+        await update.message.reply_text(
+            f"✅ You're already on the waitlist!\n\n"
+            f"📧 {existing_entry.email}\n"
+            f"🐦 @{existing_entry.x_username or 'Not set'}\n\n"
+            "_We'll notify you here when you get access._"
+        )
+        return
+
+    # Link Telegram to entry (only if not already linked)
+    if entry.telegram_id != telegram_user.id:
+        entry.telegram_id = telegram_user.id
+        entry.telegram_username = telegram_user.username or ""
+        entry.telegram_display_name = telegram_user.full_name or ""
+        entry.save(update_fields=[
+            'telegram_id', 'telegram_username', 'telegram_display_name', 'updated_at'
+        ])
 
     logger.info(
         "Waitlist Telegram linked",

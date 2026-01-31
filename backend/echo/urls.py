@@ -202,10 +202,10 @@ if not loudrr_admin.is_registered(AuditLogEntry):
 
 # Register ALL models with custom admin site
 # Core models
-from core.models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction, WaitlistEntry
+from core.models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest
 from core.admin import (
     UserAdmin, TransactionAdmin, AuditLogAdmin,
-    SiteSettingAdmin, XProfileAdmin, XPTransactionAdmin, WaitlistEntryAdmin
+    SiteSettingAdmin, XProfileAdmin, XPTransactionAdmin, WaitlistEntryAdmin, FeatureInterestAdmin
 )
 
 loudrr_admin.register(User, UserAdmin)
@@ -215,6 +215,7 @@ loudrr_admin.register(SiteSetting, SiteSettingAdmin)
 loudrr_admin.register(XProfile, XProfileAdmin)
 loudrr_admin.register(XPTransaction, XPTransactionAdmin)
 loudrr_admin.register(WaitlistEntry, WaitlistEntryAdmin)
+loudrr_admin.register(FeatureInterest, FeatureInterestAdmin)
 
 # Posts models
 from posts.models import Post, Engagement, SponsoredPost, Campaign, CampaignEntry
