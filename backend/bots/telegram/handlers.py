@@ -55,13 +55,13 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             app_url = f"{miniapp_url}?ref={ref_code}"
 
         welcome_text = (
-            f"Welcome to Loudrr, {telegram_user.first_name}! 🔊\n\n"
+            f"Welcome to Loudrr, {telegram_user.first_name}!\n\n"
             "Engage with posts on X, earn karma, and grow your reach.\n\n"
             "Tap below to get started:"
         )
 
         keyboard = [[InlineKeyboardButton(
-            "🚀 Open Loudrr",
+            "Open Loudrr",
             web_app=WebAppInfo(url=app_url)
         )]]
 
