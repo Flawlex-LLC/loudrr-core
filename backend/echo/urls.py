@@ -205,7 +205,7 @@ if not loudrr_admin.is_registered(AuditLogEntry):
     loudrr_admin.register(AuditLogEntry, AuditLogEntryAdmin)
 
 
-# Register ALL models with custom admin site
+# Register ALL models with default admin.site
 # Core models
 from core.models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest
 from core.admin import (
@@ -213,14 +213,14 @@ from core.admin import (
     SiteSettingAdmin, XProfileAdmin, XPTransactionAdmin, WaitlistEntryAdmin, FeatureInterestAdmin
 )
 
-loudrr_admin.register(User, UserAdmin)
-loudrr_admin.register(Transaction, TransactionAdmin)
-loudrr_admin.register(AuditLog, AuditLogAdmin)
-loudrr_admin.register(SiteSetting, SiteSettingAdmin)
-loudrr_admin.register(XProfile, XProfileAdmin)
-loudrr_admin.register(XPTransaction, XPTransactionAdmin)
-loudrr_admin.register(WaitlistEntry, WaitlistEntryAdmin)
-loudrr_admin.register(FeatureInterest, FeatureInterestAdmin)
+admin.site.register(User, UserAdmin)
+admin.site.register(Transaction, TransactionAdmin)
+admin.site.register(AuditLog, AuditLogAdmin)
+admin.site.register(SiteSetting, SiteSettingAdmin)
+admin.site.register(XProfile, XProfileAdmin)
+admin.site.register(XPTransaction, XPTransactionAdmin)
+admin.site.register(WaitlistEntry, WaitlistEntryAdmin)
+admin.site.register(FeatureInterest, FeatureInterestAdmin)
 
 # Posts models
 from posts.models import Post, Engagement, SponsoredPost, Campaign, CampaignEntry
@@ -229,19 +229,19 @@ from posts.admin import (
     CampaignAdmin, CampaignEntryAdmin
 )
 
-loudrr_admin.register(Post, PostAdmin)
-loudrr_admin.register(Engagement, EngagementAdmin)
-loudrr_admin.register(SponsoredPost, SponsoredPostAdmin)
-loudrr_admin.register(Campaign, CampaignAdmin)
-loudrr_admin.register(CampaignEntry, CampaignEntryAdmin)
+admin.site.register(Post, PostAdmin)
+admin.site.register(Engagement, EngagementAdmin)
+admin.site.register(SponsoredPost, SponsoredPostAdmin)
+admin.site.register(Campaign, CampaignAdmin)
+admin.site.register(CampaignEntry, CampaignEntryAdmin)
 
 # Loud models
 from loud.models import LoudProject, LoudSubmission, LoudLeaderboardEntry
 from loud.admin import LoudProjectAdmin, LoudSubmissionAdmin, LoudLeaderboardEntryAdmin
 
-loudrr_admin.register(LoudProject, LoudProjectAdmin)
-loudrr_admin.register(LoudSubmission, LoudSubmissionAdmin)
-loudrr_admin.register(LoudLeaderboardEntry, LoudLeaderboardEntryAdmin)
+admin.site.register(LoudProject, LoudProjectAdmin)
+admin.site.register(LoudSubmission, LoudSubmissionAdmin)
+admin.site.register(LoudLeaderboardEntry, LoudLeaderboardEntryAdmin)
 
 # Note: miniapp.EngagementSession and SessionClick models were removed (dead code)
 # Engagement tracking is done via posts.Engagement directly
@@ -251,9 +251,8 @@ urlpatterns = [
     # Health check (for Docker/K8s)
     path("health/", health_check, name="health_check"),
 
-    # Admin
-    path("admin/", admin.site.urls),  # Default Django admin (fallback)
-    path("loudrr-admin/", loudrr_admin.urls),  # Custom Loudrr admin
+    # Admin - all models registered with default admin.site
+    path("admin/", admin.site.urls),
 
     # API Documentation (OpenAPI 3.0)
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
