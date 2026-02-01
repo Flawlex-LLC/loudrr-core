@@ -26,6 +26,11 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env("ALLOWED_HOSTS") + [".trycloudflare.com"]
 
+# Load Testing Configuration (NEVER enable in production!)
+# Set LOAD_TEST_MODE=true and LOAD_TEST_SECRET to enable load test auth bypass
+LOAD_TEST_MODE = env.bool("LOAD_TEST_MODE", default=False)
+LOAD_TEST_SECRET = env("LOAD_TEST_SECRET", default="")
+
 # Application definition
 INSTALLED_APPS = [
     "jazzmin",  # Must be before django.contrib.admin

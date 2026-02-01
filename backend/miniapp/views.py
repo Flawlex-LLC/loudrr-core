@@ -172,6 +172,18 @@ class MiniAppAuthMixin:
 
     def get_user_from_request(self, request):
         """Extract and validate user from Telegram init data."""
+        # Load test bypass (NEVER enable in production!)
+        # Requires both LOAD_TEST_MODE=true and correct LOAD_TEST_SECRET
+        if getattr(settings, 'LOAD_TEST_MODE', False) and getattr(settings, 'LOAD_TEST_SECRET', ''):
+            test_auth = request.headers.get("X-Load-Test-Auth", "")
+            if test_auth == settings.LOAD_TEST_SECRET:
+                telegram_id = request.headers.get("X-Load-Test-User", "")
+                if telegram_id:
+                    try:
+                        return User.objects.get(telegram_id=int(telegram_id))
+                    except (User.DoesNotExist, ValueError):
+                        pass
+
         # In development, allow mock user via telegram_id query param
         if settings.DEBUG:
             telegram_id = request.query_params.get("telegram_id")
