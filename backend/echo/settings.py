@@ -472,6 +472,9 @@ CSRF_TRUSTED_ORIGINS = env.list(
 # Mini App URL (for bot to open)
 MINIAPP_URL = env("MINIAPP_URL", default="http://localhost:3000")
 
+# Landing Page URL (for card image generation)
+LANDING_URL = env("LANDING_URL", default="https://loudrr.com")
+
 # Bot tokens
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", default="")
 TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", default="Loudrrbot")
