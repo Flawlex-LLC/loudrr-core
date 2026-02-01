@@ -6,7 +6,9 @@ import logging
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.utils import timezone
-from rest_framework import status
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
+from rest_framework import status, serializers
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -20,11 +22,85 @@ from miniapp.views import MiniAppAuthMixin
 logger = logging.getLogger(__name__)
 
 
+# Schema serializers for documentation
+class LoudProjectSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    slug = serializers.SlugField()
+    logo_url = serializers.URLField()
+    description = serializers.CharField()
+    ends_at = serializers.DateTimeField()
+    time_remaining_hours = serializers.IntegerField()
+    reward_pool = serializers.CharField()
+    min_tweetscout_score = serializers.FloatField()
+    max_submissions = serializers.IntegerField()
+    user_submissions = serializers.IntegerField()
+    can_submit = serializers.BooleanField()
+    cannot_submit_reason = serializers.CharField(allow_null=True)
+    total_participants = serializers.IntegerField()
+    your_rank = serializers.IntegerField(allow_null=True)
+    your_points = serializers.IntegerField()
+
+
+class LoudProjectsResponseSerializer(serializers.Serializer):
+    projects = LoudProjectSerializer(many=True)
+    daily_submissions_remaining = serializers.IntegerField()
+    daily_limit = serializers.IntegerField()
+    expected_points = serializers.IntegerField()
+    user_tweetscout_score = serializers.FloatField()
+
+
+class LoudSubmitRequestSerializer(serializers.Serializer):
+    project_id = serializers.UUIDField(help_text="Project ID to submit to")
+    x_link = serializers.URLField(help_text="X/Twitter post link")
+
+
+class LoudSubmitResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    submission_id = serializers.UUIDField()
+    points_awarded = serializers.IntegerField()
+    new_total_points = serializers.IntegerField()
+    new_rank = serializers.IntegerField()
+    daily_submissions_remaining = serializers.IntegerField()
+    project_submissions_remaining = serializers.IntegerField()
+
+
+class LeaderboardEntrySerializer(serializers.Serializer):
+    rank = serializers.IntegerField()
+    user_id = serializers.UUIDField()
+    display_name = serializers.CharField()
+    x_username = serializers.CharField()
+    total_points = serializers.IntegerField()
+    submission_count = serializers.IntegerField()
+
+
+class LoudLeaderboardResponseSerializer(serializers.Serializer):
+    project = serializers.DictField()
+    leaderboard = LeaderboardEntrySerializer(many=True)
+    user_entry = serializers.DictField(allow_null=True)
+    total_participants = serializers.IntegerField()
+
+
+class ErrorSerializer(serializers.Serializer):
+    error = serializers.CharField()
+
+
 class LoudSubmitThrottle(UserRateThrottle):
     """Rate limit LOUD submissions to 10 per minute per user."""
     rate = '10/minute'
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["LOUD"],
+        summary="List active LOUD projects",
+        description="Returns live projects with user's submission counts and eligibility.",
+        responses={
+            200: LoudProjectsResponseSerializer,
+            401: ErrorSerializer,
+        },
+    )
+)
 class LoudProjectsView(MiniAppAuthMixin, APIView):
     """
     GET /api/loud/projects/
@@ -87,6 +163,21 @@ class LoudProjectsView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["LOUD"],
+        summary="Submit content to LOUD project",
+        description="Submit X/Twitter content to a LOUD project. Rate limited to 10/minute.",
+        request=LoudSubmitRequestSerializer,
+        responses={
+            200: LoudSubmitResponseSerializer,
+            400: ErrorSerializer,
+            401: ErrorSerializer,
+            404: ErrorSerializer,
+            409: ErrorSerializer,
+        },
+    )
+)
 class LoudSubmitView(MiniAppAuthMixin, APIView):
     """
     POST /api/loud/submit/
@@ -186,6 +277,21 @@ class LoudSubmitView(MiniAppAuthMixin, APIView):
             )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["LOUD"],
+        summary="Get project leaderboard",
+        description="Get leaderboard for a LOUD project with user's rank and stats.",
+        parameters=[
+            OpenApiParameter(name="project_slug", type=str, location="path", description="Project slug"),
+        ],
+        responses={
+            200: LoudLeaderboardResponseSerializer,
+            401: ErrorSerializer,
+            404: ErrorSerializer,
+        },
+    )
+)
 class LoudLeaderboardView(MiniAppAuthMixin, APIView):
     """
     GET /api/loud/leaderboard/{project_slug}/

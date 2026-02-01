@@ -26,6 +26,11 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = env("ALLOWED_HOSTS") + [".trycloudflare.com"]
 
+# Load Testing Configuration (NEVER enable in production!)
+# Set LOAD_TEST_MODE=true and LOAD_TEST_SECRET to enable load test auth bypass
+LOAD_TEST_MODE = env.bool("LOAD_TEST_MODE", default=False)
+LOAD_TEST_SECRET = env("LOAD_TEST_SECRET", default="")
+
 # Application definition
 INSTALLED_APPS = [
     "jazzmin",  # Must be before django.contrib.admin
@@ -37,8 +42,16 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Third party
     "rest_framework",
+    "drf_spectacular",  # OpenAPI schema generation
     "corsheaders",
     "auditlog",
+    # Backend Hardening (Jan 2026)
+    "django_fsm",  # State machines (auditlog tracks changes instead of django_fsm_log)
+    "rules",
+    "constance",
+    "safedelete",
+    "django_structlog",
+    "waffle",
     # Local apps
     "core",
     "posts",
@@ -190,6 +203,7 @@ JAZZMIN_UI_TWEAKS = {
 }
 
 MIDDLEWARE = [
+    "log_request_id.middleware.RequestIDMiddleware",  # Request tracing (must be first)
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",  # Serve static files in production
     "corsheaders.middleware.CorsMiddleware",
@@ -200,6 +214,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "auditlog.middleware.AuditlogMiddleware",  # Track who made changes
+    "django_structlog.middlewares.RequestMiddleware",  # Structured logging
+    "waffle.middleware.WaffleMiddleware",  # Feature flags
 ]
 
 ROOT_URLCONF = "echo.urls"
@@ -269,6 +285,7 @@ AUTH_USER_MODEL = "core.User"
 
 # Authentication backends (allow login via telegram_id)
 AUTHENTICATION_BACKENDS = [
+    'rules.permissions.ObjectPermissionBackend',  # django-rules object permissions
     'core.backends.TelegramIDBackend',  # Login with telegram ID
     'django.contrib.auth.backends.ModelBackend',  # Default (UUID)
 ]
@@ -307,6 +324,79 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    # OpenAPI schema generation
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+# =============================================================================
+# API DOCUMENTATION (drf-spectacular)
+# =============================================================================
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Loudrr API",
+    "DESCRIPTION": """
+## Loudrr - X/Twitter Engagement Rewards Platform
+
+Loudrr is a Telegram-based mini-app platform for X/Twitter engagement rewards.
+Users earn "karma" by engaging with posts, then spend karma to promote their own content.
+
+### Authentication
+
+Most endpoints require Telegram Web App authentication via the `X-Telegram-Init-Data` header.
+This header contains HMAC-signed data from the Telegram Web App SDK.
+
+### Core Features
+
+- **Engagement System**: Start sessions, engage with posts, earn karma
+- **Post Promotion**: Spend karma to promote your posts
+- **LOUD UGC**: Submit content to contests for rewards
+- **Waitlist**: Onboarding flow with admin approval
+- **Referrals**: Share referral links to earn bonuses
+
+### Rate Limits
+
+- Waitlist endpoints: 5 requests/hour per IP
+- Session endpoints: Standard DRF throttling
+    """,
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    # Organize endpoints by tags
+    "TAGS": [
+        {"name": "Health", "description": "Health check endpoints"},
+        {"name": "Settings", "description": "App configuration"},
+        {"name": "Waitlist", "description": "Waitlist signup and status"},
+        {"name": "User", "description": "User profile and stats"},
+        {"name": "Engagement", "description": "Session-based engagement flow"},
+        {"name": "Posts", "description": "Post submission and management"},
+        {"name": "LOUD", "description": "UGC contest submissions"},
+        {"name": "Referral", "description": "Referral system"},
+    ],
+    # Schema customization
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": r"/api/",
+    # Security
+    "SECURITY": [{"TelegramWebAppAuth": []}],
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "TelegramWebAppAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-Telegram-Init-Data",
+                "description": "Telegram Web App init data (HMAC-signed)",
+            }
+        }
+    },
+    # Swagger UI settings
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayOperationId": False,
+        "filter": True,
+    },
+    # ReDoc settings
+    "REDOC_UI_SETTINGS": {
+        "hideDownloadButton": False,
+        "expandResponses": "200,201",
+    },
 }
 
 # =============================================================================
@@ -434,20 +524,52 @@ ENCRYPTION_KEY = env("ENCRYPTION_KEY", default="change-me-32-byte-key-in-prod!!"
 # See: https://docs.djangoproject.com/en/5.0/topics/async/#async-safety
 os.environ["DJANGO_ALLOW_ASYNC_UNSAFE"] = "true"
 
-# Logging configuration - outputs errors to console for gunicorn to capture
+# Logging configuration with structlog for structured JSON logging
+# In production, logs are JSON for easy parsing by log aggregators
+import structlog
+
+# Configure structlog processors
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.filter_by_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+    ],
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    cache_logger_on_first_use=True,
+)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
+        # Human-readable format for development
         "verbose": {
             "format": "{levelname} {asctime} {module} {message}",
             "style": "{",
+        },
+        # Structlog JSON format for production
+        "json": {
+            "()": structlog.stdlib.ProcessorFormatter,
+            "processor": structlog.processors.JSONRenderer(),
+        },
+        # Structlog console format for development
+        "console_structlog": {
+            "()": structlog.stdlib.ProcessorFormatter,
+            "processor": structlog.dev.ConsoleRenderer(),
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "verbose",
+            "formatter": "console_structlog" if DEBUG else "json",
         },
     },
     "root": {
@@ -465,5 +587,164 @@ LOGGING = {
             "level": "ERROR",
             "propagate": False,
         },
+        # App loggers
+        "core": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "posts": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "loud": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "django_structlog": {
+            "handlers": ["console"],
+            "level": "INFO",
+        },
+        # Silence httpx/telegram logging to prevent token exposure
+        "httpx": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "httpcore": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "telegram": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
     },
 }
+
+# =============================================================================
+# BACKEND HARDENING CONFIGURATION (Jan 2026)
+# =============================================================================
+# Note: Using django-auditlog for state change tracking (not django_fsm_log)
+# auditlog captures all field changes including FSM status transitions
+
+# Django-Constance settings (dynamic settings from admin)
+CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+# Note: Empty string disables caching for constance (acceptable for low-traffic admin settings)
+# For production with Redis, use: CONSTANCE_DATABASE_CACHE_BACKEND = "redis"
+CONSTANCE_DATABASE_CACHE_BACKEND = ""
+
+# Django-Constance configuration - replaces SiteSetting model
+# These settings can be changed via Django admin at /loudrr-admin/constance/config/
+CONSTANCE_CONFIG = {
+    # Credits & Posting
+    "POST_COST": (80, "Karma cost to create a post", int),
+    "CREDIT_PER_ENGAGEMENT": (1, "Base credit per engagement", int),
+    "DAILY_EARN_CAP": (160, "Maximum karma earnable per day", int),
+
+    # Engagement
+    "ENGAGEMENT_COOLDOWN": (0, "Cooldown between engagements (seconds)", int),
+    "MIN_SESSION_DURATION_SECONDS": (30, "Minimum time before claiming", int),
+
+    # Verification
+    "VERIFICATION_BATCH_SIZE": (10, "Engagements per verification batch", int),
+    "VERIFICATION_SAMPLE_SIZE": (3, "Sample size for verification", int),
+    "MAX_VERIFICATION_RETRIES": (2, "Max retries for verification", int),
+    "AUDIT_PROBABILITY": (0.05, "Probability of audit", float),
+
+    # TweetScout Tier Thresholds
+    "TIER_NORMIE_THRESHOLD": (100, "Minimum score for Normie tier", int),
+    "TIER_DEGEN_THRESHOLD": (200, "Minimum score for Degen tier", int),
+    "TIER_BASED_THRESHOLD": (400, "Minimum score for Based tier", int),
+    "TIER_LEGEND_THRESHOLD": (600, "Minimum score for Legend tier", int),
+    "TIER_OG_THRESHOLD": (800, "Minimum score for OG tier", int),
+    "TIER_GOAT_THRESHOLD": (1000, "Minimum score for GOAT tier", int),
+
+    # Tier Multipliers
+    "TIER_ANON_MULTIPLIER": (1.0, "Karma multiplier for Anon tier", float),
+    "TIER_NORMIE_MULTIPLIER": (1.10, "Karma multiplier for Normie tier", float),
+    "TIER_DEGEN_MULTIPLIER": (1.15, "Karma multiplier for Degen tier", float),
+    "TIER_BASED_MULTIPLIER": (1.20, "Karma multiplier for Based tier", float),
+    "TIER_LEGEND_MULTIPLIER": (1.25, "Karma multiplier for Legend tier", float),
+    "TIER_OG_MULTIPLIER": (1.30, "Karma multiplier for OG tier", float),
+    "TIER_GOAT_MULTIPLIER": (1.35, "Karma multiplier for GOAT tier", float),
+
+    # Streak Settings
+    "STREAK_7_DAY_BONUS": (5, "Bonus karma for 7-day streak", int),
+    "STREAK_14_DAY_BONUS": (6, "Bonus karma for 14-day streak", int),
+    "STREAK_30_DAY_BONUS": (10, "Bonus karma for 30-day streak", int),
+
+    # LOUD Settings
+    "LOUD_DAILY_SUBMISSION_LIMIT": (6, "Max LOUD submissions per day", int),
+    "LOUD_POINTS_DIVISOR": (10, "TweetScout score divisor for points", int),
+
+    # Feature Flags (can also use django-waffle for more complex flags)
+    "MAINTENANCE_MODE": (False, "Enable maintenance mode", bool),
+    "REGISTRATION_OPEN": (True, "Allow new registrations", bool),
+
+    # Production Safety
+    "PRODUCTION_LOCK": (False, "Block dangerous actions (campaigns, payouts, destructive ops)", bool),
+}
+
+CONSTANCE_CONFIG_FIELDSETS = {
+    "Credits & Posting": (
+        "POST_COST",
+        "CREDIT_PER_ENGAGEMENT",
+        "DAILY_EARN_CAP",
+    ),
+    "Engagement Rules": (
+        "ENGAGEMENT_COOLDOWN",
+        "MIN_SESSION_DURATION_SECONDS",
+    ),
+    "Verification": (
+        "VERIFICATION_BATCH_SIZE",
+        "VERIFICATION_SAMPLE_SIZE",
+        "MAX_VERIFICATION_RETRIES",
+        "AUDIT_PROBABILITY",
+    ),
+    "TweetScout Tiers": (
+        "TIER_NORMIE_THRESHOLD",
+        "TIER_DEGEN_THRESHOLD",
+        "TIER_BASED_THRESHOLD",
+        "TIER_LEGEND_THRESHOLD",
+        "TIER_OG_THRESHOLD",
+        "TIER_GOAT_THRESHOLD",
+    ),
+    "Tier Multipliers": (
+        "TIER_ANON_MULTIPLIER",
+        "TIER_NORMIE_MULTIPLIER",
+        "TIER_DEGEN_MULTIPLIER",
+        "TIER_BASED_MULTIPLIER",
+        "TIER_LEGEND_MULTIPLIER",
+        "TIER_OG_MULTIPLIER",
+        "TIER_GOAT_MULTIPLIER",
+    ),
+    "Streak Bonuses": (
+        "STREAK_7_DAY_BONUS",
+        "STREAK_14_DAY_BONUS",
+        "STREAK_30_DAY_BONUS",
+    ),
+    "LOUD Feature": (
+        "LOUD_DAILY_SUBMISSION_LIMIT",
+        "LOUD_POINTS_DIVISOR",
+    ),
+    "Feature Flags": (
+        "MAINTENANCE_MODE",
+        "REGISTRATION_OPEN",
+        "PRODUCTION_LOCK",
+    ),
+}
+
+# Django-Waffle settings (feature flags)
+WAFFLE_CREATE_MISSING_FLAGS = True  # Auto-create flags in dev
+WAFFLE_CREATE_MISSING_SWITCHES = True
+WAFFLE_CREATE_MISSING_SAMPLES = True
+
+# Django-Log-Request-ID settings
+LOG_REQUEST_ID_HEADER = "HTTP_X_REQUEST_ID"
+GENERATE_REQUEST_ID_IF_NOT_IN_HEADER = True
+REQUEST_ID_RESPONSE_HEADER = "X-Request-ID"

@@ -10,6 +10,13 @@ Tests invariants that should ALWAYS hold true:
 
 Run with: pytest loud/tests/test_loud_hypothesis.py -v
 """
+import os
+import django
+
+# Configure Django BEFORE any Django imports
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'echo.settings')
+django.setup()
+
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 

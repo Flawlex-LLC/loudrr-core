@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django_fsm import FSMField, transition
 
 
 def generate_redirect_token():
@@ -71,11 +72,12 @@ class Post(models.Model):
         default=Decimal(str(settings.ECHO_CONFIG["POST_COST"]))
     )
 
-    # Status
-    status = models.CharField(
+    # Status (FSM-managed field - use transition methods, not direct assignment)
+    status = FSMField(
         max_length=20,
         choices=Status.choices,
         default=Status.ACTIVE,
+        protected=False,  # Allow direct assignment for backward compatibility
     )
 
     # Platform where post was submitted
@@ -116,6 +118,16 @@ class Post(models.Model):
                 check=models.Q(escrow__lte=models.F('initial_escrow')),
                 name="post_escrow_cannot_exceed_initial"
             ),
+            # Completed posts must have zero escrow (depleted)
+            models.CheckConstraint(
+                check=~(models.Q(status='completed') & models.Q(escrow__gt=0)),
+                name="post_completed_zero_escrow"
+            ),
+            # Cancelled posts must have zero escrow (refunded)
+            models.CheckConstraint(
+                check=~(models.Q(status='cancelled') & models.Q(escrow__gt=0)),
+                name="post_cancelled_zero_escrow"
+            ),
         ]
 
     def __str__(self):
@@ -152,16 +164,44 @@ class Post(models.Model):
         encrypted_id = encrypt_user_id(str(user.id))
         return f"{base_url}?u={encrypted_id}"
 
+    # =====================
+    # FSM Transition Methods
+    # =====================
+
+    def can_complete(self) -> bool:
+        """Check if post can be completed (escrow fully depleted)."""
+        return self.escrow <= Decimal('0')
+
+    @transition(
+        field=status,
+        source=Status.ACTIVE,
+        target=Status.COMPLETED,
+        conditions=[can_complete],
+    )
+    def complete(self):
+        """
+        Mark post as completed when escrow is depleted.
+
+        This transition is only allowed when escrow reaches 0.
+        The completed_at timestamp is set automatically.
+        """
+        self.completed_at = timezone.now()
+
+    @transition(
+        field=status,
+        source=Status.ACTIVE,
+        target=Status.CANCELLED,
+    )
     def cancel(self, refund: bool = True):
         """
         Cancel this post.
 
         Args:
-            refund: Whether to refund remaining escrow to user
-        """
-        if self.status != self.Status.ACTIVE:
-            return
+            refund: Whether to refund remaining escrow to user (default True)
 
+        Note: After cancellation, escrow is set to 0 to satisfy the
+        'post_cancelled_zero_escrow' database constraint.
+        """
         if refund and self.escrow > Decimal('0'):
             from core.services.credits import CreditService
 
@@ -172,9 +212,8 @@ class Post(models.Model):
                 reference_type="post",
                 description="Refund for cancelled post",
             )
-
-        self.status = self.Status.CANCELLED
-        self.save(update_fields=["status", "updated_at"])
+        # Zero out escrow - required for post_cancelled_zero_escrow constraint
+        self.escrow = Decimal('0')
 
 
 class Engagement(models.Model):
@@ -536,7 +575,17 @@ class CampaignEntry(models.Model):
             models.UniqueConstraint(
                 fields=["campaign", "user"],
                 name="unique_campaign_user_entry",
-            )
+            ),
+            # Winners must be eligible (can't win if ineligible)
+            models.CheckConstraint(
+                check=~(models.Q(is_winner=True) & models.Q(status='ineligible')),
+                name="entry_winner_must_be_eligible"
+            ),
+            # Prize can only be claimed by winners
+            models.CheckConstraint(
+                check=~(models.Q(prize_claimed=True) & models.Q(is_winner=False)),
+                name="entry_claimed_must_be_winner"
+            ),
         ]
 
     def __str__(self):

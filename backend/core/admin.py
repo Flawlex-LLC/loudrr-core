@@ -779,14 +779,10 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
                     log_admin_action(request, entry, f"Approved and created user {user.id}")
                     approved += 1
 
-                # Queue TweetScout fetch AFTER transaction commits (via on_commit)
-                def queue_tweetscout_task(user_id):
-                    def _queue():
-                        from core.tasks import fetch_tweetscout_for_user_task
-                        fetch_tweetscout_for_user_task.delay(str(user_id))
-                    return _queue
-
-                db_transaction.on_commit(queue_tweetscout_task(user.id))
+                # Queue TweetScout fetch via OutboxEvent (inside transaction)
+                # This ensures the event is created atomically with the user creation
+                from core.services.outbox import OutboxService
+                OutboxService.queue_tweetscout_fetch(user_id=user.id)
 
             except Exception as e:
                 errors.append(f"{entry.email}: {str(e)}")

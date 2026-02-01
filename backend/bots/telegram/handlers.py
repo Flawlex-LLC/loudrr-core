@@ -17,16 +17,31 @@ logger = logging.getLogger(__name__)
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command - onboarding or waitlist deep link."""
+    """Handle /start command - onboarding, waitlist deep link, or referral."""
     telegram_user = update.effective_user
     miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
+
+    # Check for deep link parameters
+    if context.args and len(context.args) > 0:
+        arg = context.args[0]
+
+        # Handle waitlist deep link (join_TOKEN from website)
+        if arg.startswith('join_'):
+            await handle_waitlist_join(update, context)
+            return
+
+    # Check for referral code in start param (e.g., /start ref_ABC123)
+    ref_code = None
+    if context.args and len(context.args) > 0:
+        arg = context.args[0]
+        if arg.startswith('ref_'):
+            ref_code = arg.replace('ref_', '')
+            logger.info(f"Referral code detected: {ref_code} for telegram_id: {telegram_user.id}")
 
     # First check if user already has an account (approved user)
     try:
         user = User.objects.get(telegram_id=telegram_user.id)
         # Existing user - show welcome back
-        miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
-
         welcome_text = (
             f"Welcome back, {telegram_user.first_name}!\n\n"
             f"Karma: {user.credits}\n"
@@ -42,13 +57,24 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     except User.DoesNotExist:
-        # New user without waitlist token - direct them to website
-        await update.message.reply_text(
+        # New user - show Open App button (they'll register in the mini app)
+        # Pass referral code via URL if present
+        app_url = miniapp_url
+        if ref_code:
+            app_url = f"{miniapp_url}?ref={ref_code}"
+
+        welcome_text = (
             f"Welcome to Loudrr, {telegram_user.first_name}!\n\n"
-            "To join Loudrr, please sign up at:\n"
-            "👉 loudrr.com\n\n"
-            "You'll get a link to complete your application here."
+            "Engage with posts on X, earn karma, and grow your reach.\n\n"
+            "Tap below to get started:"
         )
+
+        keyboard = [[InlineKeyboardButton(
+            "Open Loudrr",
+            web_app=WebAppInfo(url=app_url)
+        )]]
+
+        await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -58,9 +84,10 @@ async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYP
     Flow:
     1. User clicks link from loudrr.com → arrives here
     2. Validate token, link Telegram account
-    3. Show "Apply for Whitelist" button
-    4. User clicks → prompt for X username
-    5. Fetch X profile, save, send waitlist card image
+    3. Show "Complete Registration" button that opens mini app
+    4. Mini app shows form with email pre-filled
+    5. User enters X username → submits
+    6. Mini app shows success card with share buttons
     """
     telegram_user = update.effective_user
     miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
@@ -192,16 +219,19 @@ async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYP
         }
     )
 
-    # Show "Apply for Whitelist" button
+    # Show "Complete Registration" button that opens mini app
+    # Pass join token via URL so mini app can complete registration
+    registration_url = f"{miniapp_url}/waitlist?token={entry.join_token}"
+
     keyboard = [[InlineKeyboardButton(
-        "✨ Apply for Whitelist",
-        callback_data=f"apply_waitlist:{entry.id}"
+        "✨ Complete Registration",
+        web_app=WebAppInfo(url=registration_url)
     )]]
 
     await update.message.reply_text(
         f"👋 Welcome to Loudrr!\n\n"
         f"📧 Email: {entry.email}\n\n"
-        "Click below to complete your application:",
+        "Tap below to complete your application:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -211,11 +241,11 @@ async def handle_waitlist_x_username(update: Update, context: ContextTypes.DEFAU
     Handle X username collection for waitlist application.
 
     Called when user sends a message while we're collecting their X username.
-    Validates, fetches profile info, saves, and sends waitlist card.
+    Validates, fetches profile info, saves, and sends confirmation.
+    Card is sent asynchronously via OutboxEvent (triggered by signal).
     """
     from django.utils import timezone
     from core.services.twitter_verification import twitter_verification
-    from .image_utils import create_waitlist_card
 
     entry_id = context.user_data.pop('collecting_x_username')
     x_username = update.message.text.strip().lstrip('@')
@@ -309,51 +339,14 @@ async def handle_waitlist_x_username(update: Update, context: ContextTypes.DEFAU
     except Exception:
         pass
 
-    # Send waitlist confirmation card with profile data
-    try:
-        card_image = create_waitlist_card(
-            x_username=x_username,
-            display_name=x_info.get("display_name") if x_info else None,
-            followers_count=x_info.get("followers_count") if x_info else None,
-            avatar_url=x_info.get("avatar_url") if x_info else None,
-            is_verified=x_info.get("is_verified", False) if x_info else False,
-            telegram_username=telegram_user.username or "",
-        )
-
-        # Build caption with profile info
-        caption_parts = ["*You're on the Loudrr waitlist!* 🎉\n"]
-
-        if x_info and x_info.get("display_name"):
-            caption_parts.append(f"\n{x_info['display_name']}")
-
-        caption_parts.append(f"\n@{x_username}")
-
-        if x_info and x_info.get("followers_count"):
-            count = x_info['followers_count']
-            if count >= 1_000_000:
-                formatted = f"{count / 1_000_000:.1f}M"
-            elif count >= 1_000:
-                formatted = f"{count / 1_000:.1f}K"
-            else:
-                formatted = str(count)
-            caption_parts.append(f" • {formatted} followers")
-
-        caption_parts.append("\n\n_We'll notify you here when you get access._")
-
-        await update.message.reply_photo(
-            photo=card_image,
-            caption="".join(caption_parts),
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to generate waitlist card: {e}")
-        # Fallback to text if card generation fails
-        await update.message.reply_text(
-            f"✅ You're on the Loudrr waitlist!\n\n"
-            f"🐦 @{x_username}\n\n"
-            "We'll notify you here when you get access."
-        )
+    # Send simple confirmation - the card will be sent via OutboxEvent
+    # (signal creates OutboxEvent when status changes to SUBMITTED)
+    await update.message.reply_text(
+        f"✅ *Applied successfully!*\n\n"
+        f"X: @{x_username}\n\n"
+        "_Your waitlist card will arrive shortly._",
+        parse_mode="Markdown"
+    )
 
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -1,8 +1,13 @@
 """
 Celery tasks for core app.
 
-Handles asynchronous operations like email sending with industry-grade reliability:
-- Idempotency via database tracking (prevents duplicate emails)
+Handles asynchronous operations including:
+- OutboxEvent processing (reliable notification delivery)
+- Email sending with industry-grade reliability
+- TweetScout data fetching
+
+Features:
+- Idempotency via database tracking (prevents duplicates)
 - Row-level locking via select_for_update (prevents race conditions)
 - Smart retry logic (distinguishes permanent vs temporary failures)
 - Comprehensive error logging and tracking
@@ -12,6 +17,7 @@ References:
 - https://flaky.build/how-to-avoid-sending-duplicate-emails-to-customers
 """
 import logging
+from datetime import timedelta
 from smtplib import SMTPRecipientsRefused, SMTPServerDisconnected, SMTPConnectError
 from celery import shared_task
 from django.db import transaction
@@ -313,3 +319,171 @@ def fetch_tweetscout_for_user_task(self, user_id: str):
     except Exception as e:
         logger.exception(f"[TWEETSCOUT] Error fetching data for user {user_id}")
         raise self.retry(exc=e)
+
+
+# =============================================================================
+# OUTBOX EVENT PROCESSING
+# =============================================================================
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=30,
+    name='core.process_pending_outbox_events'
+)
+def process_pending_outbox_events(self, batch_size: int = 50):
+    """
+    Process pending OutboxEvents in batches.
+
+    This task is called periodically by Celery Beat to ensure
+    all pending notifications are processed.
+
+    Args:
+        batch_size: Maximum events to process per run
+
+    Returns:
+        Dict with processing statistics
+    """
+    from core.models import OutboxEvent
+    from core.services.outbox import OutboxService
+
+    # Get pending events, oldest first
+    pending_events = OutboxEvent.objects.filter(
+        status=OutboxEvent.Status.PENDING,
+        retry_count__lt=3,  # Don't retry more than max_retries
+    ).order_by('created_at')[:batch_size]
+
+    processed = 0
+    succeeded = 0
+    failed = 0
+
+    for event in pending_events:
+        processed += 1
+        try:
+            success = OutboxService.process_event(event)
+            if success:
+                succeeded += 1
+            else:
+                failed += 1
+        except Exception as e:
+            logger.error(f"[OUTBOX] Error processing event {event.id}: {e}")
+            failed += 1
+
+    if processed > 0:
+        logger.info(
+            f"[OUTBOX] Processing complete: {processed} processed, "
+            f"{succeeded} succeeded, {failed} failed"
+        )
+
+    return {
+        "processed": processed,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    name='core.process_single_outbox_event'
+)
+def process_single_outbox_event(self, event_id: str):
+    """
+    Process a single OutboxEvent immediately.
+
+    Called when we want to process an event right away instead
+    of waiting for the periodic task.
+
+    Args:
+        event_id: UUID string of the OutboxEvent
+    """
+    from core.models import OutboxEvent
+    from core.services.outbox import OutboxService
+
+    try:
+        event = OutboxEvent.objects.get(id=event_id)
+    except OutboxEvent.DoesNotExist:
+        logger.error(f"[OUTBOX] Event {event_id} not found")
+        return {"success": False, "error": "Event not found"}
+
+    try:
+        success = OutboxService.process_event(event)
+        return {"success": success}
+    except Exception as e:
+        logger.error(f"[OUTBOX] Error processing event {event_id}: {e}")
+        raise self.retry(exc=e)
+
+
+@shared_task(name='core.cleanup_old_outbox_events')
+def cleanup_old_outbox_events(days: int = 30):
+    """
+    Clean up old processed OutboxEvents.
+
+    Deletes SENT events older than specified days.
+    Keeps FAILED events for debugging.
+
+    Args:
+        days: Delete events older than this many days
+    """
+    from core.models import OutboxEvent
+
+    cutoff = timezone.now() - timedelta(days=days)
+
+    deleted_count, _ = OutboxEvent.objects.filter(
+        status=OutboxEvent.Status.SENT,
+        processed_at__lt=cutoff,
+    ).delete()
+
+    if deleted_count > 0:
+        logger.info(f"[OUTBOX] Deleted {deleted_count} old outbox events")
+
+    return {"deleted": deleted_count}
+
+
+@shared_task(name='core.reset_daily_credits')
+def reset_daily_credits():
+    """
+    Reset daily_credits_earned for all users.
+
+    Called at midnight UTC by Celery Beat.
+    """
+    from core.models import User
+
+    # Reset users whose reset date is before today
+    today = timezone.now().date()
+
+    updated = User.objects.filter(
+        daily_earned_reset_at__date__lt=today
+    ).update(
+        daily_credits_earned=0,
+        daily_earned_reset_at=timezone.now(),
+    )
+
+    if updated > 0:
+        logger.info(f"[DAILY] Reset daily credits for {updated} users")
+
+    return {"reset_count": updated}
+
+
+@shared_task(name='core.retry_failed_outbox_events')
+def retry_failed_outbox_events():
+    """
+    Reset failed OutboxEvents for retry.
+
+    Events that have failed less than max_retries are reset to PENDING.
+    """
+    from core.models import OutboxEvent
+
+    # Find failed events that can still be retried
+    retriable = OutboxEvent.objects.filter(
+        status=OutboxEvent.Status.FAILED,
+        retry_count__lt=3,
+    )
+
+    count = retriable.update(status=OutboxEvent.Status.PENDING)
+
+    if count > 0:
+        logger.info(f"[OUTBOX] Reset {count} failed outbox events for retry")
+
+    return {"reset_count": count}

@@ -7,6 +7,11 @@ from django.urls import include, path
 from django.utils.html import format_html
 from django.http import JsonResponse
 from django.db import connection
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 
 from .admin_site import loudrr_admin
 
@@ -249,6 +254,11 @@ urlpatterns = [
     # Admin
     path("admin/", admin.site.urls),  # Default Django admin (fallback)
     path("loudrr-admin/", loudrr_admin.urls),  # Custom Loudrr admin
+
+    # API Documentation (OpenAPI 3.0)
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 
     # API endpoints
     path("api/", include("core.api.urls")),

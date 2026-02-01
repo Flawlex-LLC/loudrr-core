@@ -3,21 +3,28 @@ Django signals for core app.
 
 Best practices followed:
 1. dispatch_uid to prevent duplicate signal connections
-2. transaction.on_commit for side effects (Telegram notifications)
+2. Transactional Outbox pattern for reliable notifications
 3. Idempotency checks to prevent duplicate messages
-4. Lightweight handlers - heavy work delegated to Celery
+4. Lightweight handlers - heavy work delegated to Celery via OutboxEvent
+
+The Transactional Outbox Pattern:
+- OutboxEvent is created INSIDE the same transaction as the model change
+- If transaction rolls back, the event also rolls back (no orphan notifications)
+- A separate Celery worker processes events from the outbox table
+- This guarantees exactly-once delivery semantics
 
 References:
 - https://hakibenita.com/django-reliable-signals
 - https://docs.djangoproject.com/en/stable/topics/signals/
-- https://medium.com/codex/preventing-duplicate-signals-and-custom-signal-handling-in-django-13aea083f917
+- https://microservices.io/patterns/data/transactional-outbox.html
+- https://www.vintasoftware.com/blog/celery-wild-tips-and-tricks-run-async-tasks-real-world
 """
 import logging
 from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
-from .models import WaitlistEntry
+from .models import WaitlistEntry, OutboxEvent
 
 logger = logging.getLogger(__name__)
 
@@ -58,24 +65,19 @@ def send_approval_notification_on_approve(sender, instance, created, **kwargs):
     """
     Send Telegram notification when waitlist entry is approved.
 
+    Uses Transactional Outbox pattern:
+    1. OutboxEvent created in SAME transaction as WaitlistEntry update
+    2. If transaction rolls back, event also rolls back (no orphan notifications)
+    3. Celery worker processes events from outbox table
+    4. Guarantees exactly-once delivery
+
     Idempotency safeguards:
     1. Only triggers on status change (SUBMITTED -> APPROVED)
     2. Uses dispatch_uid to prevent duplicate signal connections
-    3. Uses transaction.on_commit to ensure DB is committed first
-    4. Celery task is idempotent (checks if already sent)
-
-    Why transaction.on_commit?
-    - Ensures database is committed before sending notification
-    - If transaction rolls back, notification won't be sent
-    - Prevents sending notification for uncommitted data
-
-    Best practices:
-    - Keep signal handler lightweight (no blocking I/O)
-    - Delegate heavy work to Celery background task
-    - Use transaction.on_commit for side effects
+    3. OutboxEvent includes idempotency_key to prevent duplicates
 
     References:
-    - https://docs.djangoproject.com/en/stable/topics/db/transactions/#performing-actions-after-commit
+    - https://microservices.io/patterns/data/transactional-outbox.html
     - https://hakibenita.com/django-reliable-signals
     """
     # Skip if not a status change to APPROVED
@@ -91,36 +93,30 @@ def send_approval_notification_on_approve(sender, instance, created, **kwargs):
         logger.debug(f"Skipping duplicate approval notification for {instance.id}")
         return
 
-    # Status changed to APPROVED - send notification
-    logger.info(f"Waitlist entry {instance.id} approved, queuing notification")
+    # Status changed to APPROVED - create OutboxEvent
+    logger.info(f"Waitlist entry {instance.id} approved, creating outbox event")
 
-    # Use transaction.on_commit to ensure DB is committed before sending
-    def send_notification():
-        """Send notification after transaction commits."""
+    # Create OutboxEvent in the SAME transaction as the model change
+    # This is the key to the transactional outbox pattern
+    from core.services.outbox import OutboxService
+    OutboxService.queue_waitlist_approved(
+        entry_id=instance.id,
+        telegram_id=instance.telegram_id,
+        x_username=instance.x_username,
+    )
+
+    # Optionally trigger immediate processing after commit
+    # (events will also be picked up by periodic Celery Beat task)
+    def trigger_processing():
+        """Trigger immediate event processing after transaction commits."""
         try:
-            # Try Celery task first (preferred - async with retry)
-            from bots.telegram.tasks import send_approval_notification_task
-            send_approval_notification_task.delay(str(instance.id))
-            logger.info(f"Queued approval notification task for {instance.id}")
-        except ImportError:
-            # Celery not available - fallback to direct send (blocking)
-            logger.warning("Celery not available, sending notification synchronously")
-            import asyncio
-            from bots.telegram.notifications import send_approval_notification
+            from core.tasks import process_pending_outbox_events
+            process_pending_outbox_events.delay(batch_size=10)
+        except Exception as e:
+            logger.warning(f"Failed to trigger immediate processing: {e}")
+            # Not critical - periodic task will pick it up
 
-            # Create new event loop for async function
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(send_approval_notification(instance))
-            except Exception as e:
-                logger.error(f"Failed to send approval notification: {e}")
-            finally:
-                loop.close()
-
-    # Schedule notification to run AFTER transaction commits
-    # If transaction rolls back, this won't execute
-    transaction.on_commit(send_notification)
+    transaction.on_commit(trigger_processing)
 
 
 @receiver(
@@ -132,8 +128,12 @@ def send_submission_confirmation_on_submit(sender, instance, created, **kwargs):
     """
     Send waitlist confirmation when user submits X username.
 
+    Uses Transactional Outbox pattern:
+    1. OutboxEvent created in SAME transaction as WaitlistEntry update
+    2. If transaction rolls back, event also rolls back
+    3. Celery worker processes events from outbox table
+
     Triggered when status changes to SUBMITTED.
-    Same safeguards as approval notification.
     """
     previous_status = getattr(instance, '_previous_status', None)
 
@@ -146,26 +146,67 @@ def send_submission_confirmation_on_submit(sender, instance, created, **kwargs):
         logger.debug(f"Skipping duplicate submission confirmation for {instance.id}")
         return
 
-    logger.info(f"Waitlist entry {instance.id} submitted, queuing confirmation")
+    logger.info(f"Waitlist entry {instance.id} submitted, creating outbox event")
 
-    def send_confirmation():
-        """Send confirmation after transaction commits."""
+    # Create OutboxEvent in the SAME transaction as the model change
+    from core.services.outbox import OutboxService
+    OutboxService.queue_waitlist_submitted(
+        entry_id=instance.id,
+        telegram_id=instance.telegram_id,
+        x_username=instance.x_username,
+        email=instance.email,
+    )
+
+    # Optionally trigger immediate processing after commit
+    def trigger_processing():
+        """Trigger immediate event processing after transaction commits."""
         try:
-            from bots.telegram.tasks import send_waitlist_confirmation_task
-            send_waitlist_confirmation_task.delay(str(instance.id))
-            logger.info(f"Queued waitlist confirmation task for {instance.id}")
-        except ImportError:
-            logger.warning("Celery not available, sending confirmation synchronously")
-            import asyncio
-            from bots.telegram.notifications import send_waitlist_confirmation
+            from core.tasks import process_pending_outbox_events
+            process_pending_outbox_events.delay(batch_size=10)
+        except Exception as e:
+            logger.warning(f"Failed to trigger immediate processing: {e}")
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(send_waitlist_confirmation(instance))
-            except Exception as e:
-                logger.error(f"Failed to send waitlist confirmation: {e}")
-            finally:
-                loop.close()
+    transaction.on_commit(trigger_processing)
 
-    transaction.on_commit(send_confirmation)
+
+@receiver(
+    post_save,
+    sender=WaitlistEntry,
+    dispatch_uid="increment_referral_on_waitlist_approve"
+)
+def increment_referral_on_approve(sender, instance, created, **kwargs):
+    """
+    Increment referrer's total_referrals when referee is approved.
+
+    Uses transaction.on_commit to ensure DB is committed first.
+    This happens AFTER the approval notification signal.
+    """
+    previous_status = getattr(instance, '_previous_status', None)
+
+    # Only trigger on status change TO approved
+    if instance.status != WaitlistEntry.Status.APPROVED:
+        return
+    if previous_status == WaitlistEntry.Status.APPROVED:
+        return
+
+    # Skip if no referrer
+    if not instance.referrer_id:
+        return
+
+    def increment_count():
+        from core.services.referral import ReferralService
+        try:
+            ReferralService.increment_referral_count(instance)
+            logger.info(
+                f"Incremented referral count for referrer of entry {instance.id}"
+            )
+        except Exception as e:
+            logger.error(
+                "referral_increment_failed",
+                extra={
+                    "entry_id": str(instance.id),
+                    "error": str(e)
+                }
+            )
+
+    transaction.on_commit(increment_count)

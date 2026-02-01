@@ -424,16 +424,16 @@ export const api = {
 
   /**
    * Register for waitlist directly from mini app
-   * Requires email + X username
+   * Requires email + X username, optional referral_code
    * Sends waitlist card to user via Telegram on success
    */
-  registerWaitlist: (email: string, x_username: string) =>
+  registerWaitlist: (email: string, x_username: string, referral_code?: string) =>
     apiRequest<{
       status: 'registered' | 'already_registered';
       message: string;
     }>('/waitlist/register/', {
       method: 'POST',
-      body: JSON.stringify({ email, x_username }),
+      body: JSON.stringify({ email, x_username, ...(referral_code && { referral_code }) }),
     }),
 };
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse, loudApi, LoudProject, LoudProjectsResponse, LoudSubmitResponse, LoudLeaderboardResponse, normalizeXLink } from '@/lib/api';
-import { initTelegramWebApp, hapticFeedback, openLink } from '@/lib/telegram';
+import { initTelegramWebApp, hapticFeedback, openLink, getTelegramWebApp } from '@/lib/telegram';
 import { BorderBeam } from '@/components/ui/border-beam';
 import ShimmerButton from '@/components/ui/shimmer-button';
 import AnimatedGradientText from '@/components/ui/animated-gradient';
@@ -161,7 +161,7 @@ export default function MiniApp() {
   const comingSoonTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Auth state for waitlist flow
-  const [authState, setAuthState] = useState<'loading' | 'not_registered' | 'waitlisted' | 'approved'>('loading');
+  const [authState, setAuthState] = useState<'loading' | 'not_in_telegram' | 'not_registered' | 'waitlisted' | 'approved'>('loading');
   const [waitlistData, setWaitlistData] = useState<WaitlistData | null>(null);
 
   const showComingSoonToast = (message: string) => {
@@ -197,6 +197,13 @@ export default function MiniApp() {
   const loadInitialData = async () => {
     try {
       setServerError(null);
+
+      // Check if running inside Telegram - initData must be present
+      const tg = getTelegramWebApp();
+      if (!tg?.initData) {
+        setAuthState('not_in_telegram');
+        return;
+      }
 
       // First, try to get user (approved users)
       try {
@@ -335,6 +342,40 @@ export default function MiniApp() {
           >
             Retry
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show "Not in Telegram" screen when accessed outside Telegram
+  if (authState === 'not_in_telegram') {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center p-6 bg-black">
+        <div className="text-center max-w-sm">
+          {/* Telegram Icon */}
+          <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[#0088cc]/10 border border-[#0088cc]/30 flex items-center justify-center">
+            <svg className="w-10 h-10 text-[#0088cc]" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .37z"/>
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">Open in Telegram</h2>
+          <p className="text-gray-400 text-sm mb-8">
+            Loudrr is a Telegram Mini App. Please open it from the Telegram app to continue.
+          </p>
+          <a
+            href="https://t.me/loudrr_bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-[#0088cc] text-white font-semibold rounded-xl hover:bg-[#006699] transition-colors"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .37z"/>
+            </svg>
+            Open @loudrr_bot
+          </a>
+          <p className="text-gray-500 text-xs mt-6">
+            Or visit <a href="https://loudrr.com" className="text-[#f95400] hover:underline">loudrr.com</a> to learn more
+          </p>
         </div>
       </div>
     );
@@ -3308,6 +3349,19 @@ function WaitlistRegistrationScreen({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Get referral code from URL query param (e.g., ?ref=ABC123)
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get('ref');
+      if (ref) {
+        setReferralCode(ref);
+        console.log('Referral code detected:', ref);
+      }
+    }
+  }, []);
+
   const handleSubmit = async () => {
     if (!email || !xUsername) return;
 
@@ -3315,7 +3369,7 @@ function WaitlistRegistrationScreen({
     setError(null);
 
     try {
-      const result = await api.registerWaitlist(email, xUsername);
+      const result = await api.registerWaitlist(email, xUsername, referralCode || undefined);
       if (result.status === 'registered' || result.status === 'already_registered') {
         hapticFeedback('success');
         onSuccess({ x_username: xUsername });
