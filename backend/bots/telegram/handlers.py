@@ -17,16 +17,22 @@ logger = logging.getLogger(__name__)
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command - onboarding or waitlist deep link."""
+    """Handle /start command - onboarding or referral deep link."""
     telegram_user = update.effective_user
     miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
+
+    # Check for referral code in start param (e.g., /start ref_ABC123)
+    ref_code = None
+    if context.args and len(context.args) > 0:
+        arg = context.args[0]
+        if arg.startswith('ref_'):
+            ref_code = arg.replace('ref_', '')
+            logger.info(f"Referral code detected: {ref_code} for telegram_id: {telegram_user.id}")
 
     # First check if user already has an account (approved user)
     try:
         user = User.objects.get(telegram_id=telegram_user.id)
         # Existing user - show welcome back
-        miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
-
         welcome_text = (
             f"Welcome back, {telegram_user.first_name}!\n\n"
             f"Karma: {user.credits}\n"
@@ -42,13 +48,24 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     except User.DoesNotExist:
-        # New user without waitlist token - direct them to website
-        await update.message.reply_text(
-            f"Welcome to Loudrr, {telegram_user.first_name}!\n\n"
-            "To join Loudrr, please sign up at:\n"
-            "👉 loudrr.com\n\n"
-            "You'll get a link to complete your application here."
+        # New user - show Open App button (they'll register in the mini app)
+        # Pass referral code via URL if present
+        app_url = miniapp_url
+        if ref_code:
+            app_url = f"{miniapp_url}?ref={ref_code}"
+
+        welcome_text = (
+            f"Welcome to Loudrr, {telegram_user.first_name}! 🔊\n\n"
+            "Engage with posts on X, earn karma, and grow your reach.\n\n"
+            "Tap below to get started:"
         )
+
+        keyboard = [[InlineKeyboardButton(
+            "🚀 Open Loudrr",
+            web_app=WebAppInfo(url=app_url)
+        )]]
+
+        await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def handle_waitlist_join(update: Update, context: ContextTypes.DEFAULT_TYPE):

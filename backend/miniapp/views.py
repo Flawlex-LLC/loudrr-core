@@ -1589,6 +1589,18 @@ class WaitlistRegisterView(APIView):
             logger.warning(f"[WAITLIST] Failed to fetch X profile for @{x_username}: {e}")
             # Continue without X info - not blocking
 
+        # 6b. VALIDATE REFERRAL CODE (optional)
+        referral_code = request.data.get("referral_code", "").strip()
+        referrer = None
+        if referral_code:
+            # Find the referrer by their referral code
+            referrer = User.objects.filter(referral_code=referral_code).first()
+            if referrer:
+                logger.info(f"[WAITLIST] Referral code {referral_code} from user {referrer.id}")
+            else:
+                logger.warning(f"[WAITLIST] Invalid referral code: {referral_code}")
+                # Don't fail - just ignore invalid codes
+
         # 7. CREATE ENTRY (atomic + IntegrityError handling for race conditions)
         try:
             with transaction.atomic():
@@ -1600,6 +1612,9 @@ class WaitlistRegisterView(APIView):
                     telegram_display_name=user_data.get("first_name", ""),
                     x_username=x_username,
                     status=WaitlistEntry.Status.SUBMITTED,
+                    # Referral tracking
+                    referrer=referrer,
+                    referral_code_used=referral_code if referrer else "",
                     # X profile data (if available)
                     x_display_name=x_info.get("display_name", "") if x_info else "",
                     x_followers_count=x_info.get("followers_count") if x_info else None,
@@ -1607,7 +1622,7 @@ class WaitlistRegisterView(APIView):
                     x_is_verified=x_info.get("is_verified", False) if x_info else False,
                     x_fetched_at=timezone.now() if x_info else None,
                 )
-                logger.info(f"[WAITLIST] Created entry for {email}, telegram_id={telegram_id}")
+                logger.info(f"[WAITLIST] Created entry for {email}, telegram_id={telegram_id}, referrer={referrer.id if referrer else None}")
         except IntegrityError as e:
             # Race condition - concurrent request created entry
             logger.warning(f"[WAITLIST] IntegrityError for telegram_id={telegram_id}: {e}")

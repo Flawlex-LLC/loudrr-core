@@ -3349,6 +3349,19 @@ function WaitlistRegistrationScreen({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Get referral code from URL query param (e.g., ?ref=ABC123)
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get('ref');
+      if (ref) {
+        setReferralCode(ref);
+        console.log('Referral code detected:', ref);
+      }
+    }
+  }, []);
+
   const handleSubmit = async () => {
     if (!email || !xUsername) return;
 
@@ -3356,7 +3369,7 @@ function WaitlistRegistrationScreen({
     setError(null);
 
     try {
-      const result = await api.registerWaitlist(email, xUsername);
+      const result = await api.registerWaitlist(email, xUsername, referralCode || undefined);
       if (result.status === 'registered' || result.status === 'already_registered') {
         hapticFeedback('success');
         onSuccess({ x_username: xUsername });
