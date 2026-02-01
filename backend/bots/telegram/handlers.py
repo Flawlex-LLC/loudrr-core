@@ -17,9 +17,18 @@ logger = logging.getLogger(__name__)
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command - onboarding or referral deep link."""
+    """Handle /start command - onboarding, waitlist deep link, or referral."""
     telegram_user = update.effective_user
     miniapp_url = getattr(settings, 'MINIAPP_URL', 'http://localhost:3000')
+
+    # Check for deep link parameters
+    if context.args and len(context.args) > 0:
+        arg = context.args[0]
+
+        # Handle waitlist deep link (join_TOKEN from website)
+        if arg.startswith('join_'):
+            await handle_waitlist_join(update, context)
+            return
 
     # Check for referral code in start param (e.g., /start ref_ABC123)
     ref_code = None
