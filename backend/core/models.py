@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
+from django_fsm import FSMField, transition
 
 
 class UserManager(BaseUserManager):
@@ -114,6 +115,27 @@ class User(AbstractBaseUser, PermissionsMixin):
     total_sponsored_xp_earned = models.IntegerField(default=0)  # Lifetime XP
     sponsored_engagements = models.IntegerField(default=0)  # Count of sponsored engagements
 
+    # Referral System (tracking only - rewards to be added later)
+    referral_code = models.CharField(
+        max_length=16,
+        unique=True,
+        db_index=True,
+        blank=True,  # Generated on save if empty
+        help_text="Unique referral code for this user"
+    )
+    referred_by = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='referrals',
+        help_text="User who referred this user"
+    )
+    total_referrals = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of approved referrals"
+    )
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -158,6 +180,26 @@ class User(AbstractBaseUser, PermissionsMixin):
                 check=models.Q(total_credits_spent__gte=0),
                 name="user_total_credits_spent_non_negative"
             ),
+            # Accounting invariant: earned >= spent (cannot spend more than earned)
+            models.CheckConstraint(
+                check=models.Q(total_credits_earned__gte=models.F('total_credits_spent')),
+                name="user_earned_gte_spent"
+            ),
+            # Business invariant: can't be banned AND whitelisted simultaneously
+            models.CheckConstraint(
+                check=~(models.Q(is_banned=True) & models.Q(is_whitelisted=True)),
+                name="user_not_banned_and_whitelisted"
+            ),
+            # Referral: Can't refer yourself
+            models.CheckConstraint(
+                check=~models.Q(referred_by=models.F('id')),
+                name="user_no_self_referral"
+            ),
+            # Referral: Count must be non-negative
+            models.CheckConstraint(
+                check=models.Q(total_referrals__gte=0),
+                name="user_total_referrals_non_negative"
+            ),
         ]
 
     def __str__(self):
@@ -166,6 +208,21 @@ class User(AbstractBaseUser, PermissionsMixin):
         if self.telegram_id:
             return f"TG:{self.telegram_id}"
         return str(self.id)
+
+    def save(self, *args, **kwargs):
+        """Generate referral code on first save if not set."""
+        if not self.referral_code:
+            self.referral_code = self._generate_referral_code()
+        super().save(*args, **kwargs)
+
+    def _generate_referral_code(self) -> str:
+        """Generate unique 8-char uppercase referral code."""
+        import secrets
+        for _ in range(10):  # Max 10 attempts
+            code = secrets.token_urlsafe(6)[:8].upper()
+            if not User.objects.filter(referral_code=code).exists():
+                return code
+        raise ValueError("Failed to generate unique referral code")
 
     @property
     def platform_ids(self):
@@ -334,6 +391,107 @@ class XPTransaction(models.Model):
 
     def __str__(self):
         return f"{self.user} {self.type} {self.amount:+.2f} XP"
+
+
+class OutboxEvent(models.Model):
+    """
+    Outbox pattern for reliable notifications and side effects.
+
+    PATTERN:
+    1. Inside transaction.atomic():
+       - Write business data
+       - Write OutboxEvent (pending)
+    2. Commit transaction
+    3. Celery worker picks up pending events
+    4. Worker sends notification/calls external API
+    5. Mark event as 'sent' or 'failed'
+
+    WHY:
+    - No external calls inside transactions
+    - Guaranteed delivery (even if Telegram/email fails)
+    - Safe retries without duplicates
+    - Complete audit trail
+
+    USAGE:
+        with transaction.atomic():
+            # Business logic
+            user.credits += amount
+            user.save()
+
+            # Queue notification
+            OutboxEvent.objects.create(
+                event_type='telegram_notify',
+                payload={'user_id': str(user.id), 'message': 'Credits received!'},
+            )
+    """
+
+    class EventType(models.TextChoices):
+        TELEGRAM_NOTIFY = "telegram_notify", "Telegram Notification"
+        EMAIL_NOTIFY = "email_notify", "Email Notification"
+        EMAIL_WAITLIST_CONFIRMATION = "email_waitlist_confirmation", "Waitlist Confirmation Email"
+        EMAIL_ALREADY_REGISTERED = "email_already_registered", "Already Registered Email"
+        WAITLIST_APPROVED = "waitlist_approved", "Waitlist Approval"
+        WAITLIST_SUBMITTED = "waitlist_submitted", "Waitlist Submission"
+        CREDITS_EARNED = "credits_earned", "Credits Earned"
+        POST_COMPLETED = "post_completed", "Post Completed"
+        CAMPAIGN_WINNER = "campaign_winner", "Campaign Winner"
+        TWEETSCOUT_FETCH = "tweetscout_fetch", "TweetScout Fetch"
+        EXTERNAL_API = "external_api", "External API Call"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    event_type = models.CharField(max_length=50, choices=EventType.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    # Event payload (JSON)
+    payload = models.JSONField(default=dict, help_text="Event-specific data")
+
+    # Processing metadata
+    retry_count = models.PositiveIntegerField(default=0)
+    max_retries = models.PositiveIntegerField(default=3)
+    error_message = models.TextField(blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "outbox_events"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["event_type", "status"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} ({self.status})"
+
+    def mark_processing(self):
+        """Mark event as being processed."""
+        self.status = self.Status.PROCESSING
+        self.save(update_fields=["status", "updated_at"])
+
+    def mark_sent(self):
+        """Mark event as successfully sent."""
+        self.status = self.Status.SENT
+        self.processed_at = timezone.now()
+        self.save(update_fields=["status", "processed_at", "updated_at"])
+
+    def mark_failed(self, error: str):
+        """Mark event as failed with error message."""
+        self.retry_count += 1
+        self.error_message = error
+        if self.retry_count >= self.max_retries:
+            self.status = self.Status.FAILED
+        else:
+            self.status = self.Status.PENDING  # Will retry
+        self.save(update_fields=["status", "retry_count", "error_message", "updated_at"])
 
 
 class XProfile(models.Model):
@@ -506,11 +664,17 @@ class WaitlistEntry(models.Model):
     """
     Waitlist entries for users wanting to join Loudrr.
 
-    Flow:
+    Flow (enforced by django-fsm):
     1. User enters email on landing page -> PENDING
     2. User connects Telegram via deep link -> telegram_id linked
-    3. User submits X username via bot -> SUBMITTED
-    4. Admin approves -> APPROVED, User created
+    3. User submits X username via bot -> SUBMITTED (via submit() transition)
+    4. Admin approves -> APPROVED (via approve() transition), User created
+       OR Admin rejects -> REJECTED (via reject() transition)
+
+    Use FSM transition methods instead of direct status assignment:
+        entry.submit(telegram_id=123, x_username='user')
+        entry.approve(by=admin_user)
+        entry.reject(reason='Invalid account')
     """
 
     class Status(models.TextChoices):
@@ -560,11 +724,44 @@ class WaitlistEntry(models.Model):
     x_is_verified = models.BooleanField(default=False)
     x_fetched_at = models.DateTimeField(null=True, blank=True)
 
-    # Status
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    # Status (FSM-managed field - use transition methods, not direct assignment)
+    status = FSMField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        protected=False,  # Allow direct assignment for backward compatibility, enable later
+    )
+
+    # Rejection tracking
+    rejection_reason = models.TextField(blank=True, default='')
+
+    # Referral tracking (before user is created)
+    referrer = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='referred_entries',
+        help_text="User who referred this waitlist entry"
+    )
+    referral_code_used = models.CharField(
+        max_length=16,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text="Referral code used during signup"
+    )
 
     # Approval
     approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='approved_waitlist_entries',
+        help_text="Admin who approved this entry"
+    )
     created_user = models.OneToOneField(
         User,
         null=True,
@@ -586,6 +783,73 @@ class WaitlistEntry(models.Model):
     def __str__(self):
         return f"{self.email} ({self.status})"
 
+    # ==========================================================================
+    # FSM State Transitions
+    # ==========================================================================
+
+    @transition(field=status, source=Status.PENDING, target=Status.SUBMITTED)
+    def submit(self, telegram_id: int, x_username: str):
+        """
+        Submit waitlist entry after user provides Telegram and X username.
+
+        Args:
+            telegram_id: User's Telegram ID
+            x_username: User's X/Twitter username
+
+        Raises:
+            TransitionNotAllowed: If entry is not in PENDING status
+        """
+        self.telegram_id = telegram_id
+        self.x_username = x_username
+
+    @transition(field=status, source=Status.SUBMITTED, target=Status.APPROVED)
+    def approve(self, by: 'User' = None):
+        """
+        Approve waitlist entry (admin action).
+
+        Args:
+            by: Admin user who approved this entry
+
+        Raises:
+            TransitionNotAllowed: If entry is not in SUBMITTED status
+        """
+        self.approved_at = timezone.now()
+        self.approved_by = by
+
+    @transition(field=status, source=[Status.PENDING, Status.SUBMITTED], target=Status.REJECTED)
+    def reject(self, reason: str = '', by: 'User' = None):
+        """
+        Reject waitlist entry (admin action).
+
+        Args:
+            reason: Reason for rejection
+            by: Admin user who rejected this entry
+
+        Raises:
+            TransitionNotAllowed: If entry is already approved or rejected
+        """
+        self.rejection_reason = reason
+
+    # ==========================================================================
+    # FSM Condition Checks (can be used before calling transitions)
+    # ==========================================================================
+
+    def can_submit(self) -> bool:
+        """Check if entry can be submitted (must be PENDING)."""
+        return self.status == self.Status.PENDING
+
+    def can_approve(self) -> bool:
+        """Check if entry can be approved (must be SUBMITTED with required data)."""
+        return (
+            self.status == self.Status.SUBMITTED and
+            self.telegram_id is not None and
+            self.x_username
+        )
+
+    def can_reject(self) -> bool:
+        """Check if entry can be rejected."""
+        return self.status in [self.Status.PENDING, self.Status.SUBMITTED]
+
 
 # === Auditlog Registration ===
 # Track all changes to models (admin + API + any other source)
@@ -598,3 +862,5 @@ auditlog.register(XPTransaction)
 auditlog.register(XProfile)
 auditlog.register(SiteSetting)
 auditlog.register(WaitlistEntry)
+auditlog.register(FeatureInterest)
+auditlog.register(OutboxEvent)

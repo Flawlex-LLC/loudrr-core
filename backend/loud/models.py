@@ -3,7 +3,7 @@ Loud models for UGC rewards feature.
 
 Models:
 - LoudProject: Admin-created campaigns with time limits and TweetScout requirements
-- LoudSubmission: User submissions with globally unique tweet_id
+- LoudSubmission: User submissions with globally unique tweet_id (soft-deletable)
 - LoudLeaderboardEntry: Denormalized leaderboard for fast queries
 """
 import uuid
@@ -11,6 +11,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.db.models import Index, UniqueConstraint
+from safedelete.models import SafeDeleteModel, SOFT_DELETE_CASCADE
 
 from core.models import User
 
@@ -73,11 +74,18 @@ class LoudProject(models.Model):
         return self.name
 
 
-class LoudSubmission(models.Model):
+class LoudSubmission(SafeDeleteModel):
     """
     A user's UGC submission to a project.
     Points are calculated and frozen at submission time based on TweetScout score.
+
+    Soft-deletable: Admin can remove spam submissions while preserving history.
+    Use .objects.all_with_deleted() to see deleted records.
+    Use .undelete() to restore a soft-deleted submission.
     """
+    # SafeDelete configuration - soft delete cascades to preserve referential integrity
+    _safedelete_policy = SOFT_DELETE_CASCADE
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User,
@@ -247,3 +255,13 @@ class LoudPointAdjustment(models.Model):
 
     def __str__(self):
         return f"{self.adjustment_type}: {self.points_change} pts - {self.leaderboard_entry.user.display_name}"
+
+
+# === Auditlog Registration ===
+# Track all changes to LOUD models (admin + API + any other source)
+from auditlog.registry import auditlog
+
+auditlog.register(LoudProject)
+auditlog.register(LoudSubmission)
+auditlog.register(LoudLeaderboardEntry)
+auditlog.register(LoudPointAdjustment)

@@ -25,6 +25,8 @@ from urllib.parse import parse_qsl
 from django.conf import settings
 from django.db import transaction, IntegrityError
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -32,6 +34,31 @@ from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from core.models import User, WaitlistEntry, FeatureInterest
+from .schema import (
+    HealthResponseSerializer,
+    SettingsResponseSerializer,
+    WaitlistSubmitRequestSerializer,
+    WaitlistSubmitResponseSerializer,
+    WaitlistStatusResponseSerializer,
+    WaitlistEntryResponseSerializer,
+    WaitlistCompleteRequestSerializer,
+    UserInfoResponseSerializer,
+    UserStatsResponseSerializer,
+    LinkXRequestSerializer,
+    StartSessionResponseSerializer,
+    RecordClickRequestSerializer,
+    RecordClickResponseSerializer,
+    QueueClaimRequestSerializer,
+    QueueClaimResponseSerializer,
+    ClaimHistoryResponseSerializer,
+    SubmitPostRequestSerializer,
+    SubmitPostResponseSerializer,
+    ReferralInfoResponseSerializer,
+    FeatureInterestRequestSerializer,
+    FeatureInterestResponseSerializer,
+    CompleteOnboardingResponseSerializer,
+    ErrorResponseSerializer,
+)
 from core.services.credits import CreditService
 from core.services.posts import get_feed_posts
 from core.services.twitter_verification import twitter_verification
@@ -232,6 +259,18 @@ def format_post_for_response(post, viewer_user) -> dict:
     }
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Engagement"],
+        summary="Start engagement session",
+        description="Start engagement flow - returns posts and user's pending progress. Progress is tracked at USER level.",
+        responses={
+            200: StartSessionResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+        },
+    )
+)
 class StartSessionView(MiniAppAuthMixin, APIView):
     """
     Start engagement flow - returns posts and user's pending progress.
@@ -312,6 +351,20 @@ class StartSessionView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Engagement"],
+        summary="Record click on post",
+        description="Record a click/engagement on a post. Creates Engagement with verified=False.",
+        request=RecordClickRequestSerializer,
+        responses={
+            200: RecordClickResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+        },
+    )
+)
 class RecordClickView(MiniAppAuthMixin, APIView):
     """
     Record a click/engagement on a post.
@@ -391,6 +444,20 @@ class RecordClickView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Engagement"],
+        summary="Verify user returned from X",
+        description="Mark that user returned to app after clicking a link. Optional confirmation step.",
+        request=RecordClickRequestSerializer,
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            404: ErrorResponseSerializer,
+        },
+    )
+)
 class VerifyReturnView(MiniAppAuthMixin, APIView):
     """
     Mark that user returned to app after clicking a link.
@@ -436,6 +503,18 @@ class VerifyReturnView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Engagement"],
+        summary="Complete session and claim rewards",
+        description="Verify pending engagements and award credits. Uses two-phase architecture for reliability.",
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
 class CompleteSessionView(MiniAppAuthMixin, APIView):
     """
     Verify pending engagements and award credits (Claim Rewards).
@@ -584,6 +663,17 @@ class CompleteSessionView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["User"],
+        summary="Get current user info",
+        description="Get user profile information including credits, tier, and stats.",
+        responses={
+            200: UserInfoResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
 class UserInfoView(MiniAppAuthMixin, APIView):
     """Get user info for Mini App."""
     permission_classes = [AllowAny]
@@ -631,6 +721,20 @@ class UserInfoView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Posts"],
+        summary="Submit new post for promotion",
+        description="Submit a new X post for promotion. Deducts karma as escrow for engagement rewards.",
+        request=SubmitPostRequestSerializer,
+        responses={
+            200: SubmitPostResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+        },
+    )
+)
 class SubmitPostView(MiniAppAuthMixin, APIView):
     """Submit a new X post from Mini App."""
     permission_classes = [AllowAny]
@@ -810,6 +914,17 @@ class SubmitPostView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["User"],
+        summary="Get detailed user stats",
+        description="Get detailed statistics including posts, engagements, and recent activity.",
+        responses={
+            200: UserStatsResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
 class UserStatsView(MiniAppAuthMixin, APIView):
     """Get detailed user stats for Mini App."""
     permission_classes = [AllowAny]
@@ -869,6 +984,19 @@ class UserStatsView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["User"],
+        summary="Link X account",
+        description="Link X/Twitter username to user account. Fetches TweetScout score and profile data.",
+        request=LinkXRequestSerializer,
+        responses={
+            200: OpenApiTypes.OBJECT,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
 class LinkXAccountView(MiniAppAuthMixin, APIView):
     """
     Link X/Twitter username to user account.
@@ -985,6 +1113,14 @@ class LinkXAccountView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Health"],
+        summary="Health check",
+        description="Health check endpoint for monitoring.",
+        responses={200: HealthResponseSerializer},
+    )
+)
 class HealthCheckView(APIView):
     """Health check endpoint for monitoring."""
     permission_classes = [AllowAny]
@@ -996,6 +1132,14 @@ class HealthCheckView(APIView):
         })
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Settings"],
+        summary="Get app settings",
+        description="Returns configurable values that the frontend needs.",
+        responses={200: SettingsResponseSerializer},
+    )
+)
 class SettingsView(APIView):
     """
     Get app settings for frontend.
@@ -1014,6 +1158,20 @@ class SettingsView(APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Engagement"],
+        summary="Queue claim for verification",
+        description="Queue verification for async processing. Returns immediately while verification processes in background.",
+        request=QueueClaimRequestSerializer,
+        responses={
+            200: QueueClaimResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            503: ErrorResponseSerializer,
+        },
+    )
+)
 class QueueClaimView(MiniAppAuthMixin, APIView):
     """
     Queue verification for async processing (instant response).
@@ -1118,6 +1276,17 @@ class QueueClaimView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Engagement"],
+        summary="Get claim history",
+        description="Returns recent verification batches with status and results.",
+        responses={
+            200: ClaimHistoryResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
 class ClaimHistoryView(MiniAppAuthMixin, APIView):
     """
     Get claim/verification history for user.
@@ -1192,6 +1361,19 @@ class WaitlistThrottle(AnonRateThrottle):
     rate = '5/hour'
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Waitlist"],
+        summary="Submit email to join waitlist",
+        description="Submit email to join waitlist. Rate limited to 5 requests/hour per IP.",
+        request=WaitlistSubmitRequestSerializer,
+        responses={
+            200: WaitlistSubmitResponseSerializer,
+            400: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+    )
+)
 class WaitlistSubmitView(APIView):
     """
     Submit email to join waitlist (landing page).
@@ -1240,12 +1422,16 @@ class WaitlistSubmitView(APIView):
             existing = WaitlistEntry.objects.get(email=email)
             telegram_url = f"https://t.me/{bot_username}?start=join_{existing.join_token}"
 
-            # Send "already registered" email asynchronously (idempotent - throttled to 1/hour)
+            # Queue "already registered" email via OutboxEvent
+            # (idempotent - throttled to 1/hour in the email sending logic)
             try:
-                from core.tasks import send_already_registered_email_task
-                send_already_registered_email_task.delay(str(existing.id))
+                from core.services.outbox import OutboxService
+                OutboxService.queue_already_registered_email(
+                    entry_id=existing.id,
+                    email=existing.email,
+                )
             except Exception as e:
-                # Don't fail the request if email sending fails
+                # Don't fail the request if queueing fails
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to queue already registered email: {e}")
 
@@ -1275,12 +1461,16 @@ class WaitlistSubmitView(APIView):
 
         telegram_url = f"https://t.me/{bot_username}?start=join_{entry.join_token}"
 
-        # Send confirmation email asynchronously (idempotent - only sends once per entry)
+        # Queue confirmation email via OutboxEvent
+        # (idempotent - only sends once per entry)
         try:
-            from core.tasks import send_waitlist_confirmation_email_task
-            send_waitlist_confirmation_email_task.delay(str(entry.id))
+            from core.services.outbox import OutboxService
+            OutboxService.queue_waitlist_confirmation_email(
+                entry_id=entry.id,
+                email=entry.email,
+            )
         except Exception as e:
-            # Don't fail the request if email sending fails
+            # Don't fail the request if queueing fails
             import logging
             logging.getLogger(__name__).warning(f"Failed to queue confirmation email: {e}")
 
@@ -1290,6 +1480,19 @@ class WaitlistSubmitView(APIView):
         })
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Waitlist"],
+        summary="Register for waitlist from mini app",
+        description="Register for waitlist directly from mini app with email and X username. Rate limited to 5/hour.",
+        responses={
+            200: WaitlistSubmitResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+            429: ErrorResponseSerializer,
+        },
+    )
+)
 class WaitlistRegisterView(APIView):
     """
     Register for waitlist directly from mini app.
@@ -1401,20 +1604,34 @@ class WaitlistRegisterView(APIView):
                 "message": "You're already on the waitlist"
             })
 
-        # 8. SEND WAITLIST CARD TO USER (async, after transaction commits)
-        def queue_card():
-            from bots.telegram.tasks import send_waitlist_confirmation_task
-            # Send waitlist confirmation card to user via Telegram
-            send_waitlist_confirmation_task.delay(str(entry.id))
-
-        transaction.on_commit(queue_card)
+        # NOTE: Waitlist confirmation is now sent via OutboxEvent pattern
+        # The post_save signal on WaitlistEntry creates an OutboxEvent
+        # which is processed by Celery to send the Telegram card.
+        # See core/signals.py:send_submission_confirmation_on_submit
 
         return Response({
             "status": "registered",
-            "message": "Successfully registered for waitlist"
+            "message": "Successfully registered for waitlist",
+            # X profile data for success card display
+            "x_username": x_username,
+            "x_display_name": x_info.get("display_name", "") if x_info else "",
+            "x_avatar_url": x_info.get("avatar_url", "") if x_info else "",
+            "x_followers_count": x_info.get("followers_count") if x_info else None,
+            "x_is_verified": x_info.get("is_verified", False) if x_info else False,
         })
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Waitlist"],
+        summary="Check waitlist status",
+        description="Check waitlist status for current telegram user. Returns 'approved', 'waitlisted', or 'not_registered'.",
+        responses={
+            200: WaitlistStatusResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
 class WaitlistStatusView(APIView):
     """
     Check waitlist status for current telegram user.
@@ -1452,6 +1669,63 @@ class WaitlistStatusView(APIView):
         return Response({"status": "not_registered"})
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Waitlist"],
+        summary="Get waitlist entry details",
+        description="Get waitlist entry data for pre-filling registration form.",
+        responses={
+            200: WaitlistEntryResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
+class WaitlistEntryView(APIView):
+    """
+    Get waitlist entry data for pre-filling registration form.
+
+    Used when user clicks "Complete Registration" in Telegram bot
+    and opens the mini app - we pre-fill their email from the entry.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        init_data = request.headers.get("X-Telegram-Init-Data", "")
+        user_data = validate_telegram_webapp_data(init_data)
+        if not user_data:
+            return Response({"error": "Invalid Telegram data"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        telegram_id = user_data.get("id")
+        if not telegram_id:
+            return Response({"error": "Missing Telegram ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find entry by telegram_id
+        entry = WaitlistEntry.objects.filter(telegram_id=telegram_id).first()
+
+        if not entry:
+            return Response({"entry": None})
+
+        return Response({
+            "entry": {
+                "email": entry.email,
+                "x_username": entry.x_username or None,
+                "status": entry.status,
+            }
+        })
+
+
+@extend_schema_view(
+    post=extend_schema(
+        tags=["User"],
+        summary="Complete onboarding",
+        description="Complete onboarding - fetch TweetScout score and activate user.",
+        responses={
+            200: CompleteOnboardingResponseSerializer,
+            400: ErrorResponseSerializer,
+            401: ErrorResponseSerializer,
+        },
+    )
+)
 class CompleteOnboardingView(MiniAppAuthMixin, APIView):
     """
     Complete onboarding - fetch TweetScout and activate user.
@@ -1560,6 +1834,24 @@ class CompleteOnboardingView(MiniAppAuthMixin, APIView):
         })
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["User"],
+        summary="Check feature interest",
+        description="Check if user has registered interest in a feature.",
+        parameters=[
+            OpenApiParameter(name="feature", type=str, required=True, description="Feature name to check"),
+        ],
+        responses={200: FeatureInterestResponseSerializer, 401: ErrorResponseSerializer},
+    ),
+    post=extend_schema(
+        tags=["User"],
+        summary="Register feature interest",
+        description="Register interest in an upcoming feature.",
+        request=FeatureInterestRequestSerializer,
+        responses={200: FeatureInterestResponseSerializer, 400: ErrorResponseSerializer, 401: ErrorResponseSerializer},
+    ),
+)
 class FeatureInterestView(MiniAppAuthMixin, APIView):
     """
     Register or check interest in upcoming features.
@@ -1630,3 +1922,301 @@ class FeatureInterestView(MiniAppAuthMixin, APIView):
         ).exists()
 
         return Response({"registered": registered})
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Waitlist"],
+        summary="Get waitlist entry by token",
+        description="Get waitlist entry info by join token. Used to pre-fill the form with email.",
+        parameters=[
+            OpenApiParameter(name="token", type=str, required=True, description="Join token from deep link"),
+        ],
+        responses={200: WaitlistEntryResponseSerializer, 401: ErrorResponseSerializer, 404: ErrorResponseSerializer},
+    ),
+    post=extend_schema(
+        tags=["Waitlist"],
+        summary="Complete waitlist registration",
+        description="Complete waitlist registration with X username. Final step in the waitlist flow.",
+        request=WaitlistCompleteRequestSerializer,
+        responses={200: WaitlistSubmitResponseSerializer, 400: ErrorResponseSerializer, 401: ErrorResponseSerializer, 409: ErrorResponseSerializer},
+    ),
+)
+class WaitlistCompleteView(APIView):
+    """
+    Complete waitlist registration from mini app.
+
+    This is the new flow where user:
+    1. Enters email on loudrr.com → gets WaitlistEntry (PENDING)
+    2. Opens Telegram deep link → bot links telegram_id to entry
+    3. Bot shows "Complete Registration" button → opens mini app
+    4. Mini app shows form with email pre-filled
+    5. User enters X username → calls this endpoint
+    6. Returns success with card data for sharing
+
+    Security measures:
+    - Telegram init data HMAC validation + auth_date expiry
+    - Join token validation (proves user came from valid deep link)
+    - X username format validation
+    - Idempotent (returns success for already-submitted entries)
+    - Uses transaction.atomic for consistency
+    - Notifications via OutboxEvent pattern (signal-triggered)
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Get waitlist entry info by join token.
+
+        Used to pre-fill the form with email.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Validate Telegram auth
+        init_data = request.headers.get("X-Telegram-Init-Data", "")
+        user_data = validate_telegram_webapp_data(init_data)
+        if not user_data:
+            return Response({"error": "Invalid Telegram data"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        telegram_id = user_data.get("id")
+        if not telegram_id:
+            return Response({"error": "Missing Telegram ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get join token from query params
+        join_token = request.query_params.get("token", "").strip()
+        if not join_token:
+            return Response({"error": "Missing token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find entry by token
+        try:
+            entry = WaitlistEntry.objects.get(join_token=join_token)
+        except WaitlistEntry.DoesNotExist:
+            logger.warning(f"[WAITLIST] Invalid token: {join_token[:8]}...")
+            return Response({"error": "Invalid or expired link"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Check if already approved (User exists)
+        if User.objects.filter(telegram_id=telegram_id).exists():
+            return Response({
+                "status": "approved",
+                "message": "You're already approved!"
+            })
+
+        # Check if already submitted
+        if entry.status == WaitlistEntry.Status.SUBMITTED:
+            return Response({
+                "status": "submitted",
+                "email": entry.email,
+                "x_username": entry.x_username,
+                "x_display_name": entry.x_display_name,
+                "x_avatar_url": entry.x_avatar_url,
+                "x_followers_count": entry.x_followers_count,
+            })
+
+        return Response({
+            "status": "pending",
+            "email": entry.email,
+        })
+
+    def post(self, request):
+        """
+        Complete waitlist registration with X username.
+        """
+        import logging
+        import re
+        from django.utils import timezone
+        from core.services.twitter_verification import twitter_verification
+
+        logger = logging.getLogger(__name__)
+
+        # 1. VALIDATE TELEGRAM AUTH
+        init_data = request.headers.get("X-Telegram-Init-Data", "")
+        user_data = validate_telegram_webapp_data(init_data)
+        if not user_data:
+            return Response({"error": "Invalid Telegram data"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        telegram_id = user_data.get("id")
+        telegram_username = user_data.get("username", "")
+        telegram_first_name = user_data.get("first_name", "")
+        telegram_last_name = user_data.get("last_name", "")
+
+        if not telegram_id:
+            return Response({"error": "Missing Telegram ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. VALIDATE REQUEST DATA
+        join_token = request.data.get("token", "").strip()
+        x_username = request.data.get("x_username", "").strip().lstrip("@")
+
+        if not join_token:
+            return Response({"error": "Missing token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not x_username:
+            return Response({"error": "X username is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate X username format
+        if not re.match(r'^[a-zA-Z0-9_]{1,15}$', x_username):
+            return Response(
+                {"error": "Invalid X username format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 3. FIND ENTRY BY TOKEN
+        try:
+            entry = WaitlistEntry.objects.get(join_token=join_token)
+        except WaitlistEntry.DoesNotExist:
+            logger.warning(f"[WAITLIST] Invalid token in complete: {join_token[:8]}...")
+            return Response({"error": "Invalid or expired link"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 4. IDEMPOTENCY CHECK - Already submitted
+        if entry.status == WaitlistEntry.Status.SUBMITTED:
+            logger.info(f"[WAITLIST] Entry {entry.id} already submitted, returning success")
+            return Response({
+                "status": "success",
+                "message": "Already on waitlist",
+                "email": entry.email,
+                "x_username": entry.x_username,
+                "x_display_name": entry.x_display_name,
+                "x_avatar_url": entry.x_avatar_url,
+                "x_followers_count": entry.x_followers_count,
+                "x_is_verified": entry.x_is_verified,
+            })
+
+        # 5. CHECK IF X USERNAME ALREADY USED
+        if WaitlistEntry.objects.filter(x_username__iexact=x_username).exclude(id=entry.id).exists():
+            return Response(
+                {"error": "This X account is already on the waitlist"},
+                status=status.HTTP_409_CONFLICT
+            )
+
+        if User.objects.filter(x_username__iexact=x_username).exists():
+            return Response(
+                {"error": "This X account is already registered"},
+                status=status.HTTP_409_CONFLICT
+            )
+
+        # 6. CHECK IF TELEGRAM ID ALREADY LINKED TO DIFFERENT ENTRY
+        existing = WaitlistEntry.objects.filter(telegram_id=telegram_id).exclude(id=entry.id).first()
+        if existing:
+            return Response({
+                "status": "already_registered",
+                "message": "You're already on the waitlist with a different email",
+                "email": existing.email,
+                "x_username": existing.x_username,
+            }, status=status.HTTP_409_CONFLICT)
+
+        # 7. FETCH X PROFILE INFO
+        x_info = twitter_verification.get_user_info(x_username)
+
+        # 8. UPDATE ENTRY (ATOMIC)
+        try:
+            with transaction.atomic():
+                # Select for update to prevent race conditions
+                entry = WaitlistEntry.objects.select_for_update().get(id=entry.id)
+
+                # Double-check status inside transaction
+                if entry.status == WaitlistEntry.Status.SUBMITTED:
+                    return Response({
+                        "status": "success",
+                        "message": "Already on waitlist",
+                        "email": entry.email,
+                        "x_username": entry.x_username,
+                    })
+
+                # Update entry
+                entry.telegram_id = telegram_id
+                entry.telegram_username = telegram_username
+                entry.telegram_display_name = f"{telegram_first_name} {telegram_last_name}".strip()
+                entry.x_username = x_username
+                entry.status = WaitlistEntry.Status.SUBMITTED
+
+                if x_info:
+                    entry.x_display_name = x_info.get("display_name", "")
+                    entry.x_followers_count = x_info.get("followers_count")
+                    entry.x_avatar_url = x_info.get("avatar_url", "")
+                    entry.x_is_verified = x_info.get("is_verified", False)
+                    entry.x_fetched_at = timezone.now()
+
+                entry.save()
+
+                logger.info(
+                    f"[WAITLIST] Entry {entry.id} completed via mini app",
+                    extra={
+                        "entry_id": str(entry.id),
+                        "email": entry.email,
+                        "x_username": x_username,
+                        "telegram_id": telegram_id,
+                    }
+                )
+
+        except IntegrityError as e:
+            logger.error(f"[WAITLIST] IntegrityError completing entry: {e}")
+            return Response(
+                {"error": "Registration failed, please try again"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # NOTE: Telegram notification is sent via OutboxEvent pattern
+        # The post_save signal on WaitlistEntry creates an OutboxEvent
+        # when status changes to SUBMITTED.
+        # See core/signals.py:send_submission_confirmation_on_submit
+
+        # Build referral link preview for waitlist users
+        # They don't have a User yet, so generate preview code from username
+        referral_preview = (x_username[:4] + "XXXX").upper() if x_username else "XXXXXXXX"
+        landing_url = getattr(settings, 'LANDING_URL', 'https://loudrr.com')
+
+        return Response({
+            "status": "success",
+            "message": "Successfully joined waitlist",
+            "email": entry.email,
+            "x_username": entry.x_username,
+            "x_display_name": entry.x_display_name or x_username,
+            "x_avatar_url": entry.x_avatar_url,
+            "x_followers_count": entry.x_followers_count,
+            "x_is_verified": entry.x_is_verified,
+            # Referral preview (actual code assigned when approved)
+            "referral_code": referral_preview,
+            "referral_link": f"{landing_url}?ref={referral_preview}",
+        })
+
+
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Referral"],
+        summary="Get referral info",
+        description="Returns user's referral code, stats, and shareable links. Only available to whitelisted users.",
+        responses={
+            200: ReferralInfoResponseSerializer,
+            401: ErrorResponseSerializer,
+            403: ErrorResponseSerializer,
+        },
+    )
+)
+class ReferralInfoView(MiniAppAuthMixin, APIView):
+    """
+    GET /api/miniapp/referral/
+
+    Returns user's referral code, stats, and shareable links.
+    Only available to whitelisted users.
+    """
+
+    def get(self, request):
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response({"error": "Unauthorized"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        import rules
+        if not rules.test_rule('core.can_share_referral', user):
+            return Response(
+                {"error": "Not eligible to share referrals"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        from core.services.referral import ReferralService
+        stats = ReferralService.get_referral_stats(user)
+
+        return Response({
+            "referral_code": stats['referral_code'],
+            "total_referrals": stats['total_referrals'],
+            "links": stats['links'],
+        })

@@ -21,3 +21,6 @@ class CoreConfig(AppConfig):
         # Import signals to register receivers (do not remove this import!)
         # The import registers the @receiver decorators
         from . import signals  # noqa: F401
+
+        # Import rules to register permissions
+        from . import rules  # noqa: F401

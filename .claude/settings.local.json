@@ -12,7 +12,9 @@
       "mcp__puppeteer__puppeteer_screenshot",
       "mcp__puppeteer__puppeteer_evaluate",
       "Bash(timeout /t 3)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "mcp__puppeteer__puppeteer_navigate",
+      "Bash(pip install:*)"
     ]
   }
 }

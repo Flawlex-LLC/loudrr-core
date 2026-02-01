@@ -12,7 +12,9 @@ urlpatterns = [
     # Waitlist (public, no auth)
     path("waitlist/submit/", views.WaitlistSubmitView.as_view(), name="waitlist-submit"),
     path("waitlist/register/", views.WaitlistRegisterView.as_view(), name="waitlist-register"),
+    path("waitlist/complete/", views.WaitlistCompleteView.as_view(), name="waitlist-complete"),
     path("waitlist/status/", views.WaitlistStatusView.as_view(), name="waitlist-status"),
+    path("waitlist/entry/", views.WaitlistEntryView.as_view(), name="waitlist-entry"),
 
     # Onboarding
     path("onboarding/complete/", views.CompleteOnboardingView.as_view(), name="onboarding-complete"),
@@ -33,4 +35,7 @@ urlpatterns = [
 
     # Feature interest registration
     path("feature-interest/", views.FeatureInterestView.as_view(), name="miniapp-feature-interest"),
+
+    # Referral system
+    path("referral/", views.ReferralInfoView.as_view(), name="referral-info"),
 ]
