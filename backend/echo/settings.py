@@ -455,8 +455,25 @@ CORS_ALLOW_HEADERS = [
     "x-telegram-init-data",  # Custom header for Telegram Web App
 ]
 
+# CSRF Trusted Origins (required for Django 4.0+ with HTTPS)
+# Without this, admin login and other POST forms will fail with 403 CSRF error
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        # Production domains (set via env var or add here)
+        "https://api.loudrr.com",
+        "https://loudrr.com",
+        "https://app.loudrr.com",
+    ]
+)
+
 # Mini App URL (for bot to open)
 MINIAPP_URL = env("MINIAPP_URL", default="http://localhost:3000")
+
+# Landing Page URL (for card image generation)
+LANDING_URL = env("LANDING_URL", default="https://loudrr.com")
 
 # Bot tokens
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", default="")

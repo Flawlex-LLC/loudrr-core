@@ -3,12 +3,13 @@ Image generation utilities for Telegram bot.
 Fetches card images from the Next.js @vercel/og API routes.
 """
 import io
-import os
 import httpx
 from urllib.parse import urlencode
 
+from django.conf import settings
+
 # Landing page URL (where the card API routes are hosted)
-LANDING_URL = os.environ.get("LANDING_URL", "http://localhost:3001")
+LANDING_URL = getattr(settings, 'LANDING_URL', 'https://loudrr.com')
 
 
 def create_waitlist_card(
