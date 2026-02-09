@@ -7,18 +7,16 @@ export const runtime = 'edge'
 const SPACE_GROTESK_BOLD_URL = 'https://fonts.gstatic.com/s/spacegrotesk/v22/V8mQoQDjQSkFtoMM3T6r8E7mF71Q-gOoraIAEj4PVksj.ttf'
 const SYNE_BOLD_URL = 'https://fonts.gstatic.com/s/syne/v24/8vIS7w4qzmVxsWxjBZRjr0FKM_3fvj6k.ttf'
 
-export async function GET(request: NextRequest) {
-  const url = new URL(request.url)
-  const baseUrl = `${url.protocol}//${url.host}`
+// Logo URL - using small optimized version (3KB vs 151KB original)
+// Must use absolute production URL since edge functions can't self-reference
+const LOGO_URL = 'https://loudrr.com/loudrr-icon-small.png'
 
-  // Load fonts and high-quality logo
-  const [syneFontData, spaceGroteskFontData, logoData] = await Promise.all([
+export async function GET(request: NextRequest) {
+  // Load fonts in parallel
+  const [syneFontData, spaceGroteskFontData] = await Promise.all([
     fetch(SYNE_BOLD_URL).then(res => res.arrayBuffer()),
     fetch(SPACE_GROTESK_BOLD_URL).then(res => res.arrayBuffer()),
-    fetch(`${baseUrl}/loudrr-icon.png`).then(res => res.arrayBuffer()),
   ])
-
-  const logoBase64 = `data:image/png;base64,${Buffer.from(logoData).toString('base64')}`
 
   const { searchParams } = new URL(request.url)
   const xUsername = searchParams.get('username') || 'user'
@@ -159,7 +157,7 @@ export async function GET(request: NextRequest) {
             }}
           >
             <img
-              src={logoBase64}
+              src={LOGO_URL}
               width={56}
               height={56}
               style={{
@@ -203,57 +201,43 @@ export async function GET(request: NextRequest) {
             </span>
           </div>
 
-          {/* Profile section - Two columns */}
+          {/* Profile section - Glassy card */}
           <div
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '24px',
               padding: '20px 32px',
-              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.08) 0%, rgba(249, 84, 0, 0.03) 100%)',
+              background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.06) 100%)',
               borderRadius: '20px',
-              border: '1px solid rgba(249, 84, 0, 0.15)',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(255, 255, 255, 0.1)',
               zIndex: 1,
             }}
           >
-            {/* Column 1: TG Avatar */}
+            {/* Column 1: Avatar with first letter */}
             <div
               style={{
-                width: '72px',
-                height: '72px',
+                width: '64px',
+                height: '64px',
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #f95400 0%, #ff7b33 50%, #f95400 100%)',
-                padding: '3px',
-                boxShadow: '0 0 20px rgba(249, 84, 0, 0.3)',
+                background: 'rgba(255, 255, 255, 0.15)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
               }}
             >
-              <div
+              <span
                 style={{
-                  width: '100%',
-                  height: '100%',
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(18, 14, 12, 0.95) 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  fontSize: '28px',
+                  fontWeight: 700,
+                  color: '#ffffff',
+                  fontFamily: 'Space Grotesk',
                 }}
               >
-                <span
-                  style={{
-                    fontSize: '32px',
-                    fontWeight: 700,
-                    color: '#f95400',
-                    fontFamily: 'Space Grotesk',
-                  }}
-                >
-                  {displayName[0]?.toUpperCase() || 'U'}
-                </span>
-              </div>
+                {displayName[0]?.toUpperCase() || 'U'}
+              </span>
             </div>
 
             {/* Column 2: X username + to be verified */}
@@ -267,10 +251,10 @@ export async function GET(request: NextRequest) {
             >
               {/* Row 1: X icon + username */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <svg width={22} height={22} viewBox="0 0 24 24" fill="#f95400">
+                <svg width={22} height={22} viewBox="0 0 24 24" fill="#ffffff">
                   <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                 </svg>
-                <span style={{ fontSize: '24px', fontWeight: 600, color: '#f95400', fontFamily: 'Space Grotesk' }}>
+                <span style={{ fontSize: '24px', fontWeight: 600, color: '#ffffff', fontFamily: 'Space Grotesk' }}>
                   @{xUsername}
                 </span>
               </div>
@@ -282,16 +266,7 @@ export async function GET(request: NextRequest) {
           </div>
 
           {/* Bottom section */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '24px', gap: '8px', zIndex: 1 }}>
-            {/* Sleek gradient separator line */}
-            <div
-              style={{
-                width: '320px',
-                height: '0.5px',
-                background: 'linear-gradient(90deg, transparent 0%, rgba(249, 84, 0, 0.4) 30%, rgba(249, 84, 0, 0.5) 50%, rgba(249, 84, 0, 0.4) 70%, transparent 100%)',
-                marginBottom: '12px',
-              }}
-            />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '100px', gap: '8px', zIndex: 1 }}>
             <span style={{ fontSize: '17px', color: 'rgba(255,255,255,0.55)', fontFamily: 'Space Grotesk' }}>
               We'll notify you here when you get access
             </span>
