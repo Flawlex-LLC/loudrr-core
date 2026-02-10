@@ -213,18 +213,14 @@ from core.admin import (
     SiteSettingAdmin, XProfileAdmin, XPTransactionAdmin, WaitlistEntryAdmin, FeatureInterestAdmin
 )
 
-for model, model_admin in [
-    (User, UserAdmin),
-    (Transaction, TransactionAdmin),
-    (AuditLog, AuditLogAdmin),
-    (SiteSetting, SiteSettingAdmin),
-    (XProfile, XProfileAdmin),
-    (XPTransaction, XPTransactionAdmin),
-    (WaitlistEntry, WaitlistEntryAdmin),
-    (FeatureInterest, FeatureInterestAdmin),
-]:
-    if not admin.site.is_registered(model):
-        admin.site.register(model, model_admin)
+admin.site.register(User, UserAdmin)
+admin.site.register(Transaction, TransactionAdmin)
+admin.site.register(AuditLog, AuditLogAdmin)
+admin.site.register(SiteSetting, SiteSettingAdmin)
+admin.site.register(XProfile, XProfileAdmin)
+admin.site.register(XPTransaction, XPTransactionAdmin)
+admin.site.register(WaitlistEntry, WaitlistEntryAdmin)
+admin.site.register(FeatureInterest, FeatureInterestAdmin)
 
 # Posts models
 from posts.models import Post, Engagement, SponsoredPost, Campaign, CampaignEntry
@@ -233,27 +229,19 @@ from posts.admin import (
     CampaignAdmin, CampaignEntryAdmin
 )
 
-for model, model_admin in [
-    (Post, PostAdmin),
-    (Engagement, EngagementAdmin),
-    (SponsoredPost, SponsoredPostAdmin),
-    (Campaign, CampaignAdmin),
-    (CampaignEntry, CampaignEntryAdmin),
-]:
-    if not admin.site.is_registered(model):
-        admin.site.register(model, model_admin)
+admin.site.register(Post, PostAdmin)
+admin.site.register(Engagement, EngagementAdmin)
+admin.site.register(SponsoredPost, SponsoredPostAdmin)
+admin.site.register(Campaign, CampaignAdmin)
+admin.site.register(CampaignEntry, CampaignEntryAdmin)
 
 # Loud models
 from loud.models import LoudProject, LoudSubmission, LoudLeaderboardEntry
 from loud.admin import LoudProjectAdmin, LoudSubmissionAdmin, LoudLeaderboardEntryAdmin
 
-for model, model_admin in [
-    (LoudProject, LoudProjectAdmin),
-    (LoudSubmission, LoudSubmissionAdmin),
-    (LoudLeaderboardEntry, LoudLeaderboardEntryAdmin),
-]:
-    if not admin.site.is_registered(model):
-        admin.site.register(model, model_admin)
+admin.site.register(LoudProject, LoudProjectAdmin)
+admin.site.register(LoudSubmission, LoudSubmissionAdmin)
+admin.site.register(LoudLeaderboardEntry, LoudLeaderboardEntryAdmin)
 
 # Note: miniapp.EngagementSession and SessionClick models were removed (dead code)
 # Engagement tracking is done via posts.Engagement directly
