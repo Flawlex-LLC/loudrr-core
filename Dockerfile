@@ -22,5 +22,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/ .
 
-# Run migrations and start bot
-CMD python manage.py migrate && python manage.py run_telegram_bot
+# Run migrations, collect static files, and start bot
+CMD python manage.py migrate && python manage.py collectstatic --noinput && python manage.py run_telegram_bot
