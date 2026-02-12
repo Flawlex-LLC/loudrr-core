@@ -208,8 +208,9 @@ class UserAdmin(admin.ModelAdmin):
     def ban_users(self, request, queryset):
         for user in queryset:
             user.is_banned = True
+            user.is_whitelisted = False
             user.ban_reason = "Banned by admin"
-            user.save(update_fields=["is_banned", "ban_reason", "updated_at"])
+            user.save(update_fields=["is_banned", "is_whitelisted", "ban_reason", "updated_at"])
             log_admin_action(request, user, "Banned user")
         self.message_user(request, f"Banned {queryset.count()} users.", messages.WARNING)
 
