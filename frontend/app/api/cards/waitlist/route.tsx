@@ -7,10 +7,6 @@ export const runtime = 'edge'
 const SPACE_GROTESK_BOLD_URL = 'https://fonts.gstatic.com/s/spacegrotesk/v22/V8mQoQDjQSkFtoMM3T6r8E7mF71Q-gOoraIAEj4PVksj.ttf'
 const SYNE_BOLD_URL = 'https://fonts.gstatic.com/s/syne/v24/8vIS7w4qzmVxsWxjBZRjr0FKM_3fvj6k.ttf'
 
-// Logo URL - using small optimized version (3KB vs 151KB original)
-// Must use absolute production URL since edge functions can't self-reference
-const LOGO_URL = 'https://loudrr.com/loudrr-icon-small.png'
-
 export async function GET(request: NextRequest) {
   // Load fonts in parallel
   const [syneFontData, spaceGroteskFontData] = await Promise.all([
@@ -18,7 +14,11 @@ export async function GET(request: NextRequest) {
     fetch(SPACE_GROTESK_BOLD_URL).then(res => res.arrayBuffer()),
   ])
 
-  const { searchParams } = new URL(request.url)
+  // Build logo URL from request origin (works in dev + prod)
+  const url = new URL(request.url)
+  const LOGO_URL = `${url.origin}/loudrr-icon-small.png`
+
+  const { searchParams } = url
   const xUsername = searchParams.get('username') || 'user'
   const displayName = searchParams.get('displayName') || xUsername
   const telegramUsername = searchParams.get('telegram') || ''

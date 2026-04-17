@@ -42,7 +42,7 @@ export default async function WaitlistSharePage({
   params: Promise<{ username: string }>
 }) {
   const { username } = await params
-  const cardUrl = `${SITE_URL}/api/cards/waitlist?username=${encodeURIComponent(username)}`
+  const cardUrl = `/api/cards/waitlist?username=${encodeURIComponent(username)}`
   const botLink = `https://t.me/${BOT_USERNAME}`
 
   return (
