@@ -37,7 +37,7 @@ loudrr.com -> Click "Join on Telegram" -> t.me/loudrr_bot -> Telegram opens bot
 
 The landing page has a single CTA button linking to `https://t.me/loudrr_bot`. No email form, no API calls. User goes directly to the Telegram bot.
 
-**Code**: [landing/app/page.tsx](../landing/app/page.tsx) (line ~226-252)
+**Code**: [frontend/app/page.tsx](../frontend/app/page.tsx) (line ~226-252)
 
 ---
 
@@ -323,9 +323,9 @@ Both cards generated via `bots/telegram/image_utils.py` which calls `loudrr.com/
 
 | File | Purpose |
 |------|---------|
-| [landing/app/page.tsx](../landing/app/page.tsx) | Landing page ("Join on Telegram" button) |
+| [frontend/app/page.tsx](../frontend/app/page.tsx) | Landing page ("Join on Telegram" button) |
 | [backend/bots/telegram/handlers.py](../backend/bots/telegram/handlers.py) | Bot /start handler, referral extraction |
-| [frontend/app/page.tsx](../frontend/app/page.tsx) | Mini app auth state machine, all screens |
+| [frontend/app/app/page.tsx](../frontend/app/app/page.tsx) | Mini app auth state machine, all screens |
 | [frontend/lib/api.ts](../frontend/lib/api.ts) | API client (getUser, checkWaitlistStatus, registerWaitlist) |
 | [backend/miniapp/views.py](../backend/miniapp/views.py) | WaitlistRegisterView, WaitlistStatusView, UserInfoView |
 | [backend/core/signals.py](../backend/core/signals.py) | Outbox events on WaitlistEntry status changes |

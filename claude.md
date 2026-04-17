@@ -19,12 +19,16 @@ User engages with X posts -> Earns karma -> Spends karma to promote own posts
 ## Architecture
 
 ```
-+-------------------+---------------------+----------------------+
-|  Landing Page     |   Main Mini App     |   Telegram Bot       |
-|  (Next.js 16)     |   (Next.js 16)      |   (python-telegram)  |
-|  Port 3001        |   Port 3000         |   Webhook/Polling    |
-|  loudrr.com       |   app.loudrr.com    |   t.me/loudrr_bot    |
-+-------------------+---------------------+----------------------+
++----------------------------------------+----------------------+
+|  Next.js App (Landing + Mini App)      |  Telegram Bot        |
+|  (Next.js 16)                          |  (python-telegram)   |
+|  Port 3000                             |  Webhook/Polling     |
+|    /        -> Landing                 |  t.me/loudrr_bot     |
+|    /app     -> Mini App                |                      |
+|    /waitlist/[username] -> Share page  |                      |
+|    /api/cards/* -> OG card images      |                      |
+|  loudrr.com                            |                      |
++----------------------------------------+----------------------+
                               |
                 +-------------v--------------+
                 |   BACKEND API (Django)     |
@@ -500,27 +504,33 @@ Configurable via Django admin at `/admin/constance/config/`:
 
 ## Frontend Architecture
 
-### Mini App ([frontend/](frontend/))
+Single Next.js 16 app at [frontend/](frontend/) serves both the landing page and the mini app on port 3000. Routes:
+- `/` -> landing page
+- `/app` -> mini app (Telegram Web App)
+- `/waitlist/[username]` -> referral share page with OG meta tags for X previews
+- `/api/cards/*` -> OG card image generation
+- `/api/miniapp/*`, `/api/loud/*` -> Django backend proxies
 
-**Single-page app** with multiple sections rendered in one `page.tsx` (~72K tokens).
-
-**Key Files**:
-- [app/page.tsx](frontend/app/page.tsx) - Main app (all screens: feed, engage, post, profile, LOUD, waitlist, onboarding)
+**Mini App** (`/app`):
+- [app/app/page.tsx](frontend/app/app/page.tsx) - Single-page app with all screens (feed, engage, post, profile, LOUD, waitlist, onboarding) (~72K tokens)
+- [app/app/layout.tsx](frontend/app/app/layout.tsx) - Mini-app-specific metadata
 - [lib/api.ts](frontend/lib/api.ts) - API client with types (uses Telegram init data auth)
 - [lib/telegram.ts](frontend/lib/telegram.ts) - Telegram Web App SDK helpers
 - [app/api/miniapp/[...path]/route.ts](frontend/app/api/miniapp/[...path]/route.ts) - API proxy to Django backend
 - [app/api/loud/[...path]/route.ts](frontend/app/api/loud/[...path]/route.ts) - LOUD API proxy
-- [components/ui/](frontend/components/ui/) - Animated gradient, border beam, shimmer button
+
+**Landing** (`/`):
+- [app/page.tsx](frontend/app/page.tsx) - Landing page with "Join on Telegram" CTA
+- [app/components/AudioWaveGL.tsx](frontend/app/components/AudioWaveGL.tsx) - WebGL audio visualizer (Three.js)
+- [app/waitlist/[username]/page.tsx](frontend/app/waitlist/[username]/page.tsx) - Referral share page with OG meta tags
+- [app/api/cards/approval/route.tsx](frontend/app/api/cards/approval/route.tsx) - Approval card (@vercel/og, 1012x638)
+- [app/api/cards/waitlist/route.tsx](frontend/app/api/cards/waitlist/route.tsx) - Waitlist card (@vercel/og, 1012x638)
+
+**Shared**:
+- [app/layout.tsx](frontend/app/layout.tsx) - Root layout: HTML, both fonts (Plus Jakarta Sans + Syne), Telegram Web App script, GTM
+- [app/globals.css](frontend/app/globals.css) - Combined design system (mini app glass-morphism + landing page styles)
 
 **API Proxying**: In production, frontend proxies API calls through Next.js API routes to avoid CORS issues. In dev, calls go directly to `localhost:8000`.
-
-### Landing Page ([landing/](landing/))
-
-- [app/page.tsx](landing/app/page.tsx) - Landing page with "Join on Telegram" CTA button
-- [app/waitlist/[username]/page.tsx](landing/app/waitlist/[username]/page.tsx) - Waitlist share page with OG meta tags for X card previews
-- [app/components/AudioWaveGL.tsx](landing/app/components/AudioWaveGL.tsx) - WebGL audio visualizer
-- [app/api/cards/approval/route.tsx](landing/app/api/cards/approval/route.tsx) - Approval card image generation (@vercel/og, 1012x638)
-- [app/api/cards/waitlist/route.tsx](landing/app/api/cards/waitlist/route.tsx) - Waitlist card image generation (@vercel/og, 1012x638)
 
 ---
 
@@ -557,8 +567,8 @@ User A shares: loudrr.com/waitlist/<username> or t.me/loudrr_bot?start=ref_<CODE
 | Signal: increment on approve | Done |
 | /api/miniapp/referral/ endpoint | Done |
 | WaitlistRegisterView referral_code | Done |
-| Waitlist share page (landing/app/waitlist/[username]/) | Done |
-| Waitlist OG card generation (landing/app/api/cards/waitlist/) | Done |
+| Waitlist share page (frontend/app/waitlist/[username]/) | Done |
+| Waitlist OG card generation (frontend/app/api/cards/waitlist/) | Done |
 | WaitlistPendingScreen share buttons (Copy, X Post, TG Share) | Done |
 | Bot ref_ deep link handling | Done |
 
@@ -675,22 +685,31 @@ loudrr/
 |   |   +-- management/commands/
 |   |       +-- run_telegram_bot.py  # Management command to start bot
 |   +-- static/                  # Static files (Jazzmin theme CSS, logo)
-+-- frontend/                    # Next.js mini app (port 3000)
-|   +-- app/page.tsx             # Main SPA (all screens)
-|   +-- app/api/                 # API proxy routes
-|   +-- lib/api.ts               # API client with types
-|   +-- lib/telegram.ts          # Telegram SDK helpers
++-- frontend/                    # Next.js app (port 3000) - landing + mini app
+|   +-- app/
+|   |   +-- layout.tsx           # Root layout (fonts, Telegram script, GTM)
+|   |   +-- globals.css          # Combined design system
+|   |   +-- page.tsx             # Landing page (Telegram CTA + AudioWaveGL)
+|   |   +-- components/
+|   |   |   +-- AudioWaveGL.tsx  # WebGL audio visualizer (Three.js)
+|   |   +-- app/                 # Mini app routes (/app)
+|   |   |   +-- layout.tsx       # Mini-app metadata
+|   |   |   +-- page.tsx         # Mini app SPA (all screens)
+|   |   +-- waitlist/
+|   |   |   +-- [username]/page.tsx  # Referral share page with OG meta
+|   |   +-- api/
+|   |       +-- cards/
+|   |       |   +-- approval/route.tsx   # Approval card (@vercel/og)
+|   |       |   +-- waitlist/route.tsx   # Waitlist card (@vercel/og)
+|   |       +-- miniapp/[...path]/route.ts  # Backend API proxy
+|   |       +-- loud/[...path]/route.ts     # LOUD API proxy
+|   +-- lib/
+|   |   +-- api.ts               # API client with types
+|   |   +-- telegram.ts          # Telegram SDK helpers
 |   +-- components/ui/           # UI components
-+-- landing/                     # Next.js landing page (port 3001)
-|   +-- app/page.tsx             # Landing page (Telegram CTA button)
-|   +-- app/waitlist/[username]/page.tsx  # Waitlist share page with OG meta tags
-|   +-- app/components/          # AudioWaveGL
-|   +-- app/api/cards/           # Card image generation endpoints
-|   |   +-- approval/route.tsx   # Approval card (@vercel/og)
-|   |   +-- waitlist/route.tsx   # Waitlist card (@vercel/og)
 +-- docker-compose.yaml          # Docker compose config
 +-- Dockerfile                   # Docker build config
-+-- dev.ps1                      # PowerShell dev startup (all 7 services)
++-- dev.ps1                      # PowerShell dev startup (all 6 services)
 +-- start-dev.bat                # Batch dev startup (3 services)
 +-- deploy_coolify.py            # Coolify deployment script
 ```
