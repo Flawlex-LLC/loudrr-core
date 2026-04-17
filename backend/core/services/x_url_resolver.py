@@ -17,6 +17,51 @@ logger = logging.getLogger(__name__)
 URL_CACHE_TTL = 86400
 
 
+# System paths on X that are not usernames
+_X_SYSTEM_PATHS = frozenset({
+    "home", "explore", "search", "notifications", "messages",
+    "settings", "compose", "i", "intent", "hashtag", "tos",
+    "privacy", "about", "help", "login", "signup", "logout",
+})
+
+
+def extract_username_from_profile_url(url: str) -> Optional[str]:
+    """
+    Extract X username from a profile URL or bare username input.
+
+    Handles:
+        - https://x.com/username
+        - https://twitter.com/username
+        - http://x.com/username/
+        - x.com/username?s=20
+        - @username (bare input)
+        - username (bare input)
+
+    Returns:
+        Username string (without @) or None if invalid.
+    """
+    if not url:
+        return None
+
+    value = url.strip()
+
+    # Try URL pattern first: x.com/username or twitter.com/username
+    profile_pattern = r"(?:https?://)?(?:www\.)?(?:twitter\.com|x\.com)/([a-zA-Z0-9_]{1,15})/?(?:\?.*)?$"
+    match = re.match(profile_pattern, value)
+    if match:
+        username = match.group(1)
+        if username.lower() not in _X_SYSTEM_PATHS:
+            return username
+        return None
+
+    # Bare username: strip @ prefix and validate
+    bare = value.lstrip("@")
+    if re.match(r"^[a-zA-Z0-9_]{1,15}$", bare):
+        return bare
+
+    return None
+
+
 def extract_username_from_url(url: str) -> Tuple[Optional[str], Optional[str]]:
     """
     Extract X username from a post URL.

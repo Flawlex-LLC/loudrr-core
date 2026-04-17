@@ -22,7 +22,7 @@ from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, TransactionTestCase, Client
 from django.utils import timezone
 
-from core.models import User, WaitlistEntry, SiteSetting
+from core.models import User, SiteSetting
 from posts.models import Post, Engagement
 
 
@@ -363,62 +363,6 @@ class TestReEngagementExploits(TransactionTestCase):
         # But only ONE engagement should exist
         count = Engagement.objects.filter(user=self.user, post=self.post).count()
         self.assertEqual(count, 1)
-
-
-class TestWaitlistTokenExploits(TransactionTestCase):
-    """
-    Test waitlist token reuse and manipulation attacks.
-    """
-
-    def setUp(self):
-        self.client = Client()
-
-    def test_same_token_different_telegram_ids(self):
-        """Same join token should not work for multiple telegram accounts."""
-        # Create waitlist entry
-        entry = WaitlistEntry.objects.create(
-            email='test@example.com',
-            join_token='test_token_12345',
-            status=WaitlistEntry.Status.PENDING
-        )
-
-        # First telegram user links
-        entry.telegram_id = 400000001
-        entry.telegram_username = 'user1'
-        entry.save()
-
-        # Reload entry
-        entry.refresh_from_db()
-        self.assertEqual(entry.telegram_id, 400000001)
-
-        # Second telegram user tries same token
-        # This would be via bot handler, but we test the model constraint
-        with self.assertRaises(Exception):
-            # Cannot change telegram_id once set (in real flow)
-            # Or trying to create duplicate entry
-            WaitlistEntry.objects.create(
-                email='test2@example.com',
-                join_token='test_token_12345',  # Same token
-                status=WaitlistEntry.Status.PENDING
-            )
-
-    def test_reuse_approved_token(self):
-        """Approved tokens should not allow new signups."""
-        entry = WaitlistEntry.objects.create(
-            email='approved@example.com',
-            join_token='approved_token_123',
-            status=WaitlistEntry.Status.APPROVED,
-            telegram_id=400000002,
-            x_username='approved_user'
-        )
-
-        # Token lookup should find approved entry
-        found = WaitlistEntry.objects.filter(join_token='approved_token_123').first()
-        self.assertIsNotNone(found)
-        self.assertEqual(found.status, WaitlistEntry.Status.APPROVED)
-
-        # System should redirect to "already approved" flow
-        # (tested via bot handler in integration tests)
 
 
 class TestEscrowRaceConditions(TransactionTestCase):

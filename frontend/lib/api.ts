@@ -272,6 +272,13 @@ export interface UserStats {
   }>;
 }
 
+// Waitlist registration types
+export interface OtherPlatformEntry {
+  platform: 'youtube' | 'tiktok' | 'other';
+  username: string;
+  platform_name?: string;
+}
+
 // API Functions
 export const api = {
   /**
@@ -420,20 +427,31 @@ export const api = {
       status: 'approved' | 'waitlisted' | 'not_registered';
       x_username?: string;
       submitted_at?: string;
+      referral_code?: string;
     }>('/waitlist/status/'),
 
   /**
    * Register for waitlist directly from mini app
-   * Requires email + X username, optional referral_code
+   * Requires email + X profile link, optional referral_code
    * Sends waitlist card to user via Telegram on success
    */
-  registerWaitlist: (email: string, x_username: string, referral_code?: string) =>
+  registerWaitlist: (
+    email: string, x_link: string, referral_code?: string,
+    region?: string, niche?: string, other_platforms?: OtherPlatformEntry[]
+  ) =>
     apiRequest<{
       status: 'registered' | 'already_registered';
       message: string;
+      referral_code?: string;
     }>('/waitlist/register/', {
       method: 'POST',
-      body: JSON.stringify({ email, x_username, ...(referral_code && { referral_code }) }),
+      body: JSON.stringify({
+        email, x_link,
+        ...(referral_code && { referral_code }),
+        ...(region && { region }),
+        ...(niche && { niche }),
+        ...(other_platforms?.length && { other_platforms }),
+      }),
     }),
 };
 

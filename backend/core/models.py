@@ -427,9 +427,6 @@ class OutboxEvent(models.Model):
 
     class EventType(models.TextChoices):
         TELEGRAM_NOTIFY = "telegram_notify", "Telegram Notification"
-        EMAIL_NOTIFY = "email_notify", "Email Notification"
-        EMAIL_WAITLIST_CONFIRMATION = "email_waitlist_confirmation", "Waitlist Confirmation Email"
-        EMAIL_ALREADY_REGISTERED = "email_already_registered", "Already Registered Email"
         WAITLIST_APPROVED = "waitlist_approved", "Waitlist Approval"
         WAITLIST_SUBMITTED = "waitlist_submitted", "Waitlist Submission"
         CREDITS_EARNED = "credits_earned", "Credits Earned"
@@ -665,70 +662,81 @@ class WaitlistEntry(models.Model):
     Waitlist entries for users wanting to join Loudrr.
 
     Flow (enforced by django-fsm):
-    1. User enters email on landing page -> PENDING
-    2. User connects Telegram via deep link -> telegram_id linked
-    3. User submits X username via bot -> SUBMITTED (via submit() transition)
-    4. Admin approves -> APPROVED (via approve() transition), User created
+    1. User opens mini app via Telegram bot
+    2. User submits email + X profile link -> SUBMITTED (created directly)
+    3. Admin approves -> APPROVED (via approve() transition), User created
        OR Admin rejects -> REJECTED (via reject() transition)
 
     Use FSM transition methods instead of direct status assignment:
-        entry.submit(telegram_id=123, x_username='user')
         entry.approve(by=admin_user)
         entry.reject(reason='Invalid account')
     """
 
     class Status(models.TextChoices):
-        PENDING = "pending", "Pending (email only)"
         SUBMITTED = "submitted", "Submitted (waiting approval)"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
 
+    class Region(models.TextChoices):
+        NORTH_AMERICA = "north_america", "North America"
+        EUROPE = "europe", "Europe"
+        MIDDLE_EAST = "middle_east", "Middle East"
+        SOUTH_ASIA = "south_asia", "South Asia"
+        SOUTHEAST_ASIA = "southeast_asia", "Southeast Asia"
+        EAST_ASIA = "east_asia", "East Asia"
+        AFRICA = "africa", "Africa"
+        LATIN_AMERICA = "latin_america", "Latin America"
+        OCEANIA = "oceania", "Oceania"
+        CIS_EASTERN_EUROPE = "cis_eastern_europe", "CIS / Eastern Europe"
+
+    class Niche(models.TextChoices):
+        MEMECOINS = "memecoins", "Memecoins"
+        GAMEFI = "gamefi", "GameFi"
+        TRADING = "trading", "Trading"
+        NFTS = "nfts", "NFTs"
+        DEFI = "defi", "DeFi"
+        AI_TECH = "ai_tech", "AI / Tech"
+        DAOS = "daos", "DAOs"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    join_token = models.CharField(max_length=32, unique=True, db_index=True)
 
-    # Email (primary identifier from landing page)
+    # Email (primary identifier)
     email = models.EmailField(unique=True, db_index=True)
-    email_verified = models.BooleanField(default=False)
-    email_verification_token = models.CharField(max_length=32, blank=True)
-
-    # Email tracking for idempotency (prevents duplicate emails)
-    email_confirmation_sent_at = models.DateTimeField(
-        null=True, blank=True,
-        help_text="When confirmation email was successfully sent"
-    )
-    email_already_registered_sent_at = models.DateTimeField(
-        null=True, blank=True,
-        help_text="When 'already registered' email was last sent"
-    )
-    email_send_attempts = models.PositiveIntegerField(
-        default=0,
-        help_text="Number of email send attempts"
-    )
-    email_last_error = models.TextField(
-        blank=True, default='',
-        help_text="Last email error message for debugging"
-    )
 
     # Telegram (from deep link)
     telegram_id = models.BigIntegerField(null=True, blank=True, unique=True)
     telegram_username = models.CharField(max_length=50, blank=True)
     telegram_display_name = models.CharField(max_length=100, blank=True)
 
-    # X/Twitter (from bot popup)
+    # X/Twitter
     x_username = models.CharField(max_length=50, blank=True, db_index=True)
+    x_link = models.URLField(
+        max_length=500, blank=True, default='',
+        help_text="Original X profile URL submitted by user"
+    )
 
-    # X Profile data (fetched on submission via twitterapi.io)
-    x_display_name = models.CharField(max_length=100, blank=True)
-    x_followers_count = models.PositiveIntegerField(null=True, blank=True, db_index=True)
-    x_avatar_url = models.URLField(max_length=500, blank=True)
-    x_is_verified = models.BooleanField(default=False)
-    x_fetched_at = models.DateTimeField(null=True, blank=True)
+    # Profile data
+    region = models.CharField(max_length=30, choices=Region.choices, blank=True, default='')
+    niche = models.CharField(max_length=20, choices=Niche.choices, blank=True, default='')
+    other_platforms = models.JSONField(
+        default=list, blank=True,
+        help_text="Other platforms: [{platform: 'youtube'|'tiktok'|'other', username: '...', platform_name?: '...'}]"
+    )
+
+    # Referral code (auto-generated on save, for sharing before approval)
+    referral_code = models.CharField(
+        max_length=16,
+        unique=True,
+        db_index=True,
+        blank=True,
+        help_text="Unique referral code for sharing"
+    )
 
     # Status (FSM-managed field - use transition methods, not direct assignment)
     status = FSMField(
         max_length=20,
         choices=Status.choices,
-        default=Status.PENDING,
+        default=Status.SUBMITTED,
         protected=False,  # Allow direct assignment for backward compatibility, enable later
     )
 
@@ -783,24 +791,25 @@ class WaitlistEntry(models.Model):
     def __str__(self):
         return f"{self.email} ({self.status})"
 
+    def save(self, *args, **kwargs):
+        """Generate referral code on first save if not set."""
+        if not self.referral_code:
+            self.referral_code = self._generate_referral_code()
+        super().save(*args, **kwargs)
+
+    def _generate_referral_code(self) -> str:
+        """Generate unique 8-char uppercase referral code (no collisions with User codes)."""
+        import secrets
+        for _ in range(10):
+            code = secrets.token_urlsafe(6)[:8].upper()
+            if (not WaitlistEntry.objects.filter(referral_code=code).exists()
+                    and not User.objects.filter(referral_code=code).exists()):
+                return code
+        raise ValueError("Failed to generate unique referral code")
+
     # ==========================================================================
     # FSM State Transitions
     # ==========================================================================
-
-    @transition(field=status, source=Status.PENDING, target=Status.SUBMITTED)
-    def submit(self, telegram_id: int, x_username: str):
-        """
-        Submit waitlist entry after user provides Telegram and X username.
-
-        Args:
-            telegram_id: User's Telegram ID
-            x_username: User's X/Twitter username
-
-        Raises:
-            TransitionNotAllowed: If entry is not in PENDING status
-        """
-        self.telegram_id = telegram_id
-        self.x_username = x_username
 
     @transition(field=status, source=Status.SUBMITTED, target=Status.APPROVED)
     def approve(self, by: 'User' = None):
@@ -816,7 +825,7 @@ class WaitlistEntry(models.Model):
         self.approved_at = timezone.now()
         self.approved_by = by
 
-    @transition(field=status, source=[Status.PENDING, Status.SUBMITTED], target=Status.REJECTED)
+    @transition(field=status, source=Status.SUBMITTED, target=Status.REJECTED)
     def reject(self, reason: str = '', by: 'User' = None):
         """
         Reject waitlist entry (admin action).
@@ -826,17 +835,13 @@ class WaitlistEntry(models.Model):
             by: Admin user who rejected this entry
 
         Raises:
-            TransitionNotAllowed: If entry is already approved or rejected
+            TransitionNotAllowed: If entry is not in SUBMITTED status
         """
         self.rejection_reason = reason
 
     # ==========================================================================
     # FSM Condition Checks (can be used before calling transitions)
     # ==========================================================================
-
-    def can_submit(self) -> bool:
-        """Check if entry can be submitted (must be PENDING)."""
-        return self.status == self.Status.PENDING
 
     def can_approve(self) -> bool:
         """Check if entry can be approved (must be SUBMITTED with required data)."""
@@ -847,8 +852,8 @@ class WaitlistEntry(models.Model):
         )
 
     def can_reject(self) -> bool:
-        """Check if entry can be rejected."""
-        return self.status in [self.Status.PENDING, self.Status.SUBMITTED]
+        """Check if entry can be rejected (must be SUBMITTED)."""
+        return self.status == self.Status.SUBMITTED
 
 
 # === Auditlog Registration ===

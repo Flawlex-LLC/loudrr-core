@@ -126,14 +126,15 @@ def send_approval_notification_on_approve(sender, instance, created, **kwargs):
 )
 def send_submission_confirmation_on_submit(sender, instance, created, **kwargs):
     """
-    Send waitlist confirmation when user submits X username.
+    Send waitlist confirmation when entry is created as SUBMITTED.
 
     Uses Transactional Outbox pattern:
-    1. OutboxEvent created in SAME transaction as WaitlistEntry update
+    1. OutboxEvent created in SAME transaction as WaitlistEntry creation
     2. If transaction rolls back, event also rolls back
     3. Celery worker processes events from outbox table
 
-    Triggered when status changes to SUBMITTED.
+    Fires on create (since entries are created directly as SUBMITTED,
+    _previous_status is None which triggers the notification).
     """
     previous_status = getattr(instance, '_previous_status', None)
 

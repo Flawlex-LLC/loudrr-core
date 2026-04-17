@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse, loudApi, LoudProject, LoudProjectsResponse, LoudSubmitResponse, LoudLeaderboardResponse, normalizeXLink } from '@/lib/api';
+import { api, Post, SessionResponse, CompleteResponse, User, UserStats, SubmitPostResponse, AppSettings, ClaimBatch, ClaimHistoryResponse, loudApi, LoudProject, LoudProjectsResponse, LoudSubmitResponse, LoudLeaderboardResponse, normalizeXLink, OtherPlatformEntry } from '@/lib/api';
 import { initTelegramWebApp, hapticFeedback, openLink, getTelegramWebApp } from '@/lib/telegram';
 import { BorderBeam } from '@/components/ui/border-beam';
 import ShimmerButton from '@/components/ui/shimmer-button';
@@ -143,6 +143,7 @@ function PixelLoader({ isComplete, size: sizeProp = 'default' }: { isComplete?: 
 type WaitlistData = {
   x_username?: string;
   submitted_at?: string;
+  referral_code?: string;
 };
 
 export default function MiniApp() {
@@ -199,8 +200,10 @@ export default function MiniApp() {
       setServerError(null);
 
       // Check if running inside Telegram - initData must be present
+      // In dev mode (localhost), skip this check to allow debug testing
       const tg = getTelegramWebApp();
-      if (!tg?.initData) {
+      const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+      if (!tg?.initData && !isDev) {
         setAuthState('not_in_telegram');
         return;
       }
@@ -238,6 +241,7 @@ export default function MiniApp() {
             setWaitlistData({
               x_username: waitlistStatus.x_username,
               submitted_at: waitlistStatus.submitted_at,
+              referral_code: waitlistStatus.referral_code,
             });
             setAuthState('waitlisted');
           } else {
@@ -395,7 +399,7 @@ export default function MiniApp() {
 
   // Show waitlist pending screen for users already on waitlist
   if (authState === 'waitlisted') {
-    return <WaitlistPendingScreen xUsername={waitlistData?.x_username} />;
+    return <WaitlistPendingScreen xUsername={waitlistData?.x_username} referralCode={waitlistData?.referral_code} />;
   }
 
   // Show onboarding screen only if TweetScout was never fetched (fallback for old users)
@@ -3339,13 +3343,44 @@ function StatsModal({
 // =============================================================================
 // WAITLIST REGISTRATION SCREEN - for users who open app directly without account
 // =============================================================================
+const REGIONS = [
+  { value: 'north_america', label: 'North America' },
+  { value: 'europe', label: 'Europe' },
+  { value: 'middle_east', label: 'Middle East' },
+  { value: 'south_asia', label: 'South Asia' },
+  { value: 'southeast_asia', label: 'Southeast Asia' },
+  { value: 'east_asia', label: 'East Asia' },
+  { value: 'africa', label: 'Africa' },
+  { value: 'latin_america', label: 'Latin America' },
+  { value: 'oceania', label: 'Oceania' },
+  { value: 'cis_eastern_europe', label: 'CIS / Eastern Europe' },
+];
+
+const NICHES = [
+  { value: 'memecoins', label: 'Memecoins' },
+  { value: 'gamefi', label: 'GameFi' },
+  { value: 'trading', label: 'Trading' },
+  { value: 'nfts', label: 'NFTs' },
+  { value: 'defi', label: 'DeFi' },
+  { value: 'ai_tech', label: 'AI / Tech' },
+  { value: 'daos', label: 'DAOs' },
+];
+
 function WaitlistRegistrationScreen({
   onSuccess,
 }: {
-  onSuccess: (data: { x_username: string }) => void;
+  onSuccess: (data: { x_username: string; referral_code?: string }) => void;
 }) {
+  const [step, setStep] = useState(1);
   const [email, setEmail] = useState('');
-  const [xUsername, setXUsername] = useState('');
+  const [xLink, setXLink] = useState('');
+  const [region, setRegion] = useState('');
+  const [niche, setNiche] = useState('');
+  const [otherPlatforms, setOtherPlatforms] = useState<Set<string>>(new Set());
+  const [youtubeUsername, setYoutubeUsername] = useState('');
+  const [tiktokUsername, setTiktokUsername] = useState('');
+  const [otherPlatformName, setOtherPlatformName] = useState('');
+  const [otherPlatformUsername, setOtherPlatformUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -3362,17 +3397,41 @@ function WaitlistRegistrationScreen({
     }
   }, []);
 
+  const togglePlatform = (platform: string) => {
+    setOtherPlatforms(prev => {
+      const next = new Set(prev);
+      if (next.has(platform)) {
+        next.delete(platform);
+      } else {
+        next.add(platform);
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = async () => {
-    if (!email || !xUsername) return;
+    if (!email || !xLink || !region || !niche) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const result = await api.registerWaitlist(email, xUsername, referralCode || undefined);
+      const platforms: OtherPlatformEntry[] = [];
+      if (otherPlatforms.has('youtube') && youtubeUsername.trim())
+        platforms.push({ platform: 'youtube', username: youtubeUsername.trim() });
+      if (otherPlatforms.has('tiktok') && tiktokUsername.trim())
+        platforms.push({ platform: 'tiktok', username: tiktokUsername.trim() });
+      if (otherPlatforms.has('other') && otherPlatformUsername.trim())
+        platforms.push({ platform: 'other', username: otherPlatformUsername.trim(), platform_name: otherPlatformName.trim() });
+
+      const result = await api.registerWaitlist(
+        email, xLink, referralCode || undefined,
+        region, niche, platforms.length ? platforms : undefined
+      );
       if (result.status === 'registered' || result.status === 'already_registered') {
         hapticFeedback('success');
-        onSuccess({ x_username: xUsername });
+        const username = xLink.replace(/^https?:\/\/(www\.)?(twitter\.com|x\.com)\//, '').replace(/\/.*$/, '').replace(/^@/, '');
+        onSuccess({ x_username: username, referral_code: result.referral_code });
       }
     } catch (err: any) {
       setError(err.message || 'Registration failed');
@@ -3382,114 +3441,369 @@ function WaitlistRegistrationScreen({
     }
   };
 
+  const inputStyle = {
+    background: 'rgba(0, 0, 0, 0.4)',
+    border: '1px solid rgba(249, 84, 0, 0.2)',
+  };
+
+  const nextStep = () => {
+    setError(null);
+    hapticFeedback('light');
+    setStep(s => s + 1);
+  };
+
+  const prevStep = () => {
+    setError(null);
+    hapticFeedback('light');
+    setStep(s => s - 1);
+  };
+
+  const stepTitles = ['Your Details', 'Your Region', 'Your Niche'];
+  const stepSubtitles = [
+    'Enter your email and X profile to get started.',
+    'Where are you based?',
+    'What best describes your focus?',
+  ];
+
   return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-black flex flex-col items-center p-6 overflow-y-auto">
       {/* Logo */}
-      <div className="mb-6">
-        <img src="/loudrr-icon.png" alt="Loudrr" className="w-20 h-20" />
+      <div className="mb-4 mt-6">
+        <img src="/loudrr-icon.png" alt="Loudrr" className="w-16 h-16" />
+      </div>
+
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 mb-5">
+        {[1, 2, 3].map(s => (
+          <div
+            key={s}
+            className="h-1 rounded-full transition-all duration-300"
+            style={{
+              width: s === step ? '32px' : '12px',
+              background: s <= step ? '#f95400' : 'rgba(255,255,255,0.15)',
+            }}
+          />
+        ))}
       </div>
 
       {/* Title */}
-      <h1 className="text-2xl font-bold text-white mb-2">Join the Waitlist</h1>
-      <p className="text-gray-400 text-center mb-8 max-w-sm">
-        Get early access to Loudrr and start earning karma for your engagement.
+      <h1 className="text-2xl font-bold text-white mb-1">{stepTitles[step - 1]}</h1>
+      <p className="text-gray-400 text-center mb-6 max-w-sm text-sm">
+        {stepSubtitles[step - 1]}
       </p>
 
       {/* Form Card */}
       <div
-        className="w-full max-w-sm rounded-2xl p-6"
+        className="w-full max-w-md rounded-2xl p-5 mb-8"
         style={{
           background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
           backdropFilter: 'blur(32px)',
           border: '1px solid rgba(249, 84, 0, 0.15)',
         }}
       >
-        {/* Email Input with Icon */}
-        <div className="mb-4">
-          <label className="text-sm text-gray-400 mb-2 block">Email</label>
-          <div className="flex items-center gap-3">
-            <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="url(#emailGrad)" strokeWidth={2}>
-                <defs>
-                  <linearGradient id="emailGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#FF9500" />
-                    <stop offset="50%" stopColor="#f95400" />
-                    <stop offset="100%" stopColor="#CC5500" />
-                  </linearGradient>
-                </defs>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
+        {/* ---- STEP 1: Email + X Profile ---- */}
+        {step === 1 && (
+          <>
+            {/* Email Input */}
+            <div className="mb-4">
+              <label className="text-sm text-gray-400 mb-1.5 block">Email</label>
+              <div className="flex items-center gap-3">
+                <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="flex-1 px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#f95400]/50 text-sm"
+                  style={inputStyle}
+                />
+              </div>
             </div>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="flex-1 px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#f95400]/50"
+
+            {/* X Profile Input */}
+            <div className="mb-5">
+              <label className="text-sm text-gray-400 mb-1.5 block">X Profile</label>
+              <div className="flex items-center gap-3">
+                <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
+                  <XLogoIcon className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+                </div>
+                <input
+                  type="url"
+                  value={xLink}
+                  onChange={(e) => setXLink(e.target.value)}
+                  placeholder="https://x.com/yourhandle"
+                  className="flex-1 px-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#f95400]/50 text-sm"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            {/* Next Button */}
+            <button
+              onClick={nextStep}
+              disabled={!email || !xLink}
+              className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
               style={{
-                background: 'rgba(0, 0, 0, 0.4)',
-                border: '1px solid rgba(249, 84, 0, 0.2)',
+                background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+                backdropFilter: 'blur(16px)',
+                border: '1px solid rgba(249, 84, 0, 0.4)',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+                color: 'white',
               }}
-              disabled={loading}
-            />
-          </div>
-        </div>
-
-        {/* X Username Input with Icon */}
-        <div className="mb-6">
-          <label className="text-sm text-gray-400 mb-2 block">X Username</label>
-          <div className="flex items-center gap-3">
-            <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
-              <XLogoIcon className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
-            </div>
-            <div className="flex-1 relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">@</span>
-              <input
-                type="text"
-                value={xUsername}
-                onChange={(e) => setXUsername(e.target.value.replace(/[@\s]/g, ''))}
-                placeholder="username"
-                className="w-full pl-8 pr-4 py-3 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#f95400]/50"
-                style={{
-                  background: 'rgba(0, 0, 0, 0.4)',
-                  border: '1px solid rgba(249, 84, 0, 0.2)',
-                }}
-                disabled={loading}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <p className="text-red-400 text-sm mb-4 text-center">{error}</p>
+            >
+              Next
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </>
         )}
 
-        {/* Submit Button (engage tab style) */}
-        <button
-          onClick={handleSubmit}
-          disabled={!email || !xUsername || loading}
-          className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-          style={{
-            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
-            backdropFilter: 'blur(16px)',
-            border: '1px solid rgba(249, 84, 0, 0.4)',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
-            color: 'white',
-          }}
-        >
-          {loading ? (
-            <>
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Registering...
-            </>
-          ) : (
-            <>
-              <BoltIconFill className="w-5 h-5" />
-              Join Waitlist
-            </>
-          )}
-        </button>
+        {/* ---- STEP 2: Region ---- */}
+        {step === 2 && (
+          <>
+            <div className="mb-5">
+              <label className="text-sm text-gray-400 mb-1.5 block">Region</label>
+              <div className="flex items-center gap-3">
+                <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth={2}>
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+                  </svg>
+                </div>
+                <select
+                  value={region}
+                  onChange={(e) => setRegion(e.target.value)}
+                  className="flex-1 px-4 py-3 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-[#f95400]/50 text-sm appearance-none cursor-pointer"
+                  style={{
+                    ...inputStyle,
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%239ca3af' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 12px center',
+                    paddingRight: '36px',
+                    color: region ? '#ffffff' : '#6b7280',
+                  }}
+                >
+                  <option value="" disabled>Select your region</option>
+                  {REGIONS.map(r => (
+                    <option key={r.value} value={r.value} style={{ background: '#1a1a1a', color: '#ffffff' }}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Nav Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={prevStep}
+                className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                }}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
+              <button
+                onClick={nextStep}
+                disabled={!region}
+                className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(249, 84, 0, 0.4)',
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+                  color: 'white',
+                }}
+              >
+                Next
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ---- STEP 3: Niche + Other Platforms ---- */}
+        {step === 3 && (
+          <>
+            {/* Niche Selector */}
+            <div className="mb-4">
+              <label className="text-sm text-gray-400 mb-2 block">Your Niche</label>
+              <div className="flex flex-wrap gap-2">
+                {NICHES.map(n => (
+                  <button
+                    key={n.value}
+                    type="button"
+                    onClick={() => { setNiche(niche === n.value ? '' : n.value); hapticFeedback('light'); }}
+                    className="px-4 py-2 rounded-full text-sm font-medium transition-all"
+                    style={{
+                      background: niche === n.value ? 'rgba(249, 84, 0, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                      border: niche === n.value ? '1px solid rgba(249, 84, 0, 0.6)' : '1px solid rgba(255, 255, 255, 0.1)',
+                      color: niche === n.value ? '#f95400' : 'rgba(255, 255, 255, 0.6)',
+                    }}
+                    disabled={loading}
+                  >
+                    {n.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Other Platforms */}
+            <div className="mb-5">
+              <label className="text-sm text-gray-400 mb-2 block">Active on other platforms?</label>
+              <div className="flex gap-2 mb-2">
+                {[
+                  { key: 'youtube', label: 'YouTube', color: '#ff0000' },
+                  { key: 'tiktok', label: 'TikTok', color: '#00f2ea' },
+                  { key: 'other', label: 'Other', color: '#a78bfa' },
+                ].map(p => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => { togglePlatform(p.key); hapticFeedback('light'); }}
+                    className="flex-1 py-2 rounded-full text-xs font-medium transition-all"
+                    style={{
+                      background: otherPlatforms.has(p.key) ? `${p.color}20` : 'rgba(255, 255, 255, 0.04)',
+                      border: otherPlatforms.has(p.key) ? `1px solid ${p.color}60` : '1px solid rgba(255, 255, 255, 0.1)',
+                      color: otherPlatforms.has(p.key) ? p.color : 'rgba(255, 255, 255, 0.5)',
+                    }}
+                    disabled={loading}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* YouTube username input */}
+              <div
+                style={{
+                  maxHeight: otherPlatforms.has('youtube') ? '60px' : '0',
+                  opacity: otherPlatforms.has('youtube') ? 1 : 0,
+                  overflow: 'hidden',
+                  transition: 'max-height 300ms ease, opacity 200ms ease',
+                }}
+              >
+                <input
+                  type="text"
+                  value={youtubeUsername}
+                  onChange={(e) => setYoutubeUsername(e.target.value)}
+                  placeholder="YouTube channel or @handle"
+                  className="w-full px-4 py-2.5 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500/30 text-sm mt-1"
+                  style={{ ...inputStyle, borderColor: 'rgba(255, 0, 0, 0.2)' }}
+                  disabled={loading}
+                />
+              </div>
+
+              {/* TikTok username input */}
+              <div
+                style={{
+                  maxHeight: otherPlatforms.has('tiktok') ? '60px' : '0',
+                  opacity: otherPlatforms.has('tiktok') ? 1 : 0,
+                  overflow: 'hidden',
+                  transition: 'max-height 300ms ease, opacity 200ms ease',
+                }}
+              >
+                <input
+                  type="text"
+                  value={tiktokUsername}
+                  onChange={(e) => setTiktokUsername(e.target.value)}
+                  placeholder="TikTok @username"
+                  className="w-full px-4 py-2.5 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 text-sm mt-1"
+                  style={{ ...inputStyle, borderColor: 'rgba(0, 242, 234, 0.2)' }}
+                  disabled={loading}
+                />
+              </div>
+
+              {/* Other platform inputs */}
+              <div
+                style={{
+                  maxHeight: otherPlatforms.has('other') ? '120px' : '0',
+                  opacity: otherPlatforms.has('other') ? 1 : 0,
+                  overflow: 'hidden',
+                  transition: 'max-height 300ms ease, opacity 200ms ease',
+                }}
+              >
+                <input
+                  type="text"
+                  value={otherPlatformName}
+                  onChange={(e) => setOtherPlatformName(e.target.value)}
+                  placeholder="Platform name"
+                  className="w-full px-4 py-2.5 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm mt-1"
+                  style={{ ...inputStyle, borderColor: 'rgba(167, 139, 250, 0.2)' }}
+                  disabled={loading}
+                />
+                <input
+                  type="text"
+                  value={otherPlatformUsername}
+                  onChange={(e) => setOtherPlatformUsername(e.target.value)}
+                  placeholder="Username"
+                  className="w-full px-4 py-2.5 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/30 text-sm mt-1.5"
+                  style={{ ...inputStyle, borderColor: 'rgba(167, 139, 250, 0.2)' }}
+                  disabled={loading}
+                />
+              </div>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <p className="text-red-400 text-sm mb-4 text-center">{error}</p>
+            )}
+
+            {/* Nav Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={prevStep}
+                disabled={loading}
+                className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: 'rgba(255, 255, 255, 0.6)',
+                }}
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+                Back
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={!niche || loading}
+                className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(249, 84, 0, 0.4)',
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+                  color: 'white',
+                }}
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Registering...
+                  </>
+                ) : (
+                  <>
+                    <BoltIconFill className="w-5 h-5" />
+                    Join Waitlist
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -3498,17 +3812,59 @@ function WaitlistRegistrationScreen({
 // =============================================================================
 // WAITLIST PENDING SCREEN - for users already on waitlist awaiting approval
 // =============================================================================
-function WaitlistPendingScreen({ xUsername }: { xUsername?: string }) {
+function ClipboardIcon({ className = "w-6 h-6", style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg className={className} style={style} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+    </svg>
+  );
+}
+
+function WaitlistPendingScreen({ xUsername, referralCode }: { xUsername?: string; referralCode?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const LANDING_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:3002'
+    : 'https://loudrr.com';
+  const BOT_USERNAME = 'loudrr_bot';
+  const sharePageUrl = xUsername ? `${LANDING_URL}/waitlist/${xUsername}` : LANDING_URL;
+  const cardImageUrl = xUsername
+    ? `${LANDING_URL}/api/cards/waitlist?username=${encodeURIComponent(xUsername)}`
+    : null;
+  const referralLink = referralCode
+    ? `https://t.me/${BOT_USERNAME}?start=ref_${referralCode}`
+    : `https://t.me/${BOT_USERNAME}`;
+  const shareText = `I just joined the @loudrrHQ waitlist!\n\nJoin me 👇\n${referralLink}`;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareText);
+      setCopied(true);
+      hapticFeedback('success');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      hapticFeedback('error');
+    }
+  };
+
+  const handleShareX = () => {
+    hapticFeedback('light');
+    const tweetText = `I just joined the @loudrrHQ waitlist!`;
+    const url = `https://x.com/intent/tweet?text=${encodeURIComponent(tweetText)}&url=${encodeURIComponent(sharePageUrl)}`;
+    openLink(url);
+  };
+
+  const handleShareTG = () => {
+    hapticFeedback('light');
+    const url = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent('I just joined the @loudrrHQ waitlist! Join me 👇')}`;
+    openLink(url);
+  };
+
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
       {/* Logo */}
       <div className="mb-6">
         <img src="/loudrr-icon.png" alt="Loudrr" className="w-20 h-20" />
-      </div>
-
-      {/* Status Icon */}
-      <div className="glass-icon glass-icon-lg glass-icon-orange mb-6 pointer-events-none">
-        <ClockIconFill className="w-6 h-6" style={ICON_GRADIENT_STYLE} />
       </div>
 
       {/* Message */}
@@ -3517,18 +3873,64 @@ function WaitlistPendingScreen({ xUsername }: { xUsername?: string }) {
         We'll notify you on Telegram when your account is approved.
       </p>
 
-      {/* X Username Display */}
-      {xUsername && (
-        <div
-          className="px-6 py-3 rounded-xl mb-6"
+      {/* Card Image */}
+      {cardImageUrl && (
+        <img
+          src={cardImageUrl}
+          alt="Your Loudrr waitlist card"
+          className="w-full max-w-sm mb-6"
+          style={{ display: 'block' }}
+        />
+      )}
+
+      {/* Share Buttons */}
+      <div className="flex gap-3 mb-6">
+        {/* Copy Button */}
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all"
           style={{
-            background: 'rgba(249, 84, 0, 0.1)',
-            border: '1px solid rgba(249, 84, 0, 0.3)',
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: copied ? '#22c55e' : '#fff',
           }}
         >
-          <span className="text-[#f95400] font-medium">@{xUsername}</span>
-        </div>
-      )}
+          {copied ? (
+            <CheckIconFill className="w-4 h-4" style={{ color: '#22c55e' }} />
+          ) : (
+            <ClipboardIcon className="w-4 h-4" />
+          )}
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+
+        {/* X Share Button */}
+        <button
+          onClick={handleShareX}
+          className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all"
+          style={{
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: '#fff',
+          }}
+        >
+          <XLogoIcon className="w-4 h-4" />
+          Post
+        </button>
+
+        {/* TG Share Button */}
+        <button
+          onClick={handleShareTG}
+          className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium transition-all"
+          style={{
+            background: 'rgba(255, 255, 255, 0.06)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: '#fff',
+          }}
+        >
+          <TelegramIcon className="w-4 h-4" />
+          Share
+        </button>
+      </div>
 
       {/* Info */}
       <p className="text-gray-500 text-sm text-center max-w-xs">

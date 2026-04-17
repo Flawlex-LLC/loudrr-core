@@ -31,59 +31,39 @@ class SettingsResponseSerializer(serializers.Serializer):
 # WAITLIST
 # =============================================================================
 
-class WaitlistSubmitRequestSerializer(serializers.Serializer):
-    """Waitlist signup request."""
+class WaitlistRegisterRequestSerializer(serializers.Serializer):
+    """Register for waitlist from mini app with email and X profile link."""
     email = serializers.EmailField(help_text="User's email address")
+    x_link = serializers.CharField(help_text="X profile URL (e.g. https://x.com/username)")
     referral_code = serializers.CharField(
         required=False,
         help_text="Optional referral code from existing user"
     )
+    region = serializers.CharField(required=False, help_text="User's region (e.g. 'north_america')")
+    niche = serializers.CharField(required=False, help_text="User's niche (e.g. 'memecoins')")
+    other_platforms = serializers.ListField(required=False, help_text="Other platforms [{platform, username, platform_name?}]")
 
 
-class WaitlistSubmitResponseSerializer(serializers.Serializer):
-    """Waitlist signup response."""
-    success = serializers.BooleanField(help_text="Whether signup was successful")
-    telegram_url = serializers.URLField(help_text="Deep link to Telegram bot")
+class WaitlistRegisterResponseSerializer(serializers.Serializer):
+    """Waitlist registration response."""
+    status = serializers.ChoiceField(
+        choices=["registered", "already_registered"],
+        help_text="Registration result"
+    )
     message = serializers.CharField(help_text="Status message")
-
-
-class WaitlistRegisterRequestSerializer(serializers.Serializer):
-    """Register Telegram account with waitlist entry."""
-    token = serializers.CharField(help_text="Join token from deep link")
-    telegram_id = serializers.IntegerField(help_text="Telegram user ID")
-    telegram_username = serializers.CharField(required=False, help_text="Telegram username")
-
-
-class WaitlistCompleteRequestSerializer(serializers.Serializer):
-    """Complete waitlist registration with X username."""
-    token = serializers.CharField(help_text="Join token")
-    x_username = serializers.CharField(help_text="X/Twitter username")
+    x_username = serializers.CharField(required=False, help_text="Extracted X username")
+    referral_code = serializers.CharField(required=False, help_text="User's personal referral code for sharing")
 
 
 class WaitlistStatusResponseSerializer(serializers.Serializer):
     """Waitlist status response."""
     status = serializers.ChoiceField(
-        choices=["pending", "submitted", "approved", "rejected"],
+        choices=["submitted", "approved", "rejected", "waitlisted", "not_registered"],
         help_text="Current waitlist status"
     )
-    email = serializers.EmailField(help_text="Registered email")
     x_username = serializers.CharField(required=False, help_text="X username if provided")
-    position = serializers.IntegerField(required=False, help_text="Position in waitlist queue")
-
-
-class WaitlistEntryResponseSerializer(serializers.Serializer):
-    """Full waitlist entry details."""
-    id = serializers.UUIDField(help_text="Entry ID")
-    email = serializers.EmailField()
-    status = serializers.CharField()
-    telegram_id = serializers.IntegerField(required=False)
-    telegram_username = serializers.CharField(required=False)
-    x_username = serializers.CharField(required=False)
-    x_display_name = serializers.CharField(required=False)
-    x_followers_count = serializers.IntegerField(required=False)
-    x_avatar_url = serializers.URLField(required=False)
-    x_is_verified = serializers.BooleanField(required=False)
-    created_at = serializers.DateTimeField()
+    submitted_at = serializers.CharField(required=False, help_text="ISO timestamp of submission")
+    referral_code = serializers.CharField(required=False, help_text="User's personal referral code for sharing")
 
 
 # =============================================================================

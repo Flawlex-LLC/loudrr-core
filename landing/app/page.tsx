@@ -8,8 +8,6 @@ const AudioWaveGL = dynamic(() => import("./components/AudioWaveGL"), {
   ssr: false,
 });
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 // Custom cursor component
 function CustomCursor() {
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -40,55 +38,11 @@ function CustomCursor() {
 }
 
 export default function LandingPage() {
-  const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [buttonHover, setButtonHover] = useState(false);
-
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-
-    try {
-      const response = await fetch(`${API_URL}/api/miniapp/waitlist/submit/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || "Something went wrong");
-        setLoading(false);
-        return;
-      }
-
-      if (data.telegram_url) {
-        // Reset loading and show success state before redirect
-        setLoading(false);
-        setSuccess(true);
-
-        // Small delay to show success feedback, then redirect
-        setTimeout(() => {
-          window.location.href = data.telegram_url;
-        }, 500);
-      }
-    } catch (err) {
-      setError("Network error. Please try again.");
-      setLoading(false);
-    }
-  };
 
   return (
     <>
@@ -261,139 +215,46 @@ export default function LandingPage() {
             </p>
           </div>
 
-          {/* Email form - awwwards style */}
-          <form
-            onSubmit={handleSubmit}
+          {/* Telegram CTA */}
+          <div
             className={`
               transition-all duration-1000 ease-out delay-500
               ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}
             `}
             style={{ marginTop: 'clamp(1.5rem, 4vh, 3rem)' }}
           >
-            <div
-              className={`
-                relative flex items-center
-                bg-white/[0.03]
-                backdrop-blur-md
-                transition-all duration-500 ease-out
-                overflow-hidden
-                group
-              `}
+            <a
+              href="https://t.me/loudrr_bot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="
+                inline-flex items-center gap-3
+                text-black font-syne font-bold
+                transition-all duration-300
+                hover:scale-[1.02]
+                active:scale-[0.98]
+                whitespace-nowrap
+                focus:outline-none focus:ring-0
+              "
               style={{
+                background: 'linear-gradient(135deg, #ff6b1a 0%, #f95400 50%, #cc4400 100%)',
+                fontSize: 'clamp(14px, 2vw, 16px)',
                 height: 'clamp(52px, 7vw, 64px)',
+                padding: '0 clamp(24px, 4vw, 40px)',
                 borderRadius: 'clamp(14px, 2vw, 18px)',
-                border: focused
-                  ? '1px solid rgba(255, 255, 255, 0.15)'
-                  : '1px solid rgba(255, 255, 255, 0.06)',
-                boxShadow: focused
-                  ? '0 20px 40px rgba(0, 0, 0, 0.3)'
-                  : '0 10px 30px rgba(0, 0, 0, 0.2)',
-                maxWidth: 'clamp(320px, 50vw, 480px)',
+                boxShadow: '0 4px 20px rgba(249, 84, 0, 0.3)',
               }}
             >
-              {/* Email icon */}
-              <div
-                className="flex-shrink-0 flex items-center justify-center text-white/30 transition-colors duration-300"
-                style={{
-                  width: 'clamp(44px, 6vw, 56px)',
-                }}
-              >
-                <svg
-                  className="transition-all duration-300"
-                  style={{ width: 'clamp(18px, 2.5vw, 22px)', height: 'clamp(18px, 2.5vw, 22px)' }}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="2" y="4" width="20" height="16" rx="3" />
-                  <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                </svg>
-              </div>
+              <svg className="w-6 h-6 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+              </svg>
+              Join on Telegram
+            </a>
 
-              {/* Input */}
-              <input
-                ref={inputRef}
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
-                placeholder="Enter your email"
-                required
-                disabled={loading || success}
-                className="
-                  flex-1 min-w-0
-                  bg-transparent text-white
-                  placeholder:text-white/25
-                  focus:outline-none focus:ring-0
-                  disabled:opacity-50
-                "
-                style={{
-                  fontSize: 'clamp(14px, 2vw, 16px)',
-                  fontWeight: 400,
-                  letterSpacing: '0.01em',
-                }}
-              />
-
-              {/* Button */}
-              <button
-                type="submit"
-                disabled={loading || success}
-                onMouseEnter={() => setButtonHover(true)}
-                onMouseLeave={() => setButtonHover(false)}
-                className="
-                  flex-shrink-0
-                  text-black font-syne font-bold
-                  transition-all duration-300
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  hover:scale-[1.02]
-                  active:scale-[0.98]
-                  whitespace-nowrap
-                  focus:outline-none focus:ring-0
-                "
-                style={{
-                  background: 'linear-gradient(135deg, #ff6b1a 0%, #f95400 50%, #cc4400 100%)',
-                  fontSize: 'clamp(12px, 1.8vw, 14px)',
-                  height: 'clamp(36px, 5vw, 44px)',
-                  padding: '0 clamp(16px, 2.5vw, 24px)',
-                  borderRadius: 'clamp(10px, 1.5vw, 14px)',
-                  marginRight: 'clamp(6px, 1vw, 10px)',
-                  boxShadow: '0 4px 20px rgba(249, 84, 0, 0.3)',
-                }}
-              >
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                  </span>
-                ) : success ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                    Redirecting...
-                  </span>
-                ) : (
-                  "Join Waitlist"
-                )}
-              </button>
-            </div>
-
-            {/* Info text - always visible */}
             <p className="text-white/30 mt-6" style={{ fontSize: 'clamp(10px, 1.4vw, 12px)' }}>
-              Redirects to Telegram to complete application.
+              Open the bot and tap &quot;Open Loudrr&quot; to get started.
             </p>
-
-            {/* Error message */}
-            {error && (
-              <p className="text-red-400 animate-shake mt-3" style={{ fontSize: 'clamp(11px, 1.5vw, 14px)' }}>{error}</p>
-            )}
-          </form>
+          </div>
         </div>
 
         {/* Footer */}

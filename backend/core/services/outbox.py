@@ -170,78 +170,6 @@ class OutboxService:
         return event
 
     @staticmethod
-    def queue_waitlist_confirmation_email(
-        entry_id: UUID,
-        email: str,
-    ) -> OutboxEvent:
-        """
-        Queue waitlist confirmation email.
-
-        Args:
-            entry_id: WaitlistEntry ID
-            email: User's email address
-
-        Returns:
-            Created OutboxEvent
-        """
-        payload = {
-            "entry_id": str(entry_id),
-            "email": email,
-        }
-
-        event = OutboxEvent.objects.create(
-            event_type=OutboxEvent.EventType.EMAIL_WAITLIST_CONFIRMATION,
-            payload=payload,
-        )
-
-        logger.info(
-            "Waitlist confirmation email event created",
-            extra={
-                "event_id": str(event.id),
-                "entry_id": str(entry_id),
-                "email": email,
-            }
-        )
-
-        return event
-
-    @staticmethod
-    def queue_already_registered_email(
-        entry_id: UUID,
-        email: str,
-    ) -> OutboxEvent:
-        """
-        Queue 'already registered' email.
-
-        Args:
-            entry_id: WaitlistEntry ID
-            email: User's email address
-
-        Returns:
-            Created OutboxEvent
-        """
-        payload = {
-            "entry_id": str(entry_id),
-            "email": email,
-        }
-
-        event = OutboxEvent.objects.create(
-            event_type=OutboxEvent.EventType.EMAIL_ALREADY_REGISTERED,
-            payload=payload,
-        )
-
-        logger.info(
-            "Already registered email event created",
-            extra={
-                "event_id": str(event.id),
-                "entry_id": str(entry_id),
-                "email": email,
-            }
-        )
-
-        return event
-
-    @staticmethod
     def queue_tweetscout_fetch(
         user_id: UUID,
     ) -> OutboxEvent:
@@ -423,10 +351,6 @@ class OutboxService:
                 success = OutboxService._process_waitlist_approved(event)
             elif event.event_type == OutboxEvent.EventType.WAITLIST_SUBMITTED:
                 success = OutboxService._process_waitlist_submitted(event)
-            elif event.event_type == OutboxEvent.EventType.EMAIL_WAITLIST_CONFIRMATION:
-                success = OutboxService._process_email_waitlist_confirmation(event)
-            elif event.event_type == OutboxEvent.EventType.EMAIL_ALREADY_REGISTERED:
-                success = OutboxService._process_email_already_registered(event)
             elif event.event_type == OutboxEvent.EventType.TWEETSCOUT_FETCH:
                 success = OutboxService._process_tweetscout_fetch(event)
             elif event.event_type == OutboxEvent.EventType.TELEGRAM_NOTIFY:
@@ -510,61 +434,6 @@ class OutboxService:
             return result
         finally:
             loop.close()
-
-    @staticmethod
-    def _process_email_waitlist_confirmation(event: OutboxEvent) -> bool:
-        """Process waitlist confirmation email."""
-        from core.models import WaitlistEntry
-
-        entry_id = event.payload.get("entry_id")
-        if not entry_id:
-            logger.error("No entry_id in email_waitlist_confirmation event payload")
-            return False
-
-        try:
-            entry = WaitlistEntry.objects.get(id=entry_id)
-        except WaitlistEntry.DoesNotExist:
-            logger.error(f"WaitlistEntry {entry_id} not found")
-            return False
-
-        # Check if already sent (idempotency)
-        if entry.email_confirmation_sent_at:
-            logger.info(f"Email confirmation already sent to {entry.email}")
-            return True
-
-        try:
-            # Call the existing email sending logic
-            from core.tasks import _send_waitlist_confirmation_email
-            _send_waitlist_confirmation_email(entry)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send waitlist confirmation email: {e}")
-            return False
-
-    @staticmethod
-    def _process_email_already_registered(event: OutboxEvent) -> bool:
-        """Process 'already registered' email."""
-        from core.models import WaitlistEntry
-
-        entry_id = event.payload.get("entry_id")
-        if not entry_id:
-            logger.error("No entry_id in email_already_registered event payload")
-            return False
-
-        try:
-            entry = WaitlistEntry.objects.get(id=entry_id)
-        except WaitlistEntry.DoesNotExist:
-            logger.error(f"WaitlistEntry {entry_id} not found")
-            return False
-
-        try:
-            # Call the existing email sending logic
-            from core.tasks import _send_already_registered_email
-            _send_already_registered_email(entry)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send already registered email: {e}")
-            return False
 
     @staticmethod
     def _process_tweetscout_fetch(event: OutboxEvent) -> bool:

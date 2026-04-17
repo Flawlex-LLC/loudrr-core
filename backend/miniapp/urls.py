@@ -10,11 +10,8 @@ urlpatterns = [
     path("settings/", views.SettingsView.as_view(), name="miniapp-settings"),
 
     # Waitlist (public, no auth)
-    path("waitlist/submit/", views.WaitlistSubmitView.as_view(), name="waitlist-submit"),
     path("waitlist/register/", views.WaitlistRegisterView.as_view(), name="waitlist-register"),
-    path("waitlist/complete/", views.WaitlistCompleteView.as_view(), name="waitlist-complete"),
     path("waitlist/status/", views.WaitlistStatusView.as_view(), name="waitlist-status"),
-    path("waitlist/entry/", views.WaitlistEntryView.as_view(), name="waitlist-entry"),
 
     # Onboarding
     path("onboarding/complete/", views.CompleteOnboardingView.as_view(), name="onboarding-complete"),
