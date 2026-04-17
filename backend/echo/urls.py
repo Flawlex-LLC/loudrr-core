@@ -259,6 +259,9 @@ for model, model_admin in [
 # Engagement tracking is done via posts.Engagement directly
 
 
+from bots.telegram.views import telegram_webhook
+
+
 urlpatterns = [
     # Health check (for Docker/K8s)
     path("health/", health_check, name="health_check"),
@@ -276,6 +279,9 @@ urlpatterns = [
     path("api/posts/", include("posts.api.urls")),
     path("api/miniapp/", include("miniapp.urls")),
     path("api/loud/", include("loud.urls")),
+
+    # Telegram bot webhook (production mode)
+    path("api/telegram/webhook/", telegram_webhook, name="telegram_webhook"),
 
     # Redirects
     path("r/", include("redirects.urls")),

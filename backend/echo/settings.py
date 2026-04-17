@@ -469,15 +469,24 @@ CSRF_TRUSTED_ORIGINS = env.list(
     ]
 )
 
-# Mini App URL (for bot to open)
-MINIAPP_URL = env("MINIAPP_URL", default="http://localhost:3000")
+# Public site URL (serves landing at /, mini app at /app, card APIs at /api/cards/*)
+SITE_URL = env("SITE_URL", default="http://localhost:3000")
 
-# Landing Page URL (for card image generation)
-LANDING_URL = env("LANDING_URL", default="https://loudrr.com")
+# Mini App URL (the URL Telegram opens as the Web App)
+MINIAPP_URL = env("MINIAPP_URL", default=f"{SITE_URL}/app")
+
+# Landing Page URL (used for card image generation and share links)
+LANDING_URL = env("LANDING_URL", default=SITE_URL)
 
 # Bot tokens
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", default="")
 TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", default="Loudrrbot")
+
+# Telegram webhook config (for production). If both are set, run the bot as
+# a webhook target via /api/telegram/webhook/. If unset, run `python manage.py
+# run_telegram_bot` (polling mode) for local dev.
+TELEGRAM_WEBHOOK_URL = env("TELEGRAM_WEBHOOK_URL", default="")
+TELEGRAM_WEBHOOK_SECRET = env("TELEGRAM_WEBHOOK_SECRET", default="")
 
 # Twitter API (twitterapi.io) for verification (v1)
 TWITTER_API_KEY = env("TWITTER_API_KEY", default="")

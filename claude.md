@@ -411,7 +411,7 @@ Header: X-Telegram-Init-Data: <HMAC-signed init data>
 
 ## Telegram Bot
 
-**Files**: [bots/telegram/handlers.py](backend/bots/telegram/handlers.py), [bots/telegram/bot.py](backend/bots/telegram/bot.py)
+**Files**: [bots/telegram/handlers.py](backend/bots/telegram/handlers.py), [bots/telegram/bot.py](backend/bots/telegram/bot.py), [bots/telegram/views.py](backend/bots/telegram/views.py), [bots/telegram/app_instance.py](backend/bots/telegram/app_instance.py)
 
 ### Commands
 
@@ -428,17 +428,31 @@ t.me/loudrr_bot?start=ref_<CODE>    # Referral flow (stores code, opens mini app
 t.me/loudrr_bot?start=engage        # Open mini app
 ```
 
-### Management Command
+### Bot Modes
 
+The bot supports two modes, selected by env vars:
+
+**Polling (local dev)** — no public URL needed:
 ```bash
-python manage.py run_telegram_bot  # Start bot in polling mode
+python manage.py run_telegram_bot
 ```
 
-### Other Management Commands
+**Webhook (production)** — set `TELEGRAM_WEBHOOK_URL` + `TELEGRAM_WEBHOOK_SECRET`, then:
+```bash
+python manage.py set_telegram_webhook   # Register webhook with Telegram (run once)
+# Django serves /api/telegram/webhook/ — no separate bot process needed.
+python manage.py delete_telegram_webhook  # Unregister (to switch back to polling)
+```
+
+Webhook mode reuses Django's HTTP server; no separate bot process runs. The `telegram_webhook` async view at [bots/telegram/views.py](backend/bots/telegram/views.py) validates the `X-Telegram-Bot-Api-Secret-Token` header, parses the Update, and dispatches to the same handlers as polling mode via a lazy-singleton Application.
+
+### Management Commands
 
 | Command | Description |
 |---------|-------------|
-| `run_telegram_bot` | Start Telegram bot |
+| `run_telegram_bot` | Start Telegram bot in polling mode (dev) |
+| `set_telegram_webhook` | Register production webhook with Telegram |
+| `delete_telegram_webhook` | Unregister webhook |
 | `seed_posts` | Seed test posts |
 | `create_load_test_users` | Create users for load testing |
 | `requeue_stuck_batches` | Fix stuck verification batches |
