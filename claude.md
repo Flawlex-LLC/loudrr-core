@@ -39,9 +39,10 @@ User engages with X posts -> Earns karma -> Spends karma to promote own posts
           +-------------------+--------------------+
           |                   |                    |
     +-----v-----+      +------v------+     +------v-----+
-    | PostgreSQL|      |    Redis    |     |  Celery    |
-    | (Supabase)|      |   Cache +   |     |  Workers   |
-    |           |      |   Broker    |     |            |
+    | PostgreSQL|      |    Redis    |     | django-q2  |
+    | (Supabase)|      |   Cache +   |     |  Cluster   |
+    |           |      |   Broker    |     | (worker +  |
+    |           |      |             |     | scheduler) |
     +-----------+      +-------------+     +------------+
 ```
 
@@ -70,7 +71,7 @@ User opens mini app -> /session/start/ -> Get all available posts
     -> User clicks post -> /session/click/ -> Creates Engagement (verified=False)
     -> User engages on X -> Returns to app
     -> After 10+ engagements -> /session/queue-claim/
-    -> Creates VerificationBatch (PENDING) -> Celery task queued
+    -> Creates VerificationBatch (PENDING) -> django-q2 task queued
     -> Phase 1: VerificationService calls Twitter API (no DB locks)
     -> Phase 2: SettlementService atomic DB writes (no external calls)
     -> Credits awarded with tier multiplier, escrow deducted atomically
@@ -86,7 +87,7 @@ User submits X link -> /post/submit/
     -> Create Post with cached tweet content
     -> Post appears in other users' feeds
     -> Escrow depleted per engagement -> Post auto-completes at zero
-    -> Expired posts (POST_EXPIRY_HOURS) refunded via Celery beat
+    -> Expired posts (POST_EXPIRY_HOURS) refunded via django-q2 beat
 ```
 
 ### Architecture Patterns
@@ -112,8 +113,8 @@ User submits X link -> /post/submit/
 ### Backend
 - **Django 5.2** + Django REST Framework 3.16
 - **PostgreSQL 16+** (hosted on Supabase)
-- **Redis 7+** (Celery broker + cache)
-- **Celery 5.6** (async task processing)
+- **Redis 7+** (django-q2 broker + cache)
+- **django-q2 1.7+** (async task processing, replaces Celery — single `qcluster` process combines worker + scheduler)
 - **python-telegram-bot 21.11**
 - **Python 3.12** (required - 3.14 has compatibility issues with numpy/Pillow)
 
@@ -373,7 +374,7 @@ Header: X-Telegram-Init-Data: <HMAC-signed init data>
 | `/session/click/` | POST | Record click, creates Engagement (verified=False) |
 | `/session/verify-return/` | POST | Optional: confirm user returned from X |
 | `/session/complete/` | POST | Synchronous verification + settlement |
-| `/session/queue-claim/` | POST | Async verification (preferred - queues Celery task) |
+| `/session/queue-claim/` | POST | Async verification (preferred - queues django-q2 task) |
 | `/claims/history/` | GET | Verification batch history (polling for results) |
 | `/post/submit/` | POST | Create post with escrow (validates tweet ownership) |
 
@@ -387,7 +388,9 @@ Header: X-Telegram-Init-Data: <HMAC-signed init data>
 
 ---
 
-## Celery Tasks
+## Async Tasks (django-q2)
+
+Run with `python manage.py qcluster` — one process handles both the worker pool and the scheduler (no separate "beat" process). Periodic tasks live as `django_q.Schedule` rows, seeded by migration 0045.
 
 ### Core Tasks ([core/tasks.py](backend/core/tasks.py))
 
@@ -644,12 +647,12 @@ loudrr/
 |   |   +-- settings.py          # All config (INSTALLED_APPS, CONSTANCE, JAZZMIN, etc.)
 |   |   +-- urls.py              # Root URL config + admin registrations
 |   |   +-- admin_site.py        # Custom admin site
-|   |   +-- celery.py            # Celery app config
+|   |   +-- (django-q2 config in settings.py as Q_CLUSTER dict)
 |   +-- core/                    # Core app (users, transactions, waitlist)
 |   |   +-- models.py            # User, Transaction, WaitlistEntry, XProfile, OutboxEvent, etc.
 |   |   +-- admin.py             # Admin classes for core models
 |   |   +-- signals.py           # Waitlist approval/submission signals (OutboxEvent pattern)
-|   |   +-- tasks.py             # Celery tasks (outbox processing, daily reset, TweetScout fetch)
+|   |   +-- tasks.py             # Async tasks (outbox processing, daily reset, TweetScout fetch)
 |   |   +-- rules.py             # Django-rules permission predicates
 |   |   +-- guards.py            # Guard functions for business rules
 |   |   +-- invariants.py        # Business invariant checks
@@ -755,7 +758,7 @@ loudrr/
 
 - **Python 3.12** (3.14 has compatibility issues with numpy/Pillow)
 - **Node.js 20+**
-- **Redis** (for Celery - `docker run --rm -p 6379:6379 redis:7`)
+- **Redis** (for django-q2 - `docker run --rm -p 6379:6379 redis:7`)
 - **PostgreSQL** or Supabase connection
 
 ### Setup
@@ -780,11 +783,8 @@ cd landing && npm install
 # Backend API (port 8000)
 cd backend && python manage.py runserver 8000
 
-# Celery worker
-cd backend && celery -A echo worker -l info -P solo
-
-# Celery beat (periodic tasks)
-cd backend && celery -A echo beat -l info
+# django-q2 cluster (worker + scheduler combined)
+cd backend && python manage.py qcluster
 
 # Telegram bot (polling mode)
 cd backend && python manage.py run_telegram_bot

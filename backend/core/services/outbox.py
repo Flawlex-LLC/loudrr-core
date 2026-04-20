@@ -3,7 +3,7 @@ Outbox Service for reliable notification delivery.
 
 The Outbox Pattern ensures notifications are never lost:
 1. Business logic + OutboxEvent are saved in same transaction
-2. Celery worker polls for PENDING events
+2. django-q2 worker polls for PENDING events
 3. Events are processed and marked SENT or retried
 
 Usage:

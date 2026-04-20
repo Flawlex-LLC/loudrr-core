@@ -1,7 +1,7 @@
 """Requeue stuck verification batches."""
 from django.core.management.base import BaseCommand
 from posts.models import VerificationBatch
-from posts.tasks import process_verification_batch
+from django_q.tasks import async_task
 
 
 class Command(BaseCommand):
@@ -19,7 +19,7 @@ class Command(BaseCommand):
 
         for batch in stuck:
             try:
-                process_verification_batch.delay(str(batch.id))
+                async_task("posts.tasks.process_verification_batch", str(batch.id))
                 self.stdout.write(f"  Requeued: {batch.id}")
             except Exception as e:
                 self.stdout.write(self.style.ERROR(f"  Failed {batch.id}: {e}"))

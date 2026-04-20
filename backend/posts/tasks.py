@@ -1,5 +1,5 @@
 """
-Celery tasks for async processing.
+Async tasks for posts app (django-q2).
 
 Tasks:
 - process_verification_batch: Async engagement verification
@@ -15,7 +15,6 @@ from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from celery import shared_task
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
@@ -30,8 +29,7 @@ from posts.models import Engagement, Post, VerificationBatch
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, max_retries=3)
-def process_verification_batch(self, batch_id: str):
+def process_verification_batch(batch_id: str):
     """
     Process a queued verification batch.
 
@@ -55,14 +53,17 @@ def process_verification_batch(self, batch_id: str):
         result = _run_verification(batch)
         return result
     except Exception as exc:
-        # Mark as failed and retry
+        # Mark as failed. The requeue_stuck_batches management command +
+        # retry_failed_outbox_events-style manual sweep can re-run failed
+        # batches. We don't auto-retry here because partial verifications
+        # may have awarded credits (idempotency keys prevent duplicate grants,
+        # but re-running is still expensive if the error is a real bug).
         batch.status = VerificationBatch.Status.FAILED
         batch.message = str(exc)
         batch.completed_at = timezone.now()
         batch.save(update_fields=['status', 'message', 'completed_at'])
-
-        # Retry with exponential backoff
-        raise self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
+        logger.exception(f"[VERIFY] Batch {batch_id} failed")
+        raise
 
 
 @transaction.atomic
@@ -268,8 +269,7 @@ def _run_verification(batch: VerificationBatch) -> dict:
 # POST EXPIRY TASK
 # =============================================================================
 
-@shared_task(bind=True, max_retries=3)
-def expire_old_posts(self):
+def expire_old_posts():
     """
     Expire posts older than POST_EXPIRY_HOURS and refund remaining escrow.
 
@@ -279,7 +279,7 @@ def expire_old_posts(self):
     - Self-scheduling: If more posts remain, schedules another run
     - Refunds: Remaining escrow returned to post creator
 
-    Run via Celery beat (hourly recommended).
+    Run periodically via django-q2 Schedule (hourly recommended).
     """
     try:
         expiry_hours = get_setting('POST_EXPIRY_HOURS', 48)
@@ -319,10 +319,17 @@ def expire_old_posts(self):
 
     logger.info(f"Expired {expired_count} posts, {failed_count} failed")
 
-    # If we hit the batch limit, schedule another run
+    # If we hit the batch limit, schedule another run in 5 seconds
     if len(expired_ids) == 100:
         logger.info("More posts may need expiry, scheduling follow-up task")
-        expire_old_posts.apply_async(countdown=5)  # Run again in 5 seconds
+        from django_q.tasks import schedule
+        from django_q.models import Schedule
+        schedule(
+            "posts.tasks.expire_old_posts",
+            name=f"expire_old_posts_followup_{timezone.now().timestamp()}",
+            schedule_type=Schedule.ONCE,
+            next_run=timezone.now() + timedelta(seconds=5),
+        )
 
     return {"expired": expired_count, "failed": failed_count}
 

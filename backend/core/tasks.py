@@ -1,5 +1,5 @@
 """
-Celery tasks for core app.
+Async tasks for core app (django-q2).
 
 Handles asynchronous operations including:
 - OutboxEvent processing (reliable notification delivery)
@@ -9,12 +9,11 @@ Handles asynchronous operations including:
 Features:
 - Idempotency via database tracking (prevents duplicates)
 - Row-level locking via select_for_update (prevents race conditions)
-- Smart retry logic (distinguishes permanent vs temporary failures)
+- Application-level retry via retry_failed_outbox_events (hourly sweep)
 - Comprehensive error logging and tracking
 """
 import logging
 from datetime import timedelta
-from celery import shared_task
 from django.db import transaction
 from django.conf import settings
 from django.utils import timezone
@@ -22,15 +21,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=30,
-    autoretry_for=(ConnectionError, TimeoutError),
-    retry_backoff=True,
-    name='core.fetch_tweetscout_for_user'
-)
-def fetch_tweetscout_for_user_task(self, user_id: str):
+def fetch_tweetscout_for_user_task(user_id: str):
     """
     Fetch TweetScout data for a newly approved user.
 
@@ -114,26 +105,23 @@ def fetch_tweetscout_for_user_task(self, user_id: str):
         logger.error(f"[TWEETSCOUT] User {user_id} not found")
         return {"status": "error", "error": "User not found"}
 
-    except Exception as e:
+    except Exception:
         logger.exception(f"[TWEETSCOUT] Error fetching data for user {user_id}")
-        raise self.retry(exc=e)
+        # django-q2 re-enqueues the task if it crashes without completing within
+        # Q_CLUSTER['retry'] seconds. For transient errors we let the exception
+        # propagate so the task is marked failed; admin can re-run if needed.
+        raise
 
 
 # =============================================================================
 # OUTBOX EVENT PROCESSING
 # =============================================================================
 
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=30,
-    name='core.process_pending_outbox_events'
-)
-def process_pending_outbox_events(self, batch_size: int = 50):
+def process_pending_outbox_events(batch_size: int = 50):
     """
     Process pending OutboxEvents in batches.
 
-    This task is called periodically by Celery Beat to ensure
+    This task is called periodically by django-q2 scheduler to ensure
     all pending notifications are processed.
 
     Args:
@@ -180,13 +168,7 @@ def process_pending_outbox_events(self, batch_size: int = 50):
     }
 
 
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=60,
-    name='core.process_single_outbox_event'
-)
-def process_single_outbox_event(self, event_id: str):
+def process_single_outbox_event(event_id: str):
     """
     Process a single OutboxEvent immediately.
 
@@ -208,12 +190,12 @@ def process_single_outbox_event(self, event_id: str):
     try:
         success = OutboxService.process_event(event)
         return {"success": success}
-    except Exception as e:
-        logger.error(f"[OUTBOX] Error processing event {event_id}: {e}")
-        raise self.retry(exc=e)
+    except Exception:
+        logger.exception(f"[OUTBOX] Error processing event {event_id}")
+        # retry_failed_outbox_events (hourly) will reset this to PENDING.
+        raise
 
 
-@shared_task(name='core.cleanup_old_outbox_events')
 def cleanup_old_outbox_events(days: int = 30):
     """
     Clean up old processed OutboxEvents.
@@ -239,12 +221,11 @@ def cleanup_old_outbox_events(days: int = 30):
     return {"deleted": deleted_count}
 
 
-@shared_task(name='core.reset_daily_credits')
 def reset_daily_credits():
     """
     Reset daily_credits_earned for all users.
 
-    Called at midnight UTC by Celery Beat.
+    Called at midnight UTC by django-q2 scheduler.
     """
     from core.models import User
 
@@ -264,7 +245,6 @@ def reset_daily_credits():
     return {"reset_count": updated}
 
 
-@shared_task(name='core.retry_failed_outbox_events')
 def retry_failed_outbox_events():
     """
     Reset failed OutboxEvents for retry.

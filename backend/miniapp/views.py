@@ -1214,7 +1214,7 @@ class QueueClaimView(MiniAppAuthMixin, APIView):
 
     def post(self, request):
         from posts.models import VerificationBatch
-        from posts.tasks import process_verification_batch
+        from django_q.tasks import async_task
         from core.services.settings import get_setting
 
         user = self.get_user_from_request(request)
@@ -1276,7 +1276,7 @@ class QueueClaimView(MiniAppAuthMixin, APIView):
 
         # Queue the verification task
         try:
-            process_verification_batch.delay(str(batch.id))
+            async_task("posts.tasks.process_verification_batch", str(batch.id))
         except Exception as e:
             # Celery/Redis not available - mark batch failed and return error
             import logging
@@ -1559,7 +1559,7 @@ class WaitlistRegisterView(APIView):
 
         # NOTE: Waitlist confirmation is now sent via OutboxEvent pattern
         # The post_save signal on WaitlistEntry creates an OutboxEvent
-        # which is processed by Celery to send the Telegram card.
+        # which is processed by django-q2 to send the Telegram card.
         # See core/signals.py:send_submission_confirmation_on_submit
 
         return Response({

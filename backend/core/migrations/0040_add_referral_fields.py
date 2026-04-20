@@ -35,14 +35,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Step 1: Add referral_code field WITHOUT unique constraint first
+        # Step 1: Add referral_code field WITHOUT unique constraint first.
+        # db_index is deliberately omitted here — it would create a _like
+        # suffix index with the same name Django wants for the unique index
+        # added in Step 3, causing "relation already exists" on fresh DBs.
+        # The unique=True in Step 3 creates the needed index anyway.
         migrations.AddField(
             model_name="user",
             name="referral_code",
             field=models.CharField(
                 blank=True,
                 default="",
-                db_index=True,
                 help_text="Unique referral code for this user",
                 max_length=16,
             ),

@@ -144,7 +144,7 @@ class Command(BaseCommand):
             # Step 3: Queue claims for each user
             self.stdout.write("\nQueuing verification batches...")
 
-            from posts.tasks import process_verification_batch
+            from django_q.tasks import async_task
 
             for user in created_users:
                 # Get user's pending engagements
@@ -168,7 +168,7 @@ class Command(BaseCommand):
 
                 # Queue the task
                 try:
-                    process_verification_batch.delay(str(batch.id))
+                    async_task("posts.tasks.process_verification_batch", str(batch.id))
                     self.stdout.write(
                         f"  User {user.display_name}: Queued batch {str(batch.id)[:8]} "
                         f"({len(pending)} engagements)"

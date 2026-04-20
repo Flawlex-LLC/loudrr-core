@@ -9,30 +9,40 @@ class Migration(migrations.Migration):
         ("core", "0038_add_accounting_constraints"),
     ]
 
+    # The kaito_* columns were already dropped via RunSQL in migrations 0023
+    # and 0024, but Django's model state still referenced them. These
+    # SeparateDatabaseAndState wrappers sync Django's state without re-running
+    # the DROP COLUMN SQL (which would fail on a fresh DB where the columns
+    # never existed).
     operations = [
-        migrations.RemoveField(
-            model_name="user",
-            name="kaito_last_updated",
-        ),
-        migrations.RemoveField(
-            model_name="user",
-            name="kaito_linked_at",
-        ),
-        migrations.RemoveField(
-            model_name="user",
-            name="kaito_yaps_30d",
-        ),
-        migrations.RemoveField(
-            model_name="user",
-            name="kaito_yaps_lifetime",
-        ),
-        migrations.RemoveField(
-            model_name="xprofile",
-            name="kaito_yaps_lifetime",
-        ),
-        migrations.RemoveField(
-            model_name="xprofile",
-            name="raw_kaito_data",
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="user",
+                    name="kaito_last_updated",
+                ),
+                migrations.RemoveField(
+                    model_name="user",
+                    name="kaito_linked_at",
+                ),
+                migrations.RemoveField(
+                    model_name="user",
+                    name="kaito_yaps_30d",
+                ),
+                migrations.RemoveField(
+                    model_name="user",
+                    name="kaito_yaps_lifetime",
+                ),
+                migrations.RemoveField(
+                    model_name="xprofile",
+                    name="kaito_yaps_lifetime",
+                ),
+                migrations.RemoveField(
+                    model_name="xprofile",
+                    name="raw_kaito_data",
+                ),
+            ],
         ),
         migrations.AlterField(
             model_name="outboxevent",

@@ -66,7 +66,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     total_credits_earned = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
     total_credits_spent = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
 
-    # Daily limits (reset by Celery tasks)
+    # Daily limits (reset by django-q2 tasks)
     daily_credits_earned = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal('0'))
     daily_earned_reset_at = models.DateTimeField(default=timezone.now)
 
@@ -402,7 +402,7 @@ class OutboxEvent(models.Model):
        - Write business data
        - Write OutboxEvent (pending)
     2. Commit transaction
-    3. Celery worker picks up pending events
+    3. django-q2 worker picks up pending events
     4. Worker sends notification/calls external API
     5. Mark event as 'sent' or 'failed'
 

@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "safedelete",
     "django_structlog",
     "waffle",
+    "django_q",  # Async task queue (replaces Celery)
     # Local apps
     "core",
     "posts",
@@ -256,13 +257,21 @@ DATABASES["default"]["OPTIONS"] = {
 # Redis
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 
-# Celery
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SERIALIZER = "json"
-CELERY_RESULT_SERIALIZER = "json"
-CELERY_TIMEZONE = "UTC"
+# django-q2 (async task queue, replaces Celery)
+# Runs the worker + scheduler in a single process: `python manage.py qcluster`
+Q_CLUSTER = {
+    "name": "loudrr",
+    "workers": int(env("QCLUSTER_WORKERS", default=2)),
+    "recycle": 500,        # restart a worker after this many tasks to avoid memory leaks
+    "timeout": 280,        # task must complete in this many seconds or worker is killed
+    "retry": 300,          # requeue a task after this long if it hasn't finished
+    "save_limit": 250,     # keep the last N successful results for inspection
+    "queue_limit": 500,
+    "bulk": 10,
+    "redis": REDIS_URL,
+    "catch_up": False,     # if scheduler was down, skip missed runs instead of running all
+    "label": "Loudrr Q",
+}
 
 # Cache
 CACHES = {

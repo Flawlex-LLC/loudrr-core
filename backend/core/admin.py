@@ -681,7 +681,7 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
         """
         Approve selected waitlist entries and create users.
 
-        Uses Celery task for TweetScout fetch (non-blocking).
+        Uses django-q2 task for TweetScout fetch (non-blocking).
         User is created immediately with tweetscout_last_updated set,
         so they can use the app while TweetScout data is fetched in background.
         """
@@ -718,7 +718,7 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
                         display_name=entry.telegram_display_name or "",
                         x_username=entry.x_username,
                         is_whitelisted=True,
-                        tweetscout_score=0,  # Will be updated by Celery task
+                        tweetscout_score=0,  # Will be updated by django-q2 task
                         tweetscout_last_updated=timezone.now(),  # Set now to skip onboarding
                     )
 

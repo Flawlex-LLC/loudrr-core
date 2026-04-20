@@ -5,12 +5,12 @@ Best practices followed:
 1. dispatch_uid to prevent duplicate signal connections
 2. Transactional Outbox pattern for reliable notifications
 3. Idempotency checks to prevent duplicate messages
-4. Lightweight handlers - heavy work delegated to Celery via OutboxEvent
+4. Lightweight handlers - heavy work delegated to django-q via OutboxEvent
 
 The Transactional Outbox Pattern:
 - OutboxEvent is created INSIDE the same transaction as the model change
 - If transaction rolls back, the event also rolls back (no orphan notifications)
-- A separate Celery worker processes events from the outbox table
+- A separate django-q worker processes events from the outbox table
 - This guarantees exactly-once delivery semantics
 
 References:
@@ -68,7 +68,7 @@ def send_approval_notification_on_approve(sender, instance, created, **kwargs):
     Uses Transactional Outbox pattern:
     1. OutboxEvent created in SAME transaction as WaitlistEntry update
     2. If transaction rolls back, event also rolls back (no orphan notifications)
-    3. Celery worker processes events from outbox table
+    3. django-q worker processes events from outbox table
     4. Guarantees exactly-once delivery
 
     Idempotency safeguards:
@@ -106,12 +106,12 @@ def send_approval_notification_on_approve(sender, instance, created, **kwargs):
     )
 
     # Optionally trigger immediate processing after commit
-    # (events will also be picked up by periodic Celery Beat task)
+    # (events will also be picked up by the periodic django-q schedule)
     def trigger_processing():
         """Trigger immediate event processing after transaction commits."""
         try:
-            from core.tasks import process_pending_outbox_events
-            process_pending_outbox_events.delay(batch_size=10)
+            from django_q.tasks import async_task
+            async_task("core.tasks.process_pending_outbox_events", batch_size=10)
         except Exception as e:
             logger.warning(f"Failed to trigger immediate processing: {e}")
             # Not critical - periodic task will pick it up
@@ -131,7 +131,7 @@ def send_submission_confirmation_on_submit(sender, instance, created, **kwargs):
     Uses Transactional Outbox pattern:
     1. OutboxEvent created in SAME transaction as WaitlistEntry creation
     2. If transaction rolls back, event also rolls back
-    3. Celery worker processes events from outbox table
+    3. django-q worker processes events from outbox table
 
     Fires on create (since entries are created directly as SUBMITTED,
     _previous_status is None which triggers the notification).
@@ -162,8 +162,8 @@ def send_submission_confirmation_on_submit(sender, instance, created, **kwargs):
     def trigger_processing():
         """Trigger immediate event processing after transaction commits."""
         try:
-            from core.tasks import process_pending_outbox_events
-            process_pending_outbox_events.delay(batch_size=10)
+            from django_q.tasks import async_task
+            async_task("core.tasks.process_pending_outbox_events", batch_size=10)
         except Exception as e:
             logger.warning(f"Failed to trigger immediate processing: {e}")
 

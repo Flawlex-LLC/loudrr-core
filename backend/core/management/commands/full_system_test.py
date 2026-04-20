@@ -443,10 +443,11 @@ class Command(BaseCommand):
     def test_queue_system(self):
         """Test Celery queue integration (requires running worker)."""
         self.stdout.write("\n" + "-" * 50)
-        self.stdout.write("TEST SUITE: Queue System (Celery)")
+        self.stdout.write("TEST SUITE: Queue System (django-q2)")
         self.stdout.write("-" * 50)
 
-        from posts.tasks import process_verification_batch
+        import time
+        from django_q.tasks import async_task, fetch
 
         user = self.create_test_user(50, credits=Decimal("10"), x_username="test_queue_user")
         poster = self.create_test_user(51, credits=Decimal("100"))
@@ -470,26 +471,32 @@ class Command(BaseCommand):
 
         # Try to queue task
         try:
-            result = process_verification_batch.delay(str(batch.id))
-            self.assert_true(result.id is not None, "Task queued to Celery")
+            task_id = async_task("posts.tasks.process_verification_batch", str(batch.id))
+            self.assert_true(task_id is not None, "Task queued to django-q2")
 
-            # Wait for result (with timeout)
-            self.stdout.write("    Waiting for Celery to process (max 30s)...")
-            try:
-                task_result = result.get(timeout=30)
-                self.assert_true(True, "Celery task completed")
+            # Poll until the task is picked up (max 30s)
+            self.stdout.write("    Waiting for django-q2 to process (max 30s)...")
+            deadline = time.time() + 30
+            task_result = None
+            while time.time() < deadline:
+                task_result = fetch(task_id)
+                if task_result is not None:
+                    break
+                time.sleep(1)
 
+            if task_result is None:
+                self.assert_true(False, "django-q2 task did not run within 30s (is qcluster running?)")
+            else:
+                self.assert_true(task_result.success, f"django-q2 task success (result={task_result.result!r})")
                 batch.refresh_from_db()
                 self.assert_equal(
                     batch.status,
                     VerificationBatch.Status.COMPLETED,
-                    "Batch marked completed by Celery"
+                    "Batch marked completed by worker",
                 )
-            except Exception as e:
-                self.assert_true(False, f"Celery task failed or timed out: {e}")
 
         except Exception as e:
-            self.assert_true(False, f"Failed to queue Celery task: {e}")
+            self.assert_true(False, f"Failed to queue django-q2 task: {e}")
 
     def test_concurrency(self):
         """Test concurrent operations for race conditions."""
