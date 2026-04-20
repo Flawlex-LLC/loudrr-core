@@ -438,26 +438,19 @@ class OutboxService:
     @staticmethod
     def _process_tweetscout_fetch(event: OutboxEvent) -> bool:
         """Process TweetScout data fetch."""
-        from core.models import User
-
         user_id = event.payload.get("user_id")
         if not user_id:
             logger.error("No user_id in tweetscout_fetch event payload")
             return False
 
         try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            logger.error(f"User {user_id} not found")
-            return False
-
-        try:
-            # Call the existing TweetScout fetch logic
-            from core.tasks import _fetch_tweetscout_for_user
-            _fetch_tweetscout_for_user(user)
-            return True
+            from core.tasks import fetch_tweetscout_for_user_task
+            result = fetch_tweetscout_for_user_task(user_id)
+            # Treat 'success' and 'already_exists' and 'no_data' as handled
+            status = (result or {}).get("status")
+            return status in ("success", "already_exists", "no_data")
         except Exception as e:
-            logger.error(f"Failed to fetch TweetScout data: {e}")
+            logger.exception(f"Failed to fetch TweetScout data: {e}")
             return False
 
     @staticmethod

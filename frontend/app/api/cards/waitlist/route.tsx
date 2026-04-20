@@ -240,9 +240,21 @@ export async function GET(request: NextRequest) {
             </div>
           </div>
 
+          {/* Full-width divider line above bottom text */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '130px',
+              left: 0,
+              width: '972px',
+              height: '2px',
+              background: 'linear-gradient(90deg, transparent 0%, rgba(249, 84, 0, 0.9) 50%, transparent 100%)',
+              zIndex: 1,
+            }}
+          />
+
           {/* Bottom section */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 'auto', gap: '8px', zIndex: 1 }}>
-            <div style={{ width: '300px', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(249, 84, 0, 0.3), transparent)', marginBottom: '12px' }} />
             <span style={{ fontSize: '17px', color: 'rgba(255,255,255,0.55)', fontFamily: 'Space Grotesk' }}>
               We'll notify you here when you get access
             </span>

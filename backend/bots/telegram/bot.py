@@ -26,21 +26,13 @@ logger = logging.getLogger(__name__)
 
 def create_bot() -> Application:
     """Create and configure the Telegram bot application."""
-    # Check for proxy configuration
-    proxy_url = os.environ.get("TELEGRAM_PROXY_URL")
-
-    builder = Application.builder().token(settings.TELEGRAM_BOT_TOKEN)
-
-    if proxy_url:
-        logger.info(f"Using proxy: {proxy_url}")
-        request = HTTPXRequest(proxy=proxy_url, connect_timeout=30.0, read_timeout=30.0)
-        builder = builder.request(request)
-    else:
-        # Increase timeouts for slow connections
-        request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0)
-        builder = builder.request(request)
-
-    application = builder.build()
+    request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0)
+    application = (
+        Application.builder()
+        .token(settings.TELEGRAM_BOT_TOKEN)
+        .request(request)
+        .build()
+    )
 
     # Command handlers
     application.add_handler(CommandHandler("start", start_handler))
