@@ -497,6 +497,14 @@ TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", default="Loudrrbot")
 TELEGRAM_WEBHOOK_URL = env("TELEGRAM_WEBHOOK_URL", default="")
 TELEGRAM_WEBHOOK_SECRET = env("TELEGRAM_WEBHOOK_SECRET", default="")
 
+# X (Twitter) OAuth 2.0 credentials. Used to verify a user owns the X account
+# they submitted on the waitlist. Get these from
+# https://developer.twitter.com (App settings -> Keys and tokens / User
+# authentication settings). The callback URL must match what's registered there.
+X_OAUTH_CLIENT_ID = env("X_OAUTH_CLIENT_ID", default="")
+X_OAUTH_CLIENT_SECRET = env("X_OAUTH_CLIENT_SECRET", default="")
+X_OAUTH_CALLBACK_URL = env("X_OAUTH_CALLBACK_URL", default=f"{SITE_URL.rstrip('/')}/api/auth/x/callback/")
+
 # Twitter API (twitterapi.io) for verification (v1)
 TWITTER_API_KEY = env("TWITTER_API_KEY", default="")
 

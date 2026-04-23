@@ -731,6 +731,12 @@ class UserInfoView(MiniAppAuthMixin, APIView):
             clicked_at__gte=today_start
         ).count()
 
+        # Detect any pending X verification request (admin review state)
+        from core.models import XVerificationRequest
+        pending_x_verification = XVerificationRequest.objects.filter(
+            user=user, status=XVerificationRequest.Status.PENDING
+        ).exists()
+
         return Response({
             "id": str(user.id),
             "display_name": user.display_name,
@@ -749,6 +755,10 @@ class UserInfoView(MiniAppAuthMixin, APIView):
             "engaged_today": engaged_today,
             "is_whitelisted": getattr(user, 'is_whitelisted', True),
             "loud_access": getattr(user, 'loud_access', False),
+            # X verification gating
+            "x_verified": user.x_verified,
+            "pending_claimed_x_username": user.pending_claimed_x_username or None,
+            "x_verification_pending_review": pending_x_verification,
         })
 
 

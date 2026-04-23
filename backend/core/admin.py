@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.utils import timezone
 from django.utils.html import format_html
 
-from .models import User, Transaction, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest
+from .models import User, Transaction, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest, XVerificationRequest
 
 logger = logging.getLogger(__name__)
 from .services.credits import CreditService
@@ -711,7 +711,10 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
                         errors.append(f"{entry.email}: X username already registered")
                         continue
 
-                    # Create user with timestamp set (so frontend skips onboarding)
+                    # Create user with timestamp set (so frontend skips onboarding).
+                    # If this entry was bounced back from a rejected X verification
+                    # request, x_verified_previously is True — the user already
+                    # connected their X account, so skip the verification gate.
                     user = User.objects.create(
                         telegram_id=entry.telegram_id,
                         telegram_username=entry.telegram_username or "",
@@ -720,6 +723,8 @@ class WaitlistEntryAdmin(admin.ModelAdmin):
                         is_whitelisted=True,
                         tweetscout_score=0,  # Will be updated by django-q2 task
                         tweetscout_last_updated=timezone.now(),  # Set now to skip onboarding
+                        x_verified=entry.x_verified_previously,
+                        x_verified_at=timezone.now() if entry.x_verified_previously else None,
                     )
 
                     # Update entry status (triggers notification via post_save signal)
@@ -797,3 +802,180 @@ class FeatureInterestAdmin(admin.ModelAdmin):
             return ", ".join(obj.interests)
         return "-"
     interests_display.short_description = "Interests"
+
+
+# =============================================================================
+# X VERIFICATION REQUEST ADMIN
+# =============================================================================
+# Registered in echo/urls.py with the default admin.site (no @admin.register here)
+class XVerificationRequestAdmin(admin.ModelAdmin):
+    """Admin review queue for X account verification mismatches.
+
+    A user submits the waitlist with @A, gets approved, connects X via OAuth,
+    OAuth returns @B, user confirms "yes @B is mine" -> creates a row here.
+    Admin then APPROVES (we update User.x_username -> @B, set x_verified=True)
+    or REJECTS (User dropped back to waitlist as a new SUBMITTED entry with
+    x_username=@B and x_verified_previously=True so admin can re-evaluate).
+    """
+
+    list_display = [
+        "created_at", "user_link", "submitted_x_username",
+        "claimed_x_username", "status_display", "reviewed_at",
+    ]
+    list_filter = ["status", "created_at"]
+    search_fields = [
+        "submitted_x_username", "claimed_x_username",
+        "user__telegram_username", "user__display_name", "user__email",
+    ]
+    ordering = ["-created_at"]
+    readonly_fields = [
+        "id", "user", "submitted_x_username", "claimed_x_username",
+        "claimed_x_user_id", "created_at", "updated_at",
+        "reviewed_by", "reviewed_at",
+    ]
+    fieldsets = (
+        ("Request", {
+            "fields": ("id", "user", "status", "created_at", "updated_at"),
+        }),
+        ("X Account", {
+            "fields": ("submitted_x_username", "claimed_x_username", "claimed_x_user_id"),
+        }),
+        ("Review", {
+            "fields": ("admin_notes", "reviewed_by", "reviewed_at"),
+        }),
+    )
+
+    actions = ["approve_requests", "reject_requests"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def user_link(self, obj):
+        if obj.user:
+            return format_html(
+                '<a href="/loudrr-admin/core/user/{}/change/">{}</a>',
+                obj.user.pk, obj.user.display_name or str(obj.user)
+            )
+        return "-"
+    user_link.short_description = "User"
+
+    def status_display(self, obj):
+        colors = {
+            XVerificationRequest.Status.PENDING: ("#f97316", "PENDING"),
+            XVerificationRequest.Status.APPROVED: ("#22c55e", "APPROVED"),
+            XVerificationRequest.Status.REJECTED: ("#ef4444", "REJECTED"),
+        }
+        color, label = colors.get(obj.status, ("#94a3b8", obj.status))
+        return format_html(
+            '<span style="color:{};font-weight:700;">{}</span>', color, label
+        )
+    status_display.short_description = "Status"
+    status_display.admin_order_field = "status"
+
+    @admin.action(description="Approve selected (update user's X to claimed account)")
+    def approve_requests(self, request, queryset):
+        """Approve: update User.x_username to claimed username, mark verified."""
+        from django.db import transaction as dj_tx
+        from django.utils import timezone as tz
+
+        approved = 0
+        errors = []
+        for req in queryset.filter(status=XVerificationRequest.Status.PENDING):
+            try:
+                with dj_tx.atomic():
+                    user = req.user
+                    # Conflict check: claimed username already in use elsewhere
+                    if User.objects.filter(
+                        x_username__iexact=req.claimed_x_username
+                    ).exclude(pk=user.pk).exists():
+                        errors.append(
+                            f"@{req.claimed_x_username}: already in use by another user"
+                        )
+                        continue
+
+                    user.x_username = req.claimed_x_username
+                    user.x_verified = True
+                    user.x_verified_at = tz.now()
+                    user.pending_claimed_x_username = ""
+                    user.pending_claimed_x_user_id = ""
+                    user.save(update_fields=[
+                        "x_username", "x_verified", "x_verified_at",
+                        "pending_claimed_x_username", "pending_claimed_x_user_id",
+                    ])
+                    req.status = XVerificationRequest.Status.APPROVED
+                    req.reviewed_by = request.user if request.user.is_authenticated else None
+                    req.reviewed_at = tz.now()
+                    req.save(update_fields=["status", "reviewed_by", "reviewed_at", "updated_at"])
+                approved += 1
+                log_admin_action(request, req, f"Approved: @{req.claimed_x_username} -> user {user.id}")
+            except Exception as e:
+                errors.append(f"req {req.id}: {e}")
+
+        if approved:
+            self.message_user(request, f"Approved {approved} requests.", messages.SUCCESS)
+        for err in errors[:5]:
+            self.message_user(request, err, messages.WARNING)
+
+    @admin.action(description="Reject selected (drop user back to waitlist)")
+    def reject_requests(self, request, queryset):
+        """Reject: delete User, recreate WaitlistEntry with claimed_x_username
+        and x_verified_previously=True so they can be re-reviewed."""
+        from django.db import transaction as dj_tx
+        from django.utils import timezone as tz
+
+        rejected = 0
+        errors = []
+        for req in queryset.filter(status=XVerificationRequest.Status.PENDING):
+            try:
+                with dj_tx.atomic():
+                    user = req.user
+
+                    # Find the original waitlist entry (1:1 via created_user)
+                    original = WaitlistEntry.objects.filter(created_user=user).first()
+                    if not original:
+                        errors.append(
+                            f"req {req.id}: no original waitlist entry found"
+                        )
+                        continue
+
+                    # Snapshot fields needed to rebuild a new entry
+                    new_entry = WaitlistEntry.objects.create(
+                        email=original.email,
+                        telegram_id=original.telegram_id,
+                        telegram_username=original.telegram_username,
+                        telegram_display_name=original.telegram_display_name,
+                        x_username=req.claimed_x_username,  # the verified-by-OAuth handle
+                        x_link=f"https://x.com/{req.claimed_x_username}",
+                        region=original.region,
+                        niche=original.niche,
+                        other_platforms=original.other_platforms,
+                        x_verified_previously=True,
+                        # status defaults to SUBMITTED
+                    )
+
+                    # Mark old entry rejected (just for history)
+                    original.status = WaitlistEntry.Status.REJECTED
+                    original.created_user = None
+                    original.save(update_fields=["status", "created_user", "updated_at"])
+
+                    req.status = XVerificationRequest.Status.REJECTED
+                    req.reviewed_by = request.user if request.user.is_authenticated else None
+                    req.reviewed_at = tz.now()
+                    req.save(update_fields=["status", "reviewed_by", "reviewed_at", "updated_at"])
+
+                    log_admin_action(
+                        request, req,
+                        f"Rejected: deleted user {user.id}, new waitlist entry {new_entry.id}"
+                    )
+
+                    # Delete the user — they're back to waitlist state
+                    user.delete()
+
+                rejected += 1
+            except Exception as e:
+                errors.append(f"req {req.id}: {e}")
+
+        if rejected:
+            self.message_user(request, f"Rejected {rejected} requests; users dropped back to waitlist.", messages.WARNING)
+        for err in errors[:5]:
+            self.message_user(request, err, messages.WARNING)

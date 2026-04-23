@@ -122,6 +122,10 @@ export interface User {
   is_whitelisted?: boolean;
   // Feature access
   loud_access?: boolean;
+  // X verification gate (post-approval)
+  x_verified?: boolean;
+  pending_claimed_x_username?: string | null;
+  x_verification_pending_review?: boolean;
 }
 
 export interface Post {
@@ -291,6 +295,27 @@ export const api = {
    * Get current user info
    */
   getUser: () => apiRequest<User>('/user/'),
+
+  /**
+   * Start X OAuth verification — returns the X authorize URL the user
+   * should be sent to (open in external browser via Telegram WebApp.openLink).
+   */
+  startXOAuth: () => apiRequest<{ authorize_url: string }>('/x-oauth/start/', { method: 'POST' }),
+
+  /**
+   * After OAuth returned a different X username than the one the user
+   * submitted, the user clicks "yes this IS my actual account" — this
+   * creates an XVerificationRequest for admin review.
+   */
+  confirmXMismatch: () =>
+    apiRequest<{ status: string }>('/x-verification/confirm-mismatch/', { method: 'POST' }),
+
+  /**
+   * "no, that wasn't my real account" — clears pending state so the user
+   * can retry Connect X with the correct account.
+   */
+  cancelXMismatch: () =>
+    apiRequest<{ status: string }>('/x-verification/cancel-mismatch/', { method: 'POST' }),
 
   /**
    * Start engagement flow - returns posts and user's pending progress

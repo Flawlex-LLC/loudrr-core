@@ -109,6 +109,17 @@ class User(AbstractBaseUser, PermissionsMixin):
     tweetscout_score = models.FloatField(default=0)  # Score from TweetScout API
     tweetscout_last_updated = models.DateTimeField(null=True, blank=True)
 
+    # X OAuth verification state. After admin approval, users must connect their
+    # X account before getting full app access. If OAuth returns a different
+    # username than what they submitted, the mismatch flow kicks in.
+    x_verified = models.BooleanField(default=False, db_index=True)
+    x_verified_at = models.DateTimeField(null=True, blank=True)
+    # Set when OAuth succeeded but the returned username didn't match x_username.
+    # Cleared when user confirms "yes this is my account" (creates XVerificationRequest)
+    # or "no, let me retry" (back to Connect X screen).
+    pending_claimed_x_username = models.CharField(max_length=50, blank=True, default="")
+    pending_claimed_x_user_id = models.CharField(max_length=50, blank=True, default="")
+
     # Sponsored XP (earned from sponsored post engagements)
     # Non-spendable reputation score for giveaway eligibility
     sponsored_xp = models.IntegerField(default=0)
@@ -732,6 +743,12 @@ class WaitlistEntry(models.Model):
         help_text="Unique referral code for sharing"
     )
 
+    # Set True when this user previously completed X OAuth verification
+    # and an admin approved their mismatch request, but then got rejected
+    # and bounced back to waitlist. On next approval we skip re-verification
+    # since we already know which X account is theirs.
+    x_verified_previously = models.BooleanField(default=False)
+
     # Status (FSM-managed field - use transition methods, not direct assignment)
     status = FSMField(
         max_length=20,
@@ -869,3 +886,82 @@ auditlog.register(SiteSetting)
 auditlog.register(WaitlistEntry)
 auditlog.register(FeatureInterest)
 auditlog.register(OutboxEvent)
+
+
+# =============================================================================
+# X VERIFICATION REQUEST
+# =============================================================================
+
+class XVerificationRequest(models.Model):
+    """
+    Admin review queue for users who connected an X account that didn't match
+    their submitted x_username.
+
+    Flow:
+    1. User signs up with x_username=A
+    2. Admin approves waitlist entry -> User created, x_verified=False
+    3. User opens mini app, connects X via OAuth
+    4. OAuth returns username=B (mismatch)
+    5. User is prompted: "Is @B your actual account?"
+    6. User clicks "Yes" -> this record is created with status=PENDING
+    7. Admin reviews and approves (updates User.x_username=B, x_verified=True)
+       or rejects (demotes User back to waitlist)
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending Review"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="x_verification_requests"
+    )
+    submitted_x_username = models.CharField(
+        max_length=50,
+        help_text="x_username the user originally submitted on the waitlist"
+    )
+    claimed_x_username = models.CharField(
+        max_length=50,
+        help_text="Username returned by X OAuth (the one user is trying to verify with)"
+    )
+    claimed_x_user_id = models.CharField(
+        max_length=50,
+        help_text="Numeric X user ID from OAuth — the source of truth"
+    )
+
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+
+    admin_notes = models.TextField(
+        blank=True, default="",
+        help_text="Admin reviewer notes"
+    )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="+",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "x_verification_requests"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["user", "status"]),
+        ]
+
+    def __str__(self):
+        return f"XVerifRequest({self.user_id}: @{self.submitted_x_username} -> @{self.claimed_x_username}, {self.status})"
+
+
+auditlog.register(XVerificationRequest)

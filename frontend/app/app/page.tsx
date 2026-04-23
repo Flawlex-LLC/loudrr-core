@@ -199,10 +199,12 @@ export default function MiniApp() {
     try {
       setServerError(null);
 
-      // Check if running inside Telegram - initData must be present
-      // In dev mode (localhost), skip this check to allow debug testing
+      // Check if running inside Telegram - initData must be present.
+      // In dev mode (localhost OR our dev tunnel subdomain), skip this check
+      // to allow debug testing without a real Telegram WebApp context.
       const tg = getTelegramWebApp();
-      const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+      const host = typeof window !== 'undefined' ? window.location.hostname : '';
+      const isDev = host === 'localhost' || host.startsWith('dev-app.');
       if (!tg?.initData && !isDev) {
         setAuthState('not_in_telegram');
         return;
@@ -400,6 +402,24 @@ export default function MiniApp() {
   // Show waitlist pending screen for users already on waitlist
   if (authState === 'waitlisted') {
     return <WaitlistPendingScreen xUsername={waitlistData?.x_username} referralCode={waitlistData?.referral_code} />;
+  }
+
+  // X verification gate: approved user must connect their X account before
+  // anything else. Three sub-states based on backend flags.
+  if (user && user.is_whitelisted && user.x_verified === false) {
+    if (user.x_verification_pending_review) {
+      return <XVerificationPendingScreen xUsername={user.x_username || undefined} onPoll={loadUser} />;
+    }
+    if (user.pending_claimed_x_username) {
+      return (
+        <XMismatchPromptScreen
+          submittedUsername={user.x_username || ''}
+          claimedUsername={user.pending_claimed_x_username}
+          onResolved={loadUser}
+        />
+      );
+    }
+    return <ConnectXScreen xUsername={user.x_username || ''} onPoll={loadUser} />;
   }
 
   // Show onboarding screen only if TweetScout was never fetched (fallback for old users)
@@ -3933,6 +3953,235 @@ function WaitlistPendingScreen({ xUsername, referralCode }: { xUsername?: string
       {/* Info */}
       <p className="text-gray-500 text-sm text-center max-w-xs">
         Thank you for your patience. High-quality accounts are prioritized.
+      </p>
+    </div>
+  );
+}
+
+// =============================================================================
+// X VERIFICATION GATE
+// Three sub-screens shown after approval until x_verified === true:
+//   1. ConnectXScreen          — initial: "Connect X to get started"
+//   2. XMismatchPromptScreen   — OAuth returned a different username
+//   3. XVerificationPendingScreen — user confirmed mismatch, awaiting admin
+// All screens poll /user/ every 3s so they auto-advance when state changes.
+// =============================================================================
+
+function useUserPolling(onPoll: () => Promise<void> | void, intervalMs: number = 3000) {
+  useEffect(() => {
+    const id = setInterval(() => { onPoll(); }, intervalMs);
+    return () => clearInterval(id);
+  }, [onPoll, intervalMs]);
+}
+
+function ConnectXScreen({ xUsername, onPoll }: { xUsername: string; onPoll: () => Promise<void> | void }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useUserPolling(onPoll);
+
+  const handleConnect = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { authorize_url } = await api.startXOAuth();
+      hapticFeedback('light');
+      openLink(authorize_url);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to start verification');
+      hapticFeedback('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      <div className="mb-6">
+        <img src="/loudrr-icon.png" alt="Loudrr" className="w-20 h-20" />
+      </div>
+      <h1 className="text-2xl font-bold text-white mb-2">You're approved 🎉</h1>
+      <p className="text-gray-400 text-center mb-6 max-w-sm">
+        Connect your X account to verify it's really you and start earning karma.
+      </p>
+
+      <div
+        className="w-full max-w-sm rounded-2xl p-5 mb-6"
+        style={{
+          background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+          backdropFilter: 'blur(32px)',
+          border: '1px solid rgba(249, 84, 0, 0.15)',
+        }}
+      >
+        <div className="flex items-center gap-3 mb-4">
+          <div className="glass-icon glass-icon-md glass-icon-orange pointer-events-none">
+            <XLogoIcon className="w-5 h-5" style={ICON_GRADIENT_STYLE} />
+          </div>
+          <div>
+            <div className="text-white font-medium">Verify @{xUsername}</div>
+            <div className="text-gray-500 text-xs">We'll open X in your browser</div>
+          </div>
+        </div>
+
+        {error && <p className="text-red-400 text-sm mb-3 text-center">{error}</p>}
+
+        <button
+          onClick={handleConnect}
+          disabled={loading}
+          className="w-full h-12 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+          style={{
+            background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+            border: '1px solid rgba(249, 84, 0, 0.4)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+            color: 'white',
+          }}
+        >
+          {loading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Opening X…
+            </>
+          ) : (
+            <>Connect X to get started</>
+          )}
+        </button>
+      </div>
+
+      <p className="text-gray-600 text-xs text-center max-w-xs">
+        After authorizing on X, return to Telegram. We'll detect it automatically.
+      </p>
+    </div>
+  );
+}
+
+function XMismatchPromptScreen({
+  submittedUsername,
+  claimedUsername,
+  onResolved,
+}: {
+  submittedUsername: string;
+  claimedUsername: string;
+  onResolved: () => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState<'yes' | 'no' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleYes = async () => {
+    setBusy('yes');
+    setError(null);
+    try {
+      await api.confirmXMismatch();
+      hapticFeedback('success');
+      await onResolved();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to submit');
+      hapticFeedback('error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleNo = async () => {
+    setBusy('no');
+    setError(null);
+    try {
+      await api.cancelXMismatch();
+      hapticFeedback('light');
+      await onResolved();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to cancel');
+      hapticFeedback('error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      <div className="mb-6">
+        <img src="/loudrr-icon.png" alt="Loudrr" className="w-20 h-20" />
+      </div>
+      <h1 className="text-2xl font-bold text-white mb-2">Different account?</h1>
+      <p className="text-gray-400 text-center mb-6 max-w-sm">
+        You're approved with <span className="text-white">@{submittedUsername}</span> but you connected{' '}
+        <span className="text-[#f95400]">@{claimedUsername}</span>.
+      </p>
+
+      <div
+        className="w-full max-w-sm rounded-2xl p-5 mb-4"
+        style={{
+          background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.04) 0%, rgba(15, 10, 11, 0.8) 50%, rgba(249, 84, 0, 0.02) 100%)',
+          backdropFilter: 'blur(32px)',
+          border: '1px solid rgba(249, 84, 0, 0.15)',
+        }}
+      >
+        <p className="text-white text-sm text-center mb-4">
+          Is <span className="text-[#f95400] font-semibold">@{claimedUsername}</span> your actual account?
+        </p>
+
+        {error && <p className="text-red-400 text-sm mb-3 text-center">{error}</p>}
+
+        <div className="flex gap-3">
+          <button
+            onClick={handleNo}
+            disabled={!!busy}
+            className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center transition-all active:scale-95 disabled:opacity-50"
+            style={{
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              color: 'rgba(255, 255, 255, 0.7)',
+            }}
+          >
+            {busy === 'no' ? '…' : 'No, retry'}
+          </button>
+          <button
+            onClick={handleYes}
+            disabled={!!busy}
+            className="flex-1 h-12 rounded-2xl text-sm font-semibold flex items-center justify-center transition-all active:scale-95 disabled:opacity-50"
+            style={{
+              background: 'linear-gradient(135deg, rgba(249, 84, 0, 0.2) 0%, rgba(255, 140, 66, 0.15) 50%, rgba(249, 84, 0, 0.18) 100%)',
+              border: '1px solid rgba(249, 84, 0, 0.4)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(255, 140, 66, 0.2) inset',
+              color: 'white',
+            }}
+          >
+            {busy === 'yes' ? '…' : 'Yes, that\'s me'}
+          </button>
+        </div>
+      </div>
+
+      <p className="text-gray-600 text-xs text-center max-w-xs">
+        If yes, an admin will review and approve. If no, you'll go back to Connect X to try again with the correct account.
+      </p>
+    </div>
+  );
+}
+
+function XVerificationPendingScreen({ xUsername, onPoll }: { xUsername?: string; onPoll: () => Promise<void> | void }) {
+  useUserPolling(onPoll, 5000);
+  return (
+    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6">
+      <div className="mb-6">
+        <img src="/loudrr-icon.png" alt="Loudrr" className="w-20 h-20" />
+      </div>
+      <h1 className="text-2xl font-bold text-white mb-2">Under Review</h1>
+      <p className="text-gray-400 text-center mb-6 max-w-sm">
+        An admin is reviewing your X account verification request.
+        {xUsername ? <> We'll let you know the outcome shortly.</> : null}
+      </p>
+
+      <div
+        className="w-full max-w-sm rounded-2xl p-5 mb-4 flex items-center gap-3"
+        style={{
+          background: 'rgba(255, 255, 255, 0.04)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+        }}
+      >
+        <div className="w-3 h-3 rounded-full bg-orange-500 animate-pulse" />
+        <span className="text-white text-sm">Pending admin review</span>
+      </div>
+
+      <p className="text-gray-600 text-xs text-center max-w-xs">
+        Keep this app open or check back later. This usually takes a few hours.
       </p>
     </div>
   );

@@ -207,10 +207,11 @@ if not loudrr_admin.is_registered(AuditLogEntry):
 
 # Register ALL models with default admin.site
 # Core models
-from core.models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest
+from core.models import User, Transaction, AuditLog, SiteSetting, XProfile, XPTransaction, WaitlistEntry, FeatureInterest, XVerificationRequest
 from core.admin import (
     UserAdmin, TransactionAdmin, AuditLogAdmin,
-    SiteSettingAdmin, XProfileAdmin, XPTransactionAdmin, WaitlistEntryAdmin, FeatureInterestAdmin
+    SiteSettingAdmin, XProfileAdmin, XPTransactionAdmin, WaitlistEntryAdmin, FeatureInterestAdmin,
+    XVerificationRequestAdmin,
 )
 
 for model, model_admin in [
@@ -222,6 +223,7 @@ for model, model_admin in [
     (XPTransaction, XPTransactionAdmin),
     (WaitlistEntry, WaitlistEntryAdmin),
     (FeatureInterest, FeatureInterestAdmin),
+    (XVerificationRequest, XVerificationRequestAdmin),
 ]:
     if not admin.site.is_registered(model):
         admin.site.register(model, model_admin)
@@ -260,6 +262,7 @@ for model, model_admin in [
 
 
 from bots.telegram.views import telegram_webhook
+from miniapp.views_x_verification import x_oauth_callback
 
 
 urlpatterns = [
@@ -282,6 +285,9 @@ urlpatterns = [
 
     # Telegram bot webhook (production mode)
     path("api/telegram/webhook/", telegram_webhook, name="telegram_webhook"),
+
+    # X OAuth callback (X redirects here from external browser)
+    path("api/auth/x/callback/", x_oauth_callback, name="x_oauth_callback"),
 
     # Redirects
     path("r/", include("redirects.urls")),

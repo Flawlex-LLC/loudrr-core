@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import views
+from . import views_x_verification
 
 urlpatterns = [
     # Health check
@@ -35,4 +36,9 @@ urlpatterns = [
 
     # Referral system
     path("referral/", views.ReferralInfoView.as_view(), name="referral-info"),
+
+    # X OAuth verification (post-approval gate)
+    path("x-oauth/start/", views_x_verification.XOAuthStartView.as_view(), name="x-oauth-start"),
+    path("x-verification/confirm-mismatch/", views_x_verification.ConfirmMismatchView.as_view(), name="x-verification-confirm-mismatch"),
+    path("x-verification/cancel-mismatch/", views_x_verification.CancelMismatchView.as_view(), name="x-verification-cancel-mismatch"),
 ]
