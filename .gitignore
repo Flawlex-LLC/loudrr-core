@@ -15,3 +15,5 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+.env.local
+test.py

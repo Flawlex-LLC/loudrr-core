@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 # db url
     database_url: str = "sqlite+aiosqlite:///./questkit.db"
     items_per_page: int = 20
+
 # business logic settings
 settings = Settings()
 
