@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FastAPI Dependency — get_current_user, explained</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f6f8;
+         color: #1c1c1c; max-width: 940px; margin: 0 auto; padding: 32px 28px 80px;
+         line-height: 1.6; }
+  h1 { font-size: 26px; border-bottom: 3px solid #4a7a9a; padding-bottom: 10px; }
+  h2 { font-size: 20px; margin-top: 42px; color: #2c4a5e; }
+  .lede { background: #fff; border-left: 4px solid #d8772a; padding: 14px 18px;
+          border-radius: 4px; font-size: 15px; }
+  .lede strong { color: #b5651d; }
+  code { background: #eef1f3; padding: 1px 5px; border-radius: 3px;
+         font-family: 'Consolas', monospace; font-size: 13px; }
+  /* the bouncer analogy box */
+  .analogy { background: #eef4ee; border: 1px solid #9ec49e; border-radius: 8px;
+             padding: 16px 20px; margin: 18px 0; font-size: 14.5px; }
+  .analogy strong { color: #3a6a2a; }
+  /* the door diagram */
+  .door { background: #fff; border-radius: 8px; padding: 20px; margin: 20px 0;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .door-row { display: flex; align-items: stretch; gap: 0; }
+  .box { flex: 1; text-align: center; padding: 14px 8px; font-size: 13px;
+         border-radius: 6px; display: flex; flex-direction: column;
+         justify-content: center; }
+  .b-req { background: #d6e8f5; border: 2px solid #4a7a9a; }
+  .b-dep { background: #fbe8d4; border: 2px solid #d8772a; }
+  .b-route { background: #d6e8d0; border: 2px solid #5a9a4a; }
+  .gap { width: 36px; display: flex; align-items: center; justify-content: center;
+         color: #999; font-size: 22px; }
+  .box b { font-size: 14px; display: block; margin-bottom: 4px; }
+  .box .sub { color: #555; font-size: 11.5px; }
+  /* steps */
+  .step { background: #fff; border-radius: 8px; margin: 14px 0;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.08); overflow: hidden; }
+  .step-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .num { background: #d8772a; color: #fff; width: 30px; height: 30px;
+         border-radius: 50%; display: flex; align-items: center;
+         justify-content: center; font-weight: bold; flex-shrink: 0; }
+  .title { font-weight: bold; font-size: 15px; }
+  .step-body { padding: 2px 16px 16px 58px; font-size: 14px; }
+  .arrow { text-align: center; color: #bbb; font-size: 20px; margin: -4px 0; }
+  /* code block */
+  .code { background: #1c1c1c; color: #e0e0e0; font-family: 'Consolas', monospace;
+          font-size: 12.5px; padding: 14px 16px; border-radius: 6px; margin: 10px 0;
+          white-space: pre; overflow-x: auto; line-height: 1.5; }
+  .code .c { color: #7a9a6a; }      /* comment */
+  .code .k { color: #88c0d0; }      /* keyword */
+  .code .s { color: #d8a070; }      /* string */
+  /* table */
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13px; }
+  th, td { border: 1px solid #ccd; padding: 8px 10px; text-align: left;
+           vertical-align: top; }
+  th { background: #4a7a9a; color: #fff; }
+  td code { font-size: 12px; }
+  tr:nth-child(even) { background: #f7f9fa; }
+  .note { background: #fff5e0; border: 1px solid #e0c068; border-radius: 6px;
+          padding: 12px 16px; margin: 16px 0; font-size: 14px; }
+  .danger { background: #fbe4e4; border: 1px solid #d88; border-radius: 6px;
+            padding: 12px 16px; margin: 16px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>The FastAPI Dependency — <code>get_current_user</code></h1>
+
+<p class="lede">
+<strong>The one-line cure for your confusion:</strong> a <em>dependency</em> is
+<strong>not a route</strong>. It is a helper that <strong>runs before</strong>
+routes. That is exactly why it lives in <code>api/</code> but has no URL of its
+own — it is the <strong>gatekeeper</strong> for the routes, and a gatekeeper
+belongs at the entrance, not in a room.
+</p>
+
+<h2>The bouncer at the door</h2>
+
+<div class="analogy">
+Picture a club. The club has <strong>rooms</strong> — the dance floor, the bar,
+the lounge. Each room is a <strong>route</strong> (a URL like <code>/user/</code>
+or <code>/post/submit/</code>).<br><br>
+At the front door stands a <strong>bouncer</strong>. The bouncer is
+<strong>not a room</strong> — you cannot "go to the bouncer." But he belongs at
+the club, at its entrance, because <strong>every room is behind him</strong>.
+He checks your ID; if it is good, he lets you through to the room you wanted; if
+not, he turns you away at the door.<br><br>
+<strong><code>get_current_user</code> is the bouncer.</strong> It is not a
+route — it has no URL. It is the check that runs at the entrance, before any
+route. It lives in <code>api/deps.py</code> — "deps" = dependencies — because it
+belongs with the routes it guards, the way the bouncer belongs at the club he
+guards.
+</div>
+
+<h2>Where the dependency sits in a request</h2>
+
+<div class="door">
+  <div class="door-row">
+    <div class="box b-req">
+      <b>THE REQUEST</b>
+      <span class="sub">frontend calls<br><code>GET /user/</code><br>with the init-data header</span>
+    </div>
+    <div class="gap">&rarr;</div>
+    <div class="box b-dep">
+      <b>THE DEPENDENCY</b>
+      <span class="sub"><code>get_current_user</code><br>the bouncer —<br>runs FIRST</span>
+    </div>
+    <div class="gap">&rarr;</div>
+    <div class="box b-route">
+      <b>THE ROUTE</b>
+      <span class="sub">the actual<br><code>/user/</code> endpoint<br>runs only if the<br>bouncer approved</span>
+    </div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#666;">
+The request never reaches the route directly. FastAPI sends it
+<strong>through the dependency first</strong>. The route runs only if the
+dependency did not reject it. That "in between" position is the whole point of a
+dependency — and the reason it has no route of its own.
+</p>
+
+<h2>The flow, step by step</h2>
+
+<div class="step">
+  <div class="step-head"><div class="num">1</div>
+    <div class="title">The frontend calls a protected route</div></div>
+  <div class="step-body">
+    The frontend sends <code>GET /user/</code>, with the
+    <code>X-Telegram-Init-Data</code> header attached (the blob from the earlier
+    chart). It is asking for a route — it is not "calling" the dependency. It
+    does not even know the dependency exists.
+  </div>
+</div>
+<div class="arrow">&darr;</div>
+
+<div class="step">
+  <div class="step-head"><div class="num">2</div>
+    <div class="title">FastAPI sees the route needs the dependency — and runs it FIRST</div></div>
+  <div class="step-body">
+    The <code>/user/</code> route is declared to <em>depend on</em>
+    <code>get_current_user</code> (you write
+    <code>user = Depends(get_current_user)</code> on the route). So FastAPI does
+    not run the route yet — it runs the <strong>dependency</strong> first. This
+    is FastAPI's rule: <em>resolve the dependencies, then run the route.</em>
+  </div>
+</div>
+<div class="arrow">&darr;</div>
+
+<div class="step">
+  <div class="step-head"><div class="num">3</div>
+    <div class="title">The dependency does the gatekeeping</div></div>
+  <div class="step-body">
+    Inside <code>get_current_user</code>: it reads the
+    <code>X-Telegram-Init-Data</code> header, verifies the signature (calls
+    <code>verify_init_data</code> from the earlier chart), and looks the user up
+    in the database. Two outcomes:
+    <ul style="margin:6px 0;">
+      <li><strong>All good</strong> &rarr; it <code>return</code>s the
+      <code>User</code> object. The bouncer waves you through.</li>
+      <li><strong>Bad signature, or no user found</strong> &rarr; it
+      <code>raise</code>s a <strong>401</strong>. The bouncer turns you away —
+      and the route <strong>never runs at all</strong>.</li>
+    </ul>
+  </div>
+</div>
+<div class="arrow">&darr;</div>
+
+<div class="step">
+  <div class="step-head"><div class="num">4</div>
+    <div class="title">The route runs — handed the user, for free</div></div>
+  <div class="step-body">
+    If (and only if) the dependency returned a user, FastAPI now runs the
+    <code>/user/</code> route — and <strong>hands it the user the dependency
+    returned</strong>. The route does not re-check anything. It just trusts:
+    "I have a verified user, because the bouncer already checked." Every
+    protected route gets this for free, by declaring the one dependency.
+  </div>
+</div>
+
+<h2><code>app/api/deps.py</code> — line by line</h2>
+
+<div class="code"><span class="c"># the dependency — a plain function. NOT decorated with @router.get —</span>
+<span class="c"># that is the proof it is not a route. it is a helper that runs before routes.</span>
+<span class="k">async def</span> get_current_user(
+    x_telegram_init_data: str = Header(...),   <span class="c"># ask FastAPI for that header</span>
+    db = Depends(get_db),                       <span class="c"># this dependency itself uses another (the DB)</span>
+) -> User:
+    <span class="c"># --- the gatekeeping ---</span>
+    <span class="k">try</span>:
+        tg_user = verify_init_data(              <span class="c"># the earlier chart's check</span>
+            x_telegram_init_data, settings.TELEGRAM_BOT_TOKEN
+        )
+    <span class="k">except</span> ValueError:                       <span class="c"># verify_init_data raised -> blob was bad</span>
+        <span class="k">raise</span> HTTPException(status_code=401, detail=<span class="s">"invalid init data"</span>)
+
+    <span class="c"># look up the user by telegram_id -- do NOT create one</span>
+    result = <span class="k">await</span> db.execute(
+        select(User).where(User.telegram_id == tg_user[<span class="s">"id"</span>])
+    )
+    user = result.scalar_one_or_none()           <span class="c"># the User row, or None</span>
+    <span class="k">if</span> user <span class="k">is</span> None:
+        <span class="k">raise</span> HTTPException(status_code=401, detail=<span class="s">"not registered"</span>)
+
+    <span class="k">return</span> user                              <span class="c"># success -> hand the user to the route</span></div>
+
+<table>
+  <tr><th>Line</th><th>What it does</th></tr>
+  <tr>
+    <td><code>async def get_current_user(...)</code></td>
+    <td>A plain function. <strong>No <code>@router.get</code> above it</strong> —
+    that is how you know it is a dependency, not a route. It has no URL.</td>
+  </tr>
+  <tr>
+    <td><code>x_telegram_init_data: str = Header(...)</code></td>
+    <td><code>Header(...)</code> tells FastAPI: "fill this parameter from the
+    request's <code>X-Telegram-Init-Data</code> header." The <code>...</code>
+    means <strong>required</strong> — if the header is missing, FastAPI rejects
+    the request itself. <em>(In your paste this read <code>Header(.//)</code> —
+    a typo; it must be <code>Header(...)</code>, three dots.)</em></td>
+  </tr>
+  <tr>
+    <td><code>db = Depends(get_db)</code></td>
+    <td>A dependency can itself <em>use</em> another dependency. This one needs a
+    database session, so it depends on <code>get_db</code>. FastAPI resolves
+    that too, before this function runs.</td>
+  </tr>
+  <tr>
+    <td><code>-&gt; User</code></td>
+    <td>The type hint: this dependency hands back a <code>User</code> object.
+    That is what the route receives.</td>
+  </tr>
+  <tr>
+    <td><code>tg_user = verify_init_data(...)</code></td>
+    <td>Runs the signature check from the earlier chart. If the blob is forged
+    or expired, <code>verify_init_data</code> <code>raise</code>s
+    <code>ValueError</code>.</td>
+  </tr>
+  <tr>
+    <td><code>except ValueError: raise HTTPException(401, ...)</code></td>
+    <td>Catches that <code>ValueError</code> and turns it into a proper HTTP
+    <strong>401</strong>. The bouncer's "turn you away" — and the route never
+    runs.</td>
+  </tr>
+  <tr>
+    <td><code>select(User).where(User.telegram_id == tg_user["id"])</code></td>
+    <td>Look up the <code>User</code> row whose <code>telegram_id</code> matches
+    the verified Telegram id. <em>(Your paste had <code>=/</code> — a typo; it
+    must be <code>==</code>, the comparison.)</em></td>
+  </tr>
+  <tr>
+    <td><code>user = result.scalar_one_or_none()</code></td>
+    <td>Get the one matching <code>User</code> — or <code>None</code> if there is
+    no such row.</td>
+  </tr>
+  <tr>
+    <td><code>if user is None: raise HTTPException(401, "not registered")</code></td>
+    <td>The signature was genuine, but this Telegram account has no Loudrr
+    <code>User</code>. Reject with 401. <strong>See the note below — this is the
+    important design decision.</strong></td>
+  </tr>
+  <tr>
+    <td><code>return user</code></td>
+    <td>All checks passed. Hand the verified <code>User</code> to whatever route
+    asked for it.</td>
+  </tr>
+</table>
+
+<div class="danger">
+<strong>Why it does NOT create a user.</strong> A valid signature only proves
+<em>which Telegram account</em> is calling — not that they are a Loudrr user. A
+Loudrr <code>User</code> exists only after their <strong>waitlist application is
+approved</strong> (Chapter 8). So if the signature is genuine but no
+<code>User</code> row exists, the dependency returns <strong>401 "not
+registered"</strong> — it does <em>not</em> quietly create one. If it created a
+user here, anyone who opened the mini-app would be let straight in, and the
+whole waitlist would be bypassed. The frontend reads that 401 and sends the
+person to the waitlist instead.
+</div>
+
+<div class="note">
+<strong>So why is it in <code>api/</code> and not <code>core/</code>?</strong>
+<code>core/</code> held <code>telegram_auth.py</code> — pure, app-agnostic
+machinery (the HMAC maths). <code>get_current_user</code> is different: it is
+tied to <em>routes</em> — it is the thing routes <em>depend on</em>, it speaks
+HTTP (it raises <code>HTTPException</code> / 401), it touches the database. It
+belongs with the API layer. The file is named <code>deps.py</code> —
+"dependencies" — and that is its whole identity: the helpers the routes lean on.
+A route has a URL; a dependency does not — it runs <em>before</em> the URL.
+</div>
+
+<h2>The one picture to keep</h2>
+
+<div class="analogy">
+<strong>A route</strong> = a room in the club (has a URL, e.g. <code>/user/</code>).<br>
+<strong>A dependency</strong> = the bouncer at the door (no URL — runs
+<em>before</em> every room).<br>
+<strong><code>Depends(get_current_user)</code> on a route</strong> = "this room
+is behind the bouncer."<br><br>
+The dependency lives in <code>api/</code> because the bouncer belongs at the
+club. It has no route of its own because a bouncer is not a room. And every
+protected route gets a verified user handed to it <em>for free</em>, simply by
+declaring it depends on the bouncer.
+</div>
+
+</body>
+</html>

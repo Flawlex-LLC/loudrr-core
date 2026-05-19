@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from app.core.config import settings
 from app.api import quests, users
 from app.db.session import engine
 from app.db.base import Base
-import app.models.quest
+from app.api.deps import get_current_user
+from app.models.user import User
 
 
 @asynccontextmanager
@@ -21,10 +22,13 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
-app.include_router(quests.router)
 app.include_router(users.router)
 
 
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/whoami")
+async def whoami(user: User = Depends(get_current_user)):
+    return {"UUID": user.id, "username": user.telegram_username}

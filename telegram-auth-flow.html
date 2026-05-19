@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Telegram WebApp Auth — the Flow, explained</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f4f6f8;
+         color: #1c1c1c; max-width: 920px; margin: 0 auto; padding: 32px 28px 80px; line-height: 1.6; }
+  h1 { font-size: 26px; border-bottom: 3px solid #4a7a9a; padding-bottom: 10px; }
+  h2 { font-size: 20px; margin-top: 40px; color: #2c4a5e; }
+  .lede { background: #fff; border-left: 4px solid #d8772a; padding: 14px 18px;
+          border-radius: 4px; font-size: 15px; }
+  .lede strong { color: #b5651d; }
+  code { background: #eef1f3; padding: 1px 5px; border-radius: 3px;
+         font-family: 'Consolas', monospace; font-size: 13px; }
+  /* the actors */
+  .actors { display: flex; gap: 12px; margin: 24px 0 8px; }
+  .actor { flex: 1; text-align: center; padding: 10px 6px; border-radius: 8px;
+           font-weight: bold; font-size: 13px; }
+  .a-tg { background: #d6e8f5; border: 2px solid #4a7a9a; }
+  .a-fe { background: #e8e2d0; border: 2px solid #b3a572; }
+  .a-be { background: #d6e8d0; border: 2px solid #5a9a4a; }
+  /* the steps */
+  .step { background: #fff; border-radius: 8px; padding: 0; margin: 14px 0;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.08); overflow: hidden; }
+  .step-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .num { background: #4a7a9a; color: #fff; width: 30px; height: 30px;
+         border-radius: 50%; display: flex; align-items: center; justify-content: center;
+         font-weight: bold; flex-shrink: 0; }
+  .who { font-size: 11px; font-weight: bold; padding: 3px 8px; border-radius: 4px;
+         flex-shrink: 0; }
+  .w-tg { background: #d6e8f5; color: #2c4a5e; }
+  .w-fe { background: #e8e2d0; color: #6a5a2c; }
+  .w-be { background: #d6e8d0; color: #3a6a2a; }
+  .title { font-weight: bold; font-size: 15px; }
+  .step-body { padding: 4px 16px 16px 58px; font-size: 14px; }
+  .step-body code { font-size: 12.5px; }
+  .arrow { text-align: center; color: #999; font-size: 20px; margin: -4px 0; }
+  /* the blob box */
+  .blob { background: #1c1c1c; color: #d6e8d0; font-family: 'Consolas', monospace;
+          font-size: 12px; padding: 14px 16px; border-radius: 6px; margin: 10px 0;
+          white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+  .blob .hl { color: #f0a878; }
+  .blob .hl2 { color: #88c0d0; }
+  /* the code-mapping table */
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13px; }
+  th, td { border: 1px solid #ccd; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #4a7a9a; color: #fff; }
+  td code { font-size: 12px; }
+  tr:nth-child(even) { background: #f7f9fa; }
+  .note { background: #fff5e0; border: 1px solid #e0c068; border-radius: 6px;
+          padding: 12px 16px; margin: 16px 0; font-size: 14px; }
+  .danger { background: #fbe4e4; border: 1px solid #d88; border-radius: 6px;
+            padding: 12px 16px; margin: 16px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<h1>Telegram WebApp Auth — the Flow, made visual</h1>
+
+<p class="lede">
+<strong>The misunderstanding to drop first:</strong> your backend never sends a
+request <em>to</em> Telegram in this flow. Nobody "calls Telegram." Telegram
+hands data to the <em>frontend</em> automatically the moment the app opens. The
+frontend passes that data to your backend. Your backend's only job —
+<code>verify_init_data</code> — is to <strong>check the data is genuine</strong>.
+That is the whole story. Read the chart below; it shows exactly who does what.
+</p>
+
+<h2>The three actors</h2>
+<div class="actors">
+  <div class="actor a-tg">TELEGRAM<br><span style="font-weight:normal;font-size:11px;">the Telegram app on the user's phone</span></div>
+  <div class="actor a-fe">THE FRONTEND<br><span style="font-weight:normal;font-size:11px;">Loudrr's mini-app, running inside Telegram</span></div>
+  <div class="actor a-be">YOUR BACKEND<br><span style="font-weight:normal;font-size:11px;">the FastAPI app you are building</span></div>
+</div>
+<p style="font-size:13px;color:#666;">
+Every step below is colour-tagged with <em>which actor</em> does it. Notice:
+Telegram acts only once, at the very start. After that it is just frontend ↔
+backend.
+</p>
+
+<h2>The flow, step by step</h2>
+
+<div class="step">
+  <div class="step-head">
+    <div class="num">1</div>
+    <div class="who w-tg">TELEGRAM</div>
+    <div class="title">The user opens Loudrr inside Telegram</div>
+  </div>
+  <div class="step-body">
+    The user taps Loudrr in the Telegram app. Telegram opens the mini-app in a
+    little browser window — and, <strong>automatically</strong>, hands the
+    frontend a package of data about the user. This package is the
+    <strong>"init data"</strong> — the "blob". The user does nothing special; no
+    form, no login. Just opening the app triggers this.
+  </div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="step">
+  <div class="step-head">
+    <div class="num">2</div>
+    <div class="who w-tg">TELEGRAM</div>
+    <div class="title">What the "blob" actually is</div>
+  </div>
+  <div class="step-body">
+    The init data is one long text string in <code>key=value&amp;key=value</code>
+    format (a "query string"). It looks like this — real shape, shortened:
+    <div class="blob">auth_date=<span class="hl2">1715900000</span>&amp;query_id=AAE...&amp;user=<span class="hl2">%7B%22id%22%3A12345%2C%22username%22%3A%22alex%22%7D</span>&amp;hash=<span class="hl">a3f8c91e7b22d4...</span></div>
+    Three things to see in it:
+    <ul style="margin:6px 0;">
+      <li><code>auth_date</code> — <em>when</em> Telegram made this blob (used later to reject old data).</li>
+      <li><code>user</code> — the user's details (id, username), themselves packed as JSON.</li>
+      <li><code>hash</code> — <strong>the signature</strong>. Telegram computed this using your secret bot token. This is the part that proves the blob is real.</li>
+    </ul>
+    <strong>Why a signature?</strong> Anyone could type out a fake
+    <code>user=...</code> blob and pretend to be any user. But they cannot fake
+    the <code>hash</code> — because making it needs the bot token, which only
+    Telegram and your backend know.
+  </div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="step">
+  <div class="step-head">
+    <div class="num">3</div>
+    <div class="who w-fe">FRONTEND</div>
+    <div class="title">The frontend sends the blob to your backend</div>
+  </div>
+  <div class="step-body">
+    The frontend now wants to call one of your backend's endpoints — say
+    <code>GET /user/</code>. On <strong>every</strong> request, it attaches the
+    whole init-data blob in an HTTP header:
+    <div class="blob">GET /api/miniapp/user/
+<span class="hl">X-Telegram-Init-Data:</span> auth_date=1715900000&amp;query_id=AAE...&amp;user=%7B...%7D&amp;hash=a3f8c91e7b22d4...</div>
+    <strong>This</strong> is the request your backend receives. It comes
+    <em>from the frontend</em>, not from Telegram. The blob is just riding along
+    in the <code>X-Telegram-Init-Data</code> header.
+  </div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="step">
+  <div class="step-head">
+    <div class="num">4</div>
+    <div class="who w-be">BACKEND</div>
+    <div class="title">Your backend runs <code>verify_init_data</code> — the file you are confused about</div>
+  </div>
+  <div class="step-body">
+    Before the endpoint does anything, your backend must answer one question:
+    <em>"is this blob genuine, or did someone fake it?"</em> That is the entire
+    job of <code>verify_init_data(init_data, bot_token)</code>. It does NOT
+    contact Telegram. It works the answer out <strong>locally</strong>, using
+    maths, because it knows the same bot-token secret Telegram used.
+    <div class="note">
+    <strong>The trick, in one sentence:</strong> Telegram made the
+    <code>hash</code> using a secret recipe + the bot token. Your backend knows
+    the same recipe and the same token — so it <em>re-makes the hash itself</em>
+    and checks: does mine match the one Telegram sent? Match → genuine. No match
+    → forged → reject.
+    </div>
+  </div>
+</div>
+<div class="arrow">↓</div>
+
+<div class="step">
+  <div class="step-head">
+    <div class="num">5</div>
+    <div class="who w-be">BACKEND</div>
+    <div class="title">The result — accept or reject</div>
+  </div>
+  <div class="step-body">
+    <strong>If the hashes match and the blob is fresh:</strong>
+    <code>verify_init_data</code> returns the user dict
+    <code>{id: 12345, username: "alex"}</code>. The backend now <em>trusts</em>
+    who this is, looks the user up in the database, and the endpoint proceeds.<br><br>
+    <strong>If the hash does not match, or the blob is over 24 hours old:</strong>
+    it <code>raise</code>s a <code>ValueError</code>. The request is rejected
+    with a <code>401 Unauthorized</code> — "I do not trust this."
+  </div>
+</div>
+
+<h2>Every line of the code, mapped to the flow</h2>
+
+<p style="font-size:13px;color:#666;">
+Now the file makes sense — each line is one move in Step 4. Read it as: "take
+the blob apart → rebuild what Telegram signed → re-make the hash → compare."
+</p>
+
+<table>
+  <tr><th>Line of code</th><th>What it does in the flow</th></tr>
+  <tr>
+    <td><code>pairs = dict(parse_qsl(init_data, ...))</code></td>
+    <td><strong>Take the blob apart.</strong> The blob is one <code>key=value&amp;...</code> string. This splits it into a dictionary you can look into: <code>{auth_date: ..., user: ..., hash: ...}</code>.</td>
+  </tr>
+  <tr>
+    <td><code>received_hash = pairs.pop("hash", None)</code></td>
+    <td><strong>Pull out Telegram's signature</strong> and remove it from the dict. You keep it in <code>received_hash</code> to compare against later. It must be removed because the signature is computed over <em>everything except itself</em>.</td>
+  </tr>
+  <tr>
+    <td><code>if received_hash is None: raise ...</code></td>
+    <td>If the blob had no <code>hash</code> at all, it is broken — stop now.</td>
+  </tr>
+  <tr>
+    <td><code>data_check_string = "\n".join(...)</code></td>
+    <td><strong>Rebuild exactly what Telegram signed.</strong> Every remaining pair, written <code>key=value</code>, sorted alphabetically, joined with newlines. The order must be identical to Telegram's, or the hashes will never match.</td>
+  </tr>
+  <tr>
+    <td><code>secret_key = hmac.new(b"WebAppData", bot_token...)</code></td>
+    <td><strong>Build the secret key</strong> from your bot token, using Telegram's fixed recipe. This is the "shared secret" — the thing only you and Telegram have.</td>
+  </tr>
+  <tr>
+    <td><code>check_hash = hmac.new(secret_key, data_check_string...)</code></td>
+    <td><strong>Re-make the hash yourself.</strong> Sign the rebuilt string with the secret key. This is <em>your</em> version of the signature.</td>
+  </tr>
+  <tr>
+    <td><code>if check_hash != received_hash: raise ...</code></td>
+    <td><strong>The verdict.</strong> Your hash vs Telegram's hash. Not equal → the blob was faked or tampered → reject. <em>(Note: this must be <code>!=</code>, "not equal". A typo of <code>!/</code> will not run.)</em></td>
+  </tr>
+  <tr>
+    <td><code>auth_date = int(pairs.get("auth_date", "0"))</code><br><code>if time.time() - auth_date &gt; 86400: raise ...</code></td>
+    <td><strong>Freshness check.</strong> Even a genuine blob is rejected if it is older than 24 hours (86400 seconds) — so a stolen old blob cannot be reused.</td>
+  </tr>
+  <tr>
+    <td><code>return json.loads(pairs["user"])</code></td>
+    <td><strong>Success.</strong> All checks passed. The <code>user</code> field is JSON text; turn it into a Python dict and hand it back. The backend now knows, and trusts, who the user is.</td>
+  </tr>
+</table>
+
+<div class="danger">
+<strong>The single biggest correction:</strong> there is no "send a request to
+Telegram" anywhere. Telegram's only action is Step 1 — handing the frontend the
+blob when the app opens. Steps 3, 4, 5 are entirely frontend → your backend.
+Your backend verifies the blob <em>by maths, locally</em>, never by calling
+Telegram. If you were picturing your code making an API call to Telegram to
+"ask if this user is real" — drop that picture entirely. That call does not
+exist and is not needed.
+</div>
+
+<div class="note">
+<strong>One honest practical note while you are learning.</strong> Real init
+data only exists inside the real Telegram app. You cannot make a genuine blob
+while testing on your own machine. That is why the chapter also builds a
+<em>development bypass</em> — in debug mode the backend accepts a plain
+<code>?telegram_id=123</code> and skips all of this. So while building, you test
+with the bypass; the <code>verify_init_data</code> flow above is what runs for
+real users in production.
+</div>
+
+</body>
+</html>

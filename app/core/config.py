@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 # debug default to false, can be overridden by .env
     debug: bool = False
 # db url
-    database_url: str = "sqlite+aiosqlite:///./questkit.db"
+    database_url: str # no default — required; Pydantic errors at startup if .env lacks it
     items_per_page: int = 20
 
 # business logic settings
