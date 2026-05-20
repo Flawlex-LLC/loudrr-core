@@ -11,3 +11,4 @@ class SiteSetting(Base):
     value: Mapped[str] = mapped_column(String(255))
     data_type: Mapped[str] = mapped_column(String(20), default="int")  # this might be confusing but it's just a hint for the app to know how to interpret the value; the database will store it as a string regardless
     description: Mapped[str] = mapped_column(String(255), default="")
+    

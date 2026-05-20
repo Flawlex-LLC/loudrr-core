@@ -4,12 +4,6 @@ from typing import Annotated
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-
-
-
-
-
-
 # @router.get("", response_model=list[UserPublic])
 # def list_users():
 #     return [
