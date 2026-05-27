@@ -39,6 +39,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+# CORS — the Next.js frontend proxies same-origin in prod, but allow the
+# configured origins for direct/dev calls. CORS_ALLOWED_ORIGINS is comma-sep.
+_cors_origins = [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins or ["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(site_settings.router)
