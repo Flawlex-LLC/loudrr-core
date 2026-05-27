@@ -17,3 +17,9 @@ __pycache__/
 .DS_Store
 .env.local
 test.py
+
+# frontend (Next.js) — monorepo
+node_modules/
+.next/
+frontend/.env*.local
+*.tsbuildinfo

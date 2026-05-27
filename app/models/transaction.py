@@ -7,6 +7,7 @@ from app.db.base import Base
 import enum
 from sqlalchemy import Enum as SQLAEnum
 
+
 class TransactionType(str, enum.Enum):
     EARNED = "earned"
     SPENT = "spent"
@@ -14,14 +15,13 @@ class TransactionType(str, enum.Enum):
     ADMIN_GRANT = "admin_grant"
     APPLY_PENALTY = "apply_penalty"
 
+
 class Transaction(Base):
     __tablename__ = "transactions"
-    id: Mapped[uuid.UUID] = mapped_column(
-        primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
 
     # foreign key from users table for UserID
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
 
     # earned, spent, refund, admin_grant, apply_penalty
     # values_callable tells SQLAlchemy to store the lowercase VALUES
@@ -46,7 +46,9 @@ class Transaction(Base):
     __table_args__ = (
         # no two transactions share a (user, type, key)
         UniqueConstraint(
-            "user_id", "type", "idempotency_key",
+            "user_id",
+            "type",
+            "idempotency_key",
             name="transaction_idempotency_unique",
         ),
     )

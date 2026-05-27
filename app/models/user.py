@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import String, Numeric, CheckConstraint, text
+from sqlalchemy import String, Numeric, CheckConstraint, text, BigInteger
 from sqlalchemy.orm import mapped_column, Mapped
 from app.db.base import Base
 
@@ -11,7 +11,7 @@ class User(Base):
 
     # identity
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    telegram_id: Mapped[int | None] = mapped_column(unique=True, index=True)
+    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, index=True)
     telegram_username: Mapped[str | None] = mapped_column(String(50), index=True)
     x_username: Mapped[str | None] = mapped_column(String(50), index=True)
     display_name: Mapped[str | None] = mapped_column(String(50))
@@ -37,14 +37,37 @@ class User(Base):
 
     # engagement & streak
     total_engagements: Mapped[int] = mapped_column(default=0, server_default="0")
-    current_streak: Mapped[int] = mapped_column(default=0, server_default="0", index=True)
+    total_posts: Mapped[int] = mapped_column(default=0, server_default="0")
+    current_streak: Mapped[int] = mapped_column(
+        default=0, server_default="0", index=True
+    )
 
     # tier & X verification
     tweetscout_score: Mapped[float] = mapped_column(default=0.0, server_default="0")
-    x_verified: Mapped[bool] = mapped_column(default=False, server_default="false", index=True)
+    tweetscout_last_updated: Mapped[datetime | None] = mapped_column(default=None)
+    x_verified: Mapped[bool] = mapped_column(
+        default=False, server_default="false", index=True
+    )
+    x_verified_at: Mapped[datetime | None] = mapped_column(default=None)
+    # set during X-OAuth (Ch11) when the connected handle differs from the
+    # claimed one — surfaced in /user/ so the frontend can prompt for review
+    pending_claimed_x_username: Mapped[str] = mapped_column(
+        String(50), default="", server_default=""
+    )
+    pending_claimed_x_user_id: Mapped[str] = mapped_column(
+        String(50), default="", server_default=""
+    )
+
+    # honesty (drops on failed verification — Ch13); range 0–50
+    honesty_score: Mapped[int] = mapped_column(default=50, server_default="50")
 
     # access flags
-    is_whitelisted: Mapped[bool] = mapped_column(default=False, server_default="false", index=True)
+    is_whitelisted: Mapped[bool] = mapped_column(
+        default=False, server_default="false", index=True
+    )
+    loud_access: Mapped[bool] = mapped_column(
+        default=False, server_default="false", index=True
+    )
     is_banned: Mapped[bool] = mapped_column(default=False, server_default="false")
 
     # referral
@@ -57,7 +80,8 @@ class User(Base):
         CheckConstraint(
             "total_credits_earned >= total_credits_spent", name="earned_ge_spent"
         ),
+        CheckConstraint("NOT (is_whitelisted AND is_banned)", name="ban_xor_whitelist"),
         CheckConstraint(
-            "NOT (is_whitelisted AND is_banned)", name="ban_xor_whitelist"
+            "honesty_score >= 0 AND honesty_score <= 50", name="honesty_score_range"
         ),
     )

@@ -6,6 +6,7 @@ from app.models.transaction import Transaction, TransactionType
 from app.services.site_settings import get_setting
 import uuid
 
+
 class InsufficientCreditsError(Exception):
     """the user doesn't have enough credits to spend."""
 
@@ -19,12 +20,29 @@ class CreditService:
         self.db = db
         self.user = user
 
+    async def _daily_headroom(self) -> Decimal:
+        """Karma still earnable today, accounting for the midnight reset."""
+        cap = Decimal(str(await get_setting(self.db, "DAILY_EARN_CAP")))
+        earned = self.user.daily_credits_earned
+        if self.user.daily_earned_reset_at.date() < datetime.utcnow().date():
+            earned = Decimal("0")  # a new day → the counter resets
+        return cap - earned
+
+    async def can_earn(self, amount: Decimal) -> bool:
+        """Would the full `amount` fit under today's cap? (settlement uses this
+        to skip — not partially pay — when the cap can't take the whole award.)"""
+        if not isinstance(amount, Decimal):
+            amount = Decimal(str(amount))
+        return amount <= await self._daily_headroom()
+
     async def earn(
         self,
         amount: Decimal,
         idempotency_key: str,
         reference_id=None,
         description: str = "",
+        *,
+        commit: bool = True,
     ) -> Transaction:
         # strict: refuse empty
         if not idempotency_key:
@@ -44,7 +62,12 @@ class CreditService:
             return existing  # retry - return the original, change nothing
         # defense 1 - lock user row before reading balance
         result = await self.db.execute(
-            select(User).where(User.id == self.user.id).with_for_update()
+            select(User).where(User.id == self.user.id)
+            .with_for_update()
+            # populate_existing: overwrite the identity-map copy with the
+            # freshly-LOCKED row — without this, the locked read returns the
+            # stale cached object and the lock is silently defeated (double-spend)
+            .execution_options(populate_existing=True)
         )
         user = result.scalar_one()
         # controlling the daily cap, reset if its new day
@@ -78,7 +101,13 @@ class CreditService:
             description=description or f"Earned {final_amount} credits.",
         )
         self.db.add(txn)
-        await self.db.commit()
+        # commit=False lets settlement (Ch13) call earn() inside one larger
+        # atomic transaction — we flush so the row/balance are live for the
+        # next idempotency check, but let the caller own the commit.
+        if commit:
+            await self.db.commit()
+        else:
+            await self.db.flush()
         return txn
 
     async def spend(
@@ -108,7 +137,12 @@ class CreditService:
 
         # defense 1 - lock the user row
         result = await self.db.execute(
-            select(User).where(User.id == self.user.id).with_for_update()
+            select(User).where(User.id == self.user.id)
+            .with_for_update()
+            # populate_existing: overwrite the identity-map copy with the
+            # freshly-LOCKED row — without this, the locked read returns the
+            # stale cached object and the lock is silently defeated (double-spend)
+            .execution_options(populate_existing=True)
         )
         user = result.scalar_one()
         # the spend-specific rule: must be able to afford  it!
@@ -159,7 +193,12 @@ class CreditService:
 
         # defense 1 - lock the user row
         result = await self.db.execute(
-            select(User).where(User.id == self.user.id).with_for_update()
+            select(User).where(User.id == self.user.id)
+            .with_for_update()
+            # populate_existing: overwrite the identity-map copy with the
+            # freshly-LOCKED row — without this, the locked read returns the
+            # stale cached object and the lock is silently defeated (double-spend)
+            .execution_options(populate_existing=True)
         )
         user = result.scalar_one()
         # refund dcredits back.
@@ -206,7 +245,12 @@ class CreditService:
 
         # defence: lock row
         result = await self.db.execute(
-            select(User).where(User.id == self.user.id).with_for_update()
+            select(User).where(User.id == self.user.id)
+            .with_for_update()
+            # populate_existing: overwrite the identity-map copy with the
+            # freshly-LOCKED row — without this, the locked read returns the
+            # stale cached object and the lock is silently defeated (double-spend)
+            .execution_options(populate_existing=True)
         )
 
         user = result.scalar_one()
@@ -253,7 +297,12 @@ class CreditService:
 
         # defense 1 - lock the user row
         result = await self.db.execute(
-            select(User).where(User.id == self.user.id).with_for_update()
+            select(User).where(User.id == self.user.id)
+            .with_for_update()
+            # populate_existing: overwrite the identity-map copy with the
+            # freshly-LOCKED row — without this, the locked read returns the
+            # stale cached object and the lock is silently defeated (double-spend)
+            .execution_options(populate_existing=True)
         )
         user = result.scalar_one()
         # move the balances

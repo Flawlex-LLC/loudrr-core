@@ -1,0 +1,80 @@
+"""arq worker (Ch16) — the 7 background tasks + their schedule (spec §6).
+
+Run with:  arq app.tasks.worker.WorkerSettings   (needs Redis).
+
+Each task opens its own DB session and delegates to the already-built,
+already-tested service logic. On-demand tasks (verification batch, tweetscout
+fetch) are enqueued from request handlers; the rest run on a cron schedule.
+"""
+import logging
+
+from arq import cron
+from arq.connections import RedisSettings
+
+from app.core.config import settings
+from app.db.session import SessionLocal
+from app.services import claims, maintenance, outbox, users
+
+logger = logging.getLogger(__name__)
+
+
+# ---- on-demand ----
+async def process_verification_batch(ctx, batch_id):
+    async with SessionLocal() as db:
+        return await claims.run_batch(db, batch_id)
+
+
+async def fetch_tweetscout_for_user(ctx, user_id):
+    async with SessionLocal() as db:
+        return await users.fetch_tweetscout_for_user(db, user_id)
+
+
+# ---- periodic ----
+async def process_pending_outbox_events(ctx):
+    async with SessionLocal() as db:
+        return await outbox.drain(db)
+
+
+async def retry_failed_outbox_events(ctx):
+    async with SessionLocal() as db:
+        return await outbox.retry_failed(db)
+
+
+async def cleanup_old_outbox_events(ctx):
+    async with SessionLocal() as db:
+        return await outbox.cleanup_old(db)
+
+
+async def reset_daily_credits(ctx):
+    async with SessionLocal() as db:
+        return await maintenance.reset_daily_credits(db)
+
+
+async def expire_old_posts(ctx):
+    async with SessionLocal() as db:
+        return await maintenance.expire_old_posts(db)
+
+
+class WorkerSettings:
+    redis_settings = RedisSettings.from_dsn(settings.redis_url or "redis://localhost:6379/0")
+    functions = [
+        process_verification_batch,
+        fetch_tweetscout_for_user,
+        process_pending_outbox_events,
+        retry_failed_outbox_events,
+        cleanup_old_outbox_events,
+        reset_daily_credits,
+        expire_old_posts,
+    ]
+    cron_jobs = [
+        # drain the outbox every minute
+        cron(process_pending_outbox_events, minute=set(range(60)), run_at_startup=True),
+        # retry failed outbox events hourly
+        cron(retry_failed_outbox_events, minute={0}),
+        # housekeeping daily
+        cron(cleanup_old_outbox_events, hour={3}, minute={0}),
+        # reset daily earn caps at midnight UTC
+        cron(reset_daily_credits, hour={0}, minute={0}),
+        # expire+refund stale posts hourly
+        cron(expire_old_posts, minute={0}),
+    ]
