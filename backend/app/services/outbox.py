@@ -53,7 +53,7 @@ class OutboxService:
 # ---- dispatch ----
 def _waitlist_submitted_text(p: dict) -> str:
     return (
-        f"🎉 You're on the Loudrr waitlist"
+        "🎉 You're on the Loudrr waitlist"
         + (f", @{p['x_username']}" if p.get("x_username") else "")
         + "! We'll message you the moment you're approved."
     )

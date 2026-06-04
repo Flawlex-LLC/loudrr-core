@@ -2,6 +2,8 @@
  * API client for Loudrr Mini App
  */
 
+import { DESIGN_MODE, getMockResponse, MOCK_SHOULD_FAIL } from './mockData';
+
 // Use local API proxy in production, direct backend in dev
 const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
   ? '/api/miniapp'  // Use Next.js API routes (proxied to backend)
@@ -33,6 +35,21 @@ async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  // Design mode: serve mock data, never touch the backend.
+  if (DESIGN_MODE) {
+    const mock = getMockResponse(endpoint);
+    await new Promise((r) => setTimeout(r, 150));
+    // Sentinel: simulate a failing endpoint (e.g. "user does not exist yet").
+    if (mock === MOCK_SHOULD_FAIL) {
+      throw new Error('Not found (design mode)');
+    }
+    if (mock !== undefined) {
+      return mock as T;
+    }
+    // No mock for this endpoint (e.g. a POST action) — return a benign success.
+    return { success: true } as T;
+  }
+
   const initData = getTelegramInitData();
 
   const headers: HeadersInit = {
@@ -69,6 +86,19 @@ async function loudApiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  // Design mode: serve mock data, never touch the backend.
+  if (DESIGN_MODE) {
+    const mock = getMockResponse(endpoint);
+    await new Promise((r) => setTimeout(r, 150));
+    if (mock === MOCK_SHOULD_FAIL) {
+      throw new Error('Not found (design mode)');
+    }
+    if (mock !== undefined) {
+      return mock as T;
+    }
+    return { success: true } as T;
+  }
+
   const initData = getTelegramInitData();
 
   const headers: HeadersInit = {
@@ -115,12 +145,7 @@ export interface User {
   is_pro?: boolean;
   x_username?: string;
   tweetscout_score?: number;
-  // ISO timestamp; null if onboarding's TweetScout fetch has never run.
-  // The onboarding gate uses THIS (not score) to decide "have we tried" —
-  // a paid TweetScout key may legitimately return score=0 for new accounts,
-  // and a 403 / network failure also leaves score=0; either way, once we've
-  // attempted the fetch we shouldn't loop the user back to the onboarding screen.
-  tweetscout_last_updated?: string | null;
+  tweetscout_last_updated?: string | null;  // ISO timestamp, null if never fetched
   // XProfile fields
   x_followers_count?: number;
   x_display_name?: string;
@@ -131,6 +156,12 @@ export interface User {
   engaged_today?: number;
   // Whitelist status
   is_whitelisted?: boolean;
+  // Feature access
+  loud_access?: boolean;
+  // X verification gate (post-approval)
+  x_verified?: boolean;
+  pending_claimed_x_username?: string | null;
+  x_verification_pending_review?: boolean;
 }
 
 export interface Post {
@@ -281,6 +312,13 @@ export interface UserStats {
   }>;
 }
 
+// Waitlist registration types
+export interface OtherPlatformEntry {
+  platform: 'youtube' | 'tiktok' | 'other';
+  username: string;
+  platform_name?: string;
+}
+
 // API Functions
 export const api = {
   /**
@@ -293,6 +331,27 @@ export const api = {
    * Get current user info
    */
   getUser: () => apiRequest<User>('/user/'),
+
+  /**
+   * Start X OAuth verification — returns the X authorize URL the user
+   * should be sent to (open in external browser via Telegram WebApp.openLink).
+   */
+  startXOAuth: () => apiRequest<{ authorize_url: string }>('/x-oauth/start/', { method: 'POST' }),
+
+  /**
+   * After OAuth returned a different X username than the one the user
+   * submitted, the user clicks "yes this IS my actual account" — this
+   * creates an XVerificationRequest for admin review.
+   */
+  confirmXMismatch: () =>
+    apiRequest<{ status: string }>('/x-verification/confirm-mismatch/', { method: 'POST' }),
+
+  /**
+   * "no, that wasn't my real account" — clears pending state so the user
+   * can retry Connect X with the correct account.
+   */
+  cancelXMismatch: () =>
+    apiRequest<{ status: string }>('/x-verification/cancel-mismatch/', { method: 'POST' }),
 
   /**
    * Start engagement flow - returns posts and user's pending progress
@@ -318,16 +377,6 @@ export const api = {
     apiRequest<{ success: boolean; verified: boolean; engagement_id?: string }>('/session/verify-return/', {
       method: 'POST',
       body: JSON.stringify({ post_id: postId }),
-    }),
-
-  /**
-   * Verify pending engagements and claim credits
-   * Verifies user's unverified Engagements (no session token needed)
-   */
-  completeSession: () =>
-    apiRequest<CompleteResponse>('/session/complete/', {
-      method: 'POST',
-      body: JSON.stringify({}),
     }),
 
   /**
@@ -399,6 +448,61 @@ export const api = {
     }>('/onboarding/complete/', {
       method: 'POST',
       body: JSON.stringify({}),
+    }),
+
+  /**
+   * Register interest in a coming feature
+   */
+  registerFeatureInterest: (feature: string, interests: string[]) =>
+    apiRequest<{ success: boolean }>('/feature-interest/', {
+      method: 'POST',
+      body: JSON.stringify({ feature, interests }),
+    }),
+
+  /**
+   * Check if user has registered interest in a feature
+   */
+  getFeatureInterest: (feature: string) =>
+    apiRequest<{ registered: boolean }>(`/feature-interest/?feature=${feature}`),
+
+  // =============================================================================
+  // WAITLIST - In-App Registration
+  // =============================================================================
+
+  /**
+   * Check waitlist status for current Telegram user
+   * Returns: "approved" | "waitlisted" | "not_registered"
+   */
+  checkWaitlistStatus: () =>
+    apiRequest<{
+      status: 'approved' | 'waitlisted' | 'not_registered';
+      x_username?: string;
+      submitted_at?: string;
+      referral_code?: string;
+    }>('/waitlist/status/'),
+
+  /**
+   * Register for waitlist directly from mini app
+   * Requires email + X profile link, optional referral_code
+   * Sends waitlist card to user via Telegram on success
+   */
+  registerWaitlist: (
+    email: string, x_link: string, referral_code?: string,
+    region?: string, niche?: string, other_platforms?: OtherPlatformEntry[]
+  ) =>
+    apiRequest<{
+      status: 'registered' | 'already_registered';
+      message: string;
+      referral_code?: string;
+    }>('/waitlist/register/', {
+      method: 'POST',
+      body: JSON.stringify({
+        email, x_link,
+        ...(referral_code && { referral_code }),
+        ...(region && { region }),
+        ...(niche && { niche }),
+        ...(other_platforms?.length && { other_platforms }),
+      }),
     }),
 };
 

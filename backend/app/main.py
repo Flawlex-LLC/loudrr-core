@@ -1,28 +1,29 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from app.core.config import settings
-from app.db.session import engine, get_session
-from app.db.base import Base
-from app.core.deps import get_current_user
-from app.models.user import User
-from app.api import site_settings
-from decimal import Decimal
-from app.services.credits import CreditService
-from app.services.site_settings import get_setting
-from app.api import waitlist
-from app.api import users
-from app.api import x_verification
-from app.api import sessions
-from app.api import claims
-from app.api import posts
-from app.api import feature_interest
-from app.api import admin as admin_api
-from app.admin_panel import mount_admin
-from app.core.limiter import limiter
-from app.core.exception_handlers import register_exception_handlers
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+
+from app.admin_panel import mount_admin
+from app.api import (
+    admin as admin_api,
+    claims,
+    feature_interest,
+    posts,
+    sessions,
+    site_settings,
+    users,
+    waitlist,
+    x_verification,
+)
+from app.core.config import settings
+from app.core.deps import get_current_user
+from app.core.exception_handlers import register_exception_handlers
+from app.core.limiter import limiter
+from app.db.session import engine, get_session
+from app.models.user import User
+from app.services.site_settings import get_setting
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -48,7 +49,6 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 # CORS — the Next.js frontend proxies same-origin in prod, but allow the
 # configured origins for direct/dev calls. CORS_ALLOWED_ORIGINS is comma-sep.
 _cors_origins = [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
-from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins or ["http://localhost:3000"],

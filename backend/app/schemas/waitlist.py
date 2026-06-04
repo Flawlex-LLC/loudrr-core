@@ -1,5 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
-from typing import Annotated
+from pydantic import BaseModel, EmailStr
 import enum
 from app.schemas._types import NonEmptyStr, ShortText, OptCode, OptShort
 from app.models.waitlist_entry import Region, Niche
