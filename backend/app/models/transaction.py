@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from sqlalchemy import String, Numeric, ForeignKey, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column
+from app.core.time_utils import utcnow
 from app.db.base import Base
 import enum
 from sqlalchemy import Enum as SQLAEnum
@@ -41,7 +42,7 @@ class Transaction(Base):
     # idempotency, duplicate prevention
     idempotency_key: Mapped[str] = mapped_column(String(64), index=True)
     description: Mapped[str] = mapped_column(String(255), default="")
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
 
     __table_args__ = (
         # no two transactions share a (user, type, key)

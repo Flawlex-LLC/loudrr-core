@@ -10,11 +10,11 @@ user's honesty score.
 """
 import logging
 import math
-from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
 
+from app.core.time_utils import utcnow
 from app.models.engagement import Engagement
 from app.models.post import Post
 from app.models.user import User
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 async def _settle_passed(db, user, post, engagement, r, base, credits):
     """Settle one PASSED engagement → (status, amount). status is one of
     'awarded' | 'partial' | 'skipped' | 'error'."""
-    now = datetime.utcnow()
+    now = utcnow()
 
     if engagement is None or engagement.credit_granted or post is None:
         return ("skipped", Decimal("0"))

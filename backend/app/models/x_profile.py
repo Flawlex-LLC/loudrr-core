@@ -3,6 +3,7 @@ from datetime import datetime, date
 from sqlalchemy import String, Text, ForeignKey, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -51,8 +52,8 @@ class XProfile(Base):
     )
 
     fetched_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )

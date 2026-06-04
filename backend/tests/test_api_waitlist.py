@@ -1,6 +1,5 @@
 """Integration tests for the /waitlist endpoints, through the ASGI app.
 Auth uses ?telegram_id= (the debug bypass); the limiter is off in the fixture."""
-import pytest
 
 
 def _body(email="alice@example.com", x_link="https://x.com/alice"):

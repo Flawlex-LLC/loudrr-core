@@ -3,10 +3,8 @@ moves — not just at /session/start/. Django enforces the ban in scattered view
 code; here it's enforced consistently at click, submit, queue-claim, and (as a
 race backstop) inside settlement itself.
 """
-import uuid
 from decimal import Decimal
 
-import pytest
 
 from app.models.engagement import Engagement
 from app.models.post import Post

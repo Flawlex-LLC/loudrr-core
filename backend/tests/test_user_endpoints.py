@@ -3,7 +3,6 @@
 TweetScout is mocked — these tests never hit the network. The debug-bypass
 (`?telegram_id=`) authenticates, since settings.debug is True in tests.
 """
-import pytest
 
 from app.repositories.x_profile import XProfileRepository
 from app.services import users as svc

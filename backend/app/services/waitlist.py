@@ -2,10 +2,10 @@ import logging
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
 from sqlalchemy import func
 
 from app.core.errors import BadRequest, Conflict
+from app.core.time_utils import utcnow
 from app.models.user import User
 from app.models.waitlist_entry import WaitlistEntry
 from app.repositories.user import UserRepository
@@ -165,7 +165,7 @@ async def approve_entry(
     # load it + enforce the "must be submitted" guard in one call
     entry = await _load_submitted(waitlist, entry_id, "approve")
     entry.status = "approved"
-    entry.approved_at = datetime.utcnow()
+    entry.approved_at = utcnow()
     entry.approved_by_id = admin_id
 
     user = await users.create(
@@ -200,6 +200,6 @@ async def reject_entry(
     entry.status = "rejected"
     entry.rejection_reason = reason
     entry.approved_by_id = admin_id
-    entry.approved_at = datetime.utcnow()
+    entry.approved_at = utcnow()
     await db.commit()
     return entry

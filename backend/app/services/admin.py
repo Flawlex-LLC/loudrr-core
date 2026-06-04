@@ -6,12 +6,12 @@ waitlist entry (Ch8), approve an X-verification (Ch11) — are joined here by th
 credit and ban operations, and every one writes an immutable audit_logs row.
 """
 import uuid
-from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select
 
 from app.core.errors import Conflict
+from app.core.time_utils import utcnow
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.models.x_verification_request import XVerificationRequest
@@ -86,7 +86,7 @@ async def reject_x_verification(db, *, admin_id, request_id, notes="") -> XVerif
 
     req.status = "REJECTED"
     req.reviewed_by_id = admin_id
-    req.reviewed_at = datetime.utcnow()
+    req.reviewed_at = utcnow()
     req.admin_notes = notes
 
     user = await db.get(User, req.user_id)

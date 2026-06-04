@@ -4,12 +4,12 @@ A "session" is not a stored object; a user's progress IS their set of pending
 (unverified, uncredited) engagements, which persists across visits. Clicking a
 post creates one engagement; credit is awarded later by the Ch13 claim engine.
 """
-from datetime import datetime
 
 from sqlalchemy import func, select
 
 from app.core.db_helpers import locked_row
 from app.core.errors import BadRequest, Forbidden, NotFound
+from app.core.time_utils import utcnow
 from app.models.engagement import Engagement
 from app.models.post import Post
 from app.repositories.engagement import EngagementRepository
@@ -115,12 +115,13 @@ async def record_click(db, *, user, post_id) -> dict:
 
         repo = EngagementRepository(db)
         engagement = await repo.get(user_id=user.id, post_id=post.id)
-        created = engagement is None
-        if created:
+        created = False
+        if engagement is None:
             engagement = await repo.create(
                 user_id=user.id, post_id=post.id,
-                verified=False, credit_granted=False, clicked_at=datetime.utcnow(),
+                verified=False, credit_granted=False, clicked_at=utcnow(),
             )
+            created = True
         eng_id = engagement.id
 
     pending_count = await _pending_count(db, user.id)

@@ -2,10 +2,11 @@
 loudrr_test DB so the FOR UPDATE locks and CHECK constraints are real."""
 import uuid
 from decimal import Decimal
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
+from app.core.time_utils import utcnow
 from app.services.credits import (
     CreditService, InsufficientCreditsError, DailyCapReachedError,
 )
@@ -45,7 +46,7 @@ async def test_earn_trims_to_daily_cap(db_session, make_user):
     # cap is 100 (seeded in conftest); already earned 90 today
     user = await make_user(
         daily_credits_earned=Decimal("90"),
-        daily_earned_reset_at=datetime.utcnow(),
+        daily_earned_reset_at=utcnow(),
     )
     txn = await CreditService(db_session, user).earn(Decimal("20"), idempotency_key="cap")
     assert txn.amount == Decimal("10")    # trimmed to the 10 of headroom left
@@ -56,7 +57,7 @@ async def test_earn_trims_to_daily_cap(db_session, make_user):
 async def test_earn_at_cap_raises(db_session, make_user):
     user = await make_user(
         daily_credits_earned=Decimal("100"),
-        daily_earned_reset_at=datetime.utcnow(),
+        daily_earned_reset_at=utcnow(),
     )
     with pytest.raises(DailyCapReachedError):
         await CreditService(db_session, user).earn(Decimal("5"), idempotency_key="over")
@@ -65,7 +66,7 @@ async def test_earn_at_cap_raises(db_session, make_user):
 async def test_earn_resets_on_new_day(db_session, make_user):
     user = await make_user(
         daily_credits_earned=Decimal("90"),
-        daily_earned_reset_at=datetime.utcnow() - timedelta(days=1),
+        daily_earned_reset_at=utcnow() - timedelta(days=1),
     )
     txn = await CreditService(db_session, user).earn(Decimal("20"), idempotency_key="newday")
     assert txn.amount == Decimal("20")    # full amount — yesterday's tally reset
@@ -109,7 +110,7 @@ async def test_refund_adds_back(db_session, make_user):
 async def test_admin_grant_bypasses_cap(db_session, make_user):
     user = await make_user(
         daily_credits_earned=Decimal("100"),
-        daily_earned_reset_at=datetime.utcnow(),
+        daily_earned_reset_at=utcnow(),
     )
     txn = await CreditService(db_session, user).admin_grant(
         Decimal("1000"), admin_id=uuid.uuid4(), idempotency_key="g1"

@@ -1,6 +1,5 @@
 """Service-level tests for the waitlist use cases (register/status/approve/reject).
 These exercise the service + both repositories against the real DB."""
-import uuid
 import pytest
 
 from app.core.errors import BadRequest, Conflict

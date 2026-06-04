@@ -1,5 +1,4 @@
 """Integration tests for the non-waitlist endpoints, through the ASGI app."""
-import pytest
 
 from app.models.site_setting import SiteSetting
 from app.services import site_settings

@@ -13,11 +13,12 @@ External HTTP (token exchange, /users/me) is done holding no DB lock.
 """
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import func
 
 from app.core.db_helpers import locked_row
+from app.core.time_utils import utcnow
 from app.core.errors import BadRequest, Conflict, Forbidden, ServiceUnavailable
 from app.integrations import x_oauth
 from app.models.user import User
@@ -59,7 +60,7 @@ async def start_oauth(db, *, user: User) -> str:
             state=state,
             user_id=user.id,
             code_verifier=verifier,
-            expires_at=datetime.utcnow()
+            expires_at=utcnow()
             + timedelta(seconds=x_oauth.STATE_TTL_SECONDS),
         )
     )
@@ -73,7 +74,7 @@ async def _consume_state(db, state: str) -> dict | None:
     if row is None:
         return None
     record = {"user_id": row.user_id, "code_verifier": row.code_verifier}
-    expired = row.expires_at < datetime.utcnow()
+    expired = row.expires_at < utcnow()
     await db.delete(row)
     await db.commit()
     return None if expired else record
@@ -129,7 +130,7 @@ async def handle_callback(
     if submitted and claimed_username.lower() == submitted.lower():
         user.x_username = claimed_username  # canonical case
         user.x_verified = True
-        user.x_verified_at = datetime.utcnow()
+        user.x_verified_at = utcnow()
         user.pending_claimed_x_username = ""
         user.pending_claimed_x_user_id = ""
         await db.commit()
@@ -212,13 +213,13 @@ async def approve_x_verification(db, *, request_id, admin_id) -> XVerificationRe
     async with locked_row(db, User, id=req.user_id) as user:
         user.x_username = req.claimed_x_username
         user.x_verified = True
-        user.x_verified_at = datetime.utcnow()
+        user.x_verified_at = utcnow()
         user.pending_claimed_x_username = ""
         user.pending_claimed_x_user_id = ""
 
     req.status = XVerificationStatus.APPROVED.value
     req.reviewed_by_id = admin_id
-    req.reviewed_at = datetime.utcnow()
+    req.reviewed_at = utcnow()
     await db.commit()
     return req
 

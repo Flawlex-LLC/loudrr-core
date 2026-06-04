@@ -7,7 +7,6 @@ import uuid
 from decimal import Decimal
 from types import SimpleNamespace
 
-import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 

@@ -1,13 +1,10 @@
 """Ch17 — feature-interest endpoint (15) + admin operations (audit-logged)."""
-import uuid
 from decimal import Decimal
 
-import pytest
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
 from app.models.x_verification_request import XVerificationRequest
-from app.repositories.user import UserRepository
 from app.services import admin
 
 

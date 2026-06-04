@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import String, ForeignKey, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -25,7 +26,7 @@ class AuditLog(Base):
     target_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
     detail: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
 
     __table_args__ = (Index("ix_audit_logs_created", "created_at"),)

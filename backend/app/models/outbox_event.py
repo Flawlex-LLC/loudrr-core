@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import String, Text, CheckConstraint, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -48,10 +49,10 @@ class OutboxEvent(Base):
     error_message: Mapped[str] = mapped_column(Text, default="", server_default="")
     processed_at: Mapped[datetime | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
 
     __table_args__ = (

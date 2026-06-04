@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import String, ForeignKey, text
 from sqlalchemy.orm import Mapped, mapped_column
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -24,7 +25,7 @@ class XOAuthState(Base):
     )
     code_verifier: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
     # rows past this are stale and rejected (10-minute TTL set on creation)
     expires_at: Mapped[datetime] = mapped_column()

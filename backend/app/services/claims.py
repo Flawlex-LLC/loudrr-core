@@ -8,12 +8,12 @@ is queue-agnostic, so Ch16 only swaps how it's dispatched.
 """
 import logging
 import uuid
-from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
 
 from app.core.errors import Forbidden
+from app.core.time_utils import utcnow
 from app.db.session import SessionLocal
 from app.models.engagement import Engagement
 from app.models.post import Post
@@ -73,7 +73,7 @@ async def queue_claim(db, *, user, schedule) -> tuple[dict, int]:
     # anti-gaming: enforce a minimum wait since the first pending click
     min_duration = await get_setting(db, "MIN_SESSION_DURATION_SECONDS", 30)
     if min_duration > 0 and pending:
-        elapsed = (datetime.utcnow() - pending[0].clicked_at).total_seconds()
+        elapsed = (utcnow() - pending[0].clicked_at).total_seconds()
         if elapsed < min_duration:
             remaining = int(min_duration - elapsed)
             return (
@@ -149,7 +149,7 @@ async def _finish(db, batch, *, passed, failed, awarded, message) -> dict:
     batch.failed = failed
     batch.credits_awarded = awarded
     batch.message = message
-    batch.completed_at = datetime.utcnow()
+    batch.completed_at = utcnow()
     await db.commit()
     return {"passed": passed, "failed": failed, "credits": float(awarded)}
 
@@ -227,7 +227,7 @@ async def run_batch(db, batch_id) -> dict:
         logger.exception("[VERIFY] batch %s failed", batch_id)
         batch.status = BatchStatus.FAILED.value
         batch.message = str(exc)[:500]
-        batch.completed_at = datetime.utcnow()
+        batch.completed_at = utcnow()
         await db.commit()
         return {"error": str(exc)}
 

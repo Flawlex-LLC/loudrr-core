@@ -10,6 +10,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 
 from app.core.errors import BadRequest, Conflict, Forbidden, ServiceUnavailable
+from app.core.time_utils import utcnow
 from app.integrations.twitter import extract_tweet_id, get_twitter_client
 from app.models.engagement import Engagement
 from app.models.post import Post
@@ -214,6 +215,6 @@ async def cancel_post(db, post: Post, *, refund: bool = True) -> Post:
         )
     post.escrow = Decimal("0")
     post.status = "cancelled"
-    post.completed_at = datetime.utcnow()
+    post.completed_at = utcnow()
     await db.commit()
     return post

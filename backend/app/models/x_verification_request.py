@@ -3,6 +3,7 @@ import enum
 from datetime import datetime
 from sqlalchemy import String, Text, ForeignKey, Index, CheckConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -47,10 +48,10 @@ class XVerificationRequest(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(default=None)
 
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
 
     __table_args__ = (

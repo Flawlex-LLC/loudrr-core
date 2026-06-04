@@ -7,6 +7,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -58,10 +59,10 @@ class Post(Base):
     message_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
 
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
     completed_at: Mapped[datetime | None] = mapped_column(default=None)
 

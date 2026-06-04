@@ -3,6 +3,7 @@ from datetime import datetime
 from decimal import Decimal
 from sqlalchemy import String, Numeric, CheckConstraint, text, BigInteger
 from sqlalchemy.orm import mapped_column, Mapped
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -32,7 +33,7 @@ class User(Base):
         Numeric(12, 4), default=Decimal("0"), server_default="0"
     )
     daily_earned_reset_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
 
     # engagement & streak
@@ -80,7 +81,7 @@ class User(Base):
     # referral
     referral_code: Mapped[str] = mapped_column(String(10), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
 
     __table_args__ = (

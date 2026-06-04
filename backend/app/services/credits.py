@@ -1,6 +1,6 @@
 from decimal import Decimal
-from datetime import datetime
 from sqlalchemy import select
+from app.core.time_utils import utcnow
 from app.models.user import User
 from app.models.transaction import Transaction, TransactionType
 from app.services.site_settings import get_setting
@@ -24,7 +24,7 @@ class CreditService:
         """Karma still earnable today, accounting for the midnight reset."""
         cap = Decimal(str(await get_setting(self.db, "DAILY_EARN_CAP")))
         earned = self.user.daily_credits_earned
-        if self.user.daily_earned_reset_at.date() < datetime.utcnow().date():
+        if self.user.daily_earned_reset_at.date() < utcnow().date():
             earned = Decimal("0")  # a new day → the counter resets
         return cap - earned
 
@@ -75,7 +75,7 @@ class CreditService:
         )
         user = result.scalar_one()
         # controlling the daily cap, reset if its new day
-        now = datetime.utcnow()
+        now = utcnow()
         if user.daily_earned_reset_at.date() < now.date():
             user.daily_credits_earned = Decimal("0")
             user.daily_earned_reset_at = now

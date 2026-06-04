@@ -5,11 +5,10 @@ award, tier multiplier, partial payment, failed-deletes-engagement,
 benefit-of-the-doubt, daily-cap skip, and idempotent re-run.
 """
 import uuid
-from datetime import datetime, timedelta
 from decimal import Decimal
 
-import pytest
 
+from app.core.time_utils import utcnow
 from app.integrations import twitter
 from app.models.engagement import Engagement
 from app.models.post import Post
@@ -49,7 +48,7 @@ async def _make_post(db, *, owner_id, escrow="50", tweet_id="123", x_link="https
 async def _make_engagement(db, *, user_id, post_id, clicked_at=None):
     e = Engagement(
         user_id=user_id, post_id=post_id, verified=False, credit_granted=False,
-        clicked_at=clicked_at or datetime.utcnow(),
+        clicked_at=clicked_at or utcnow(),
     )
     db.add(e)
     await db.commit()
@@ -151,7 +150,7 @@ async def test_daily_cap_skips_award_preserving_escrow(client, make_user, db_ses
     # already at the daily cap (100) → no headroom
     viewer = await make_user(
         telegram_id=8012, x_username="v",
-        daily_credits_earned=Decimal("100"), daily_earned_reset_at=datetime.utcnow(),
+        daily_credits_earned=Decimal("100"), daily_earned_reset_at=utcnow(),
     )
     post = await _make_post(db_session, owner_id=owner.id, escrow="50")
     eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)

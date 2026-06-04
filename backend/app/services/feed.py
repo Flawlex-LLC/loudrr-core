@@ -5,12 +5,12 @@ the viewer's own, not already engaged, and still has enough escrow to pay the
 viewer's tiered karma. Eligible posts are ranked by a weighted score
 (author tier + freshness + remaining escrow).
 """
-from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import select, func
 
 from app.core.config import settings
+from app.core.time_utils import utcnow
 from app.models.engagement import Engagement
 from app.models.post import Post
 from app.models.user import User
@@ -66,7 +66,7 @@ def calculate_feed_score(post: Post, viewer: User) -> float:
         author_score = 0.2
 
     # freshness: decays to 0 over 7 days (168h)
-    hours_old = (datetime.utcnow() - post.created_at).total_seconds() / 3600
+    hours_old = (utcnow() - post.created_at).total_seconds() / 3600
     freshness = max(0.0, 1.0 - (hours_old / 168))
 
     # remaining escrow ratio
@@ -121,7 +121,7 @@ async def get_feed_count(db, user: User) -> int:
 
 async def engaged_today_count(db, user: User) -> int:
     """Engagements this user clicked since midnight UTC."""
-    midnight = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     q = select(func.count()).select_from(Engagement).where(
         Engagement.user_id == user.id, Engagement.clicked_at >= midnight
     )
@@ -143,7 +143,7 @@ async def format_post(db, post: Post, viewer: User, *, author=None, x_profile=No
 
     expiry_hours = await get_setting(db, "POST_EXPIRY_HOURS", 48)
     if post.created_at:
-        elapsed_h = (datetime.utcnow() - post.created_at).total_seconds() / 3600
+        elapsed_h = (utcnow() - post.created_at).total_seconds() / 3600
         hours_remaining = max(0.0, expiry_hours - elapsed_h)
     else:
         hours_remaining = float(expiry_hours)

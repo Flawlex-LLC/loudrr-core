@@ -6,6 +6,7 @@ from sqlalchemy import (
     JSON, Text, CheckConstraint, text,
     )
 from sqlalchemy.orm import Mapped, mapped_column
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 class WaitlistStatus(str, enum.Enum):
@@ -108,11 +109,11 @@ class WaitlistEntry(Base):
     Boolean, default=False, server_default="false"
     )
     created_at: Mapped[datetime] = mapped_column(
-    default=datetime.utcnow, server_default=text("now()")
+    default=utcnow, server_default=text("now()")
     )
     updated_at: Mapped[datetime] = mapped_column(
-    default=datetime.utcnow, server_default=text("now()"),
-    onupdate=datetime.utcnow,
+    default=utcnow, server_default=text("now()"),
+    onupdate=utcnow,
     )
     __table_args__ = (
     # the state machine — no row may ever hold a value outside the three

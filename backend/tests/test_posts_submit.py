@@ -1,7 +1,6 @@
 """Ch14 — post submission (endpoint 14) + escrow cancel. Twitter is mocked."""
 from decimal import Decimal
 
-import pytest
 
 from app.models.post import Post
 from app.models.site_setting import SiteSetting

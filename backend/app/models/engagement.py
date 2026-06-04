@@ -5,6 +5,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
+from app.core.time_utils import utcnow
 from app.db.base import Base
 
 
@@ -27,7 +28,7 @@ class Engagement(Base):
     )
 
     clicked_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
     credit_granted: Mapped[bool] = mapped_column(default=False, server_default="false")
 
@@ -38,7 +39,7 @@ class Engagement(Base):
     verification_data: Mapped[dict | None] = mapped_column(JSONB, default=None)
 
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=text("now()")
+        default=utcnow, server_default=text("now()")
     )
 
     __table_args__ = (

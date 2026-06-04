@@ -1,9 +1,9 @@
 """Ch16 — background-task logic (tested directly, no Redis) + worker config."""
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
-import pytest
 
+from app.core.time_utils import utcnow
 from app.models.post import Post
 from app.services import maintenance
 from app.services import users as users_svc
@@ -28,12 +28,12 @@ async def test_expire_old_posts_cancels_and_refunds(make_user, db_session):
     stale = Post(
         user_id=owner.id, x_link="https://x.com/o/status/1", escrow=Decimal("50"),
         initial_escrow=Decimal("50"), status="active", platform="web",
-        created_at=datetime.utcnow() - timedelta(hours=50),  # > 48h default
+        created_at=utcnow() - timedelta(hours=50),  # > 48h default
     )
     fresh = Post(
         user_id=owner.id, x_link="https://x.com/o/status/2", escrow=Decimal("50"),
         initial_escrow=Decimal("50"), status="active", platform="web",
-        created_at=datetime.utcnow(),
+        created_at=utcnow(),
     )
     db_session.add_all([stale, fresh])
     await db_session.commit()

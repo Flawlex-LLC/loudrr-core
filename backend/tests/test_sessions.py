@@ -2,7 +2,6 @@
 plus the now-wired /user/ and /user/stats/ counts."""
 from decimal import Decimal
 
-import pytest
 
 from app.models.post import Post
 from app.models.site_setting import SiteSetting
@@ -41,7 +40,7 @@ async def test_start_empty_feed(client, make_user):
 
 async def test_start_returns_feed_post(client, make_user, db_session):
     owner = await make_user(telegram_id=7002, display_name="Owner")
-    viewer = await make_user(telegram_id=7003)
+    _viewer = await make_user(telegram_id=7003)
     await _make_post(db_session, owner_id=owner.id, escrow="50")
 
     r = await client.post("/session/start/", params={"telegram_id": 7003})
@@ -199,7 +198,7 @@ async def test_clicked_post_moves_to_pending(client, make_user, db_session):
 # ---- Ch10 stubs are now real ----
 async def test_user_counts_reflect_engagement(client, make_user, db_session):
     owner = await make_user(telegram_id=7021)
-    viewer = await make_user(telegram_id=7022)
+    _viewer = await make_user(telegram_id=7022)
     post = await _make_post(db_session, owner_id=owner.id)
 
     before = (await client.get("/user/", params={"telegram_id": 7022})).json()

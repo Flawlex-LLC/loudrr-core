@@ -4,14 +4,14 @@ The X OAuth network calls (token exchange, /users/me) are mocked. The
 authorize URL and PKCE state are real (no network).
 """
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 
+from app.core.time_utils import utcnow
 from app.integrations import x_oauth
 from app.models.x_oauth_state import XOAuthState
 from app.models.x_verification_request import (
-    XVerificationRequest,
     XVerificationStatus,
 )
 from app.repositories.x_verification_request import XVerificationRequestRepository
@@ -117,7 +117,7 @@ async def _seed_state(db, user_id, state="teststate", ttl=600):
     db.add(
         XOAuthState(
             state=state, user_id=user_id, code_verifier="verifier",
-            expires_at=datetime.utcnow() + timedelta(seconds=ttl),
+            expires_at=utcnow() + timedelta(seconds=ttl),
         )
     )
     await db.commit()
@@ -199,7 +199,7 @@ async def test_approve_x_verification(db_session, make_user):
 async def test_approve_conflict_when_handle_taken(db_session, make_user):
     from app.core.errors import Conflict
 
-    taken = await make_user(telegram_id=6013, x_username="bob")
+    _taken = await make_user(telegram_id=6013, x_username="bob")
     user = await make_user(telegram_id=6014, x_username="alice")
     repo = XVerificationRequestRepository(db_session)
     req = await repo.create(

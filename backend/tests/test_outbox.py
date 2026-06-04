@@ -1,10 +1,9 @@
 """Ch15 — transactional outbox: queue, drain, retry, and waitlist wiring.
 Telegram is mocked."""
-from datetime import datetime, timedelta
-from decimal import Decimal
+from datetime import timedelta
 
-import pytest
 
+from app.core.time_utils import utcnow
 from app.integrations import telegram
 from app.models.outbox_event import OutboxEvent, OutboxStatus
 from app.repositories.outbox_event import OutboxEventRepository
@@ -87,7 +86,7 @@ async def test_retry_failed_resets(db_session, monkeypatch):
 async def test_cleanup_deletes_old_sent(db_session):
     old = OutboxEvent(
         event_type="telegram_notify", status="sent", payload={},
-        created_at=datetime.utcnow() - timedelta(days=40),
+        created_at=utcnow() - timedelta(days=40),
     )
     db_session.add(old)
     await db_session.commit()

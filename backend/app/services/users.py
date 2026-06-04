@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 
 from app.core.errors import BadRequest
+from app.core.time_utils import utcnow
 from app.integrations.tweetscout import get_tweetscout_client
 from app.models.user import User
 from app.repositories.x_profile import XProfileRepository
@@ -62,7 +63,7 @@ async def _upsert_x_profile(db, user: User, values: dict):
         return await repo.create(user_id=user.id, **values)
     for key, val in values.items():
         setattr(profile, key, val)
-    profile.updated_at = datetime.utcnow()
+    profile.updated_at = utcnow()
     return profile
 
 
@@ -84,7 +85,7 @@ async def link_x_account(db, *, user: User, x_username: str) -> dict:
 
     user.x_username = x_username
     user.tweetscout_score = score
-    user.tweetscout_last_updated = datetime.utcnow()
+    user.tweetscout_last_updated = utcnow()
     await db.commit()
 
     return {
@@ -115,7 +116,7 @@ async def complete_onboarding(db, *, user: User) -> dict:
     if not data:
         # benefit of the doubt: let them in with a default score, retry later
         user.tweetscout_score = 0
-        user.tweetscout_last_updated = datetime.utcnow()
+        user.tweetscout_last_updated = utcnow()
         await db.commit()
         return {
             "success": True,
@@ -127,7 +128,7 @@ async def complete_onboarding(db, *, user: User) -> dict:
     score = float(data.get("score", 0) or 0)
     await _upsert_x_profile(db, user, _profile_values(data, user.x_username))
     user.tweetscout_score = score
-    user.tweetscout_last_updated = datetime.utcnow()
+    user.tweetscout_last_updated = utcnow()
     await db.commit()
 
     return {
@@ -151,7 +152,7 @@ async def fetch_tweetscout_for_user(db, user_id) -> bool:
     score = float(data.get("score", 0) or 0)
     await _upsert_x_profile(db, user, _profile_values(data, user.x_username))
     user.tweetscout_score = score
-    user.tweetscout_last_updated = datetime.utcnow()
+    user.tweetscout_last_updated = utcnow()
     await db.commit()
     return True
 

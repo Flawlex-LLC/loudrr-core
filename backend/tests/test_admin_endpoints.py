@@ -7,7 +7,6 @@ auth wall and that the side effects (audit_logs, User.is_banned, etc.) land.
 """
 from decimal import Decimal
 
-import pytest
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog

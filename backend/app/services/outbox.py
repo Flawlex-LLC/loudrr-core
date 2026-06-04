@@ -7,10 +7,11 @@
 here and can be run by hand.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import delete, select
 
+from app.core.time_utils import utcnow
 from app.integrations.telegram import get_telegram_client
 from app.models.outbox_event import OutboxEvent, OutboxEventType, OutboxStatus
 from app.repositories.outbox_event import OutboxEventRepository
@@ -107,7 +108,7 @@ async def drain(db, *, limit: int = 50) -> dict:
         try:
             await _dispatch(ev)
             ev.status = OutboxStatus.SENT.value
-            ev.processed_at = datetime.utcnow()
+            ev.processed_at = utcnow()
             ev.error_message = ""
             sent += 1
         except Exception as e:  # noqa: BLE001 — any delivery failure → retry/fail
@@ -119,7 +120,7 @@ async def drain(db, *, limit: int = 50) -> dict:
                 else OutboxStatus.PENDING.value
             )
             failed += 1
-        ev.updated_at = datetime.utcnow()
+        ev.updated_at = utcnow()
 
     await db.commit()
     return {"processed": len(rows), "sent": sent, "failed": failed}
@@ -143,7 +144,7 @@ async def retry_failed(db) -> int:
 
 async def cleanup_old(db, *, older_than_days: int = 30) -> int:
     """Delete sent events older than N days."""
-    cutoff = datetime.utcnow() - timedelta(days=older_than_days)
+    cutoff = utcnow() - timedelta(days=older_than_days)
     result = await db.execute(
         delete(OutboxEvent).where(
             OutboxEvent.status == OutboxStatus.SENT.value,
