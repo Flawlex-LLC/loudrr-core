@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     )
     items_per_page: int = 20
 
+    # --- DB connection pool (scale; see backend/tests/SCALING.md) ---
+    # Per-process pool. Across N web + M worker processes, keep
+    # N+M × (db_pool_size + db_max_overflow) under Postgres max_connections,
+    # or front it with PgBouncer (transaction pooling).
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30      # seconds to wait for a free connection before erroring
+    db_pool_recycle: int = 1800    # recycle a connection after 30 min (avoid stale handles)
+
     # --- Telegram ---
     # the bot's secret token (a string like "123456:ABC-…"), read from .env
     telegram_bot_token: str = ""
@@ -38,7 +47,10 @@ class Settings(BaseSettings):
     site_url: str = ""
     landing_url: str = ""
     encryption_key: str = ""           # 32-byte key for redirect-URL encryption
-    admin_telegram_ids: str = ""       # comma-separated
+    # comma-separated; default is the canonical dev admin (Oxblest,
+    # telegram_id=6451704338) — matches the Django reference's default.
+    # In prod set ADMIN_TELEGRAM_IDS in .env to your real admin IDs.
+    admin_telegram_ids: str = "6451704338"
     cors_allowed_origins: str = ""     # comma-separated
 
     # --- admin panel (Ch17) ---

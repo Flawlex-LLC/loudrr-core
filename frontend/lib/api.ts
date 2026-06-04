@@ -54,8 +54,11 @@ async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || error.message || 'Request failed');
+    // FastAPI returns {"detail": "..."} on errors — check that first.
+    // Also include the HTTP status code so future debugging isn't blind.
+    const body = await response.json().catch(() => ({}));
+    const msg = body.detail || body.error || body.message || response.statusText || 'Request failed';
+    throw new Error(`${response.status}: ${msg}`);
   }
 
   return response.json();
@@ -87,8 +90,11 @@ async function loudApiRequest<T>(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || error.message || 'Request failed');
+    // FastAPI returns {"detail": "..."} on errors — check that first.
+    // Also include the HTTP status code so future debugging isn't blind.
+    const body = await response.json().catch(() => ({}));
+    const msg = body.detail || body.error || body.message || response.statusText || 'Request failed';
+    throw new Error(`${response.status}: ${msg}`);
   }
 
   return response.json();
@@ -109,6 +115,12 @@ export interface User {
   is_pro?: boolean;
   x_username?: string;
   tweetscout_score?: number;
+  // ISO timestamp; null if onboarding's TweetScout fetch has never run.
+  // The onboarding gate uses THIS (not score) to decide "have we tried" —
+  // a paid TweetScout key may legitimately return score=0 for new accounts,
+  // and a 403 / network failure also leaves score=0; either way, once we've
+  // attempted the fetch we shouldn't loop the user back to the onboarding screen.
+  tweetscout_last_updated?: string | null;
   // XProfile fields
   x_followers_count?: number;
   x_display_name?: string;
@@ -489,6 +501,136 @@ export const loudApi = {
    */
   getLeaderboard: (projectSlug: string) =>
     loudApiRequest<LoudLeaderboardResponse>(`/leaderboard/${projectSlug}/`),
+};
+
+// =============================================================================
+// ADMIN API - RBAC-gated operations (require user.role = admin or superadmin)
+// =============================================================================
+
+// Admin endpoints are at backend /api/admin/*; the proxy in next.config.ts
+// preserves the prefix (unlike miniapp/loud which strip it) so the URL is
+// the same on both sides.
+const ADMIN_API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+  ? '/api/admin'
+  : (process.env.NEXT_PUBLIC_ADMIN_API_URL || 'http://localhost:8000/api/admin');
+
+async function adminApiRequest<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const initData = getTelegramInitData();
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(initData && { 'X-Telegram-Init-Data': initData }),
+    ...options.headers,
+  };
+
+  let url = `${ADMIN_API_BASE_URL}${endpoint}`;
+  if (!isInTelegram() && DEBUG_TELEGRAM_ID) {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    url = `${url}${separator}telegram_id=${DEBUG_TELEGRAM_ID}`;
+  }
+
+  const response = await fetch(url, { ...options, headers });
+
+  if (!response.ok) {
+    // Surface FastAPI's standard {"detail": "..."} shape, with status code
+    const body = await response.json().catch(() => ({}));
+    const msg = body.detail || body.error || body.message || response.statusText;
+    throw new Error(`${response.status}: ${msg}`);
+  }
+  return response.json();
+}
+
+export interface PendingWaitlistEntry {
+  id: string;
+  email: string;
+  telegram_id: number | null;
+  telegram_username: string;
+  x_username: string;
+  region: string;
+  niche: string;
+  created_at: string | null;
+}
+
+export interface PendingXVerification {
+  id: string;
+  user_id: string;
+  user_telegram_username: string;
+  submitted_x_username: string;
+  claimed_x_username: string;
+  created_at: string | null;
+}
+
+export interface AdminUserRow {
+  id: string;
+  telegram_id: number | null;
+  telegram_username: string;
+  x_username: string;
+  credits: number;
+  role: '' | 'admin' | 'superadmin';
+  is_banned: boolean;
+  is_whitelisted: boolean;
+  x_verified: boolean;
+}
+
+export const adminApi = {
+  // ---- read ----
+  pendingWaitlist: (limit = 50) =>
+    adminApiRequest<PendingWaitlistEntry[]>(`/waitlist/pending/?limit=${limit}`),
+  pendingXVerifications: (limit = 50) =>
+    adminApiRequest<PendingXVerification[]>(`/x-verification/pending/?limit=${limit}`),
+  searchUsers: (q = '', limit = 50) =>
+    adminApiRequest<AdminUserRow[]>(
+      `/users/?q=${encodeURIComponent(q)}&limit=${limit}`
+    ),
+
+  // ---- user ops ----
+  grantCredits: (userId: string, amount: number, description = '') =>
+    adminApiRequest<{ ok: boolean; user_id: string; credits: number }>(
+      `/users/${userId}/grant-credits/`,
+      { method: 'POST', body: JSON.stringify({ amount: String(amount), description }) }
+    ),
+  revokeCredits: (userId: string, amount: number, reason = '') =>
+    adminApiRequest<{ ok: boolean; user_id: string; credits: number }>(
+      `/users/${userId}/revoke-credits/`,
+      { method: 'POST', body: JSON.stringify({ amount: String(amount), reason }) }
+    ),
+  banUser: (userId: string, reason = '') =>
+    adminApiRequest<{ ok: boolean; user_id: string; is_banned: boolean }>(
+      `/users/${userId}/ban/`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    ),
+  unbanUser: (userId: string) =>
+    adminApiRequest<{ ok: boolean; user_id: string; is_banned: boolean }>(
+      `/users/${userId}/unban/`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+
+  // ---- waitlist ops ----
+  approveWaitlist: (entryId: string) =>
+    adminApiRequest<{ ok: boolean; created_user_id: string }>(
+      `/waitlist/${entryId}/approve/`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  rejectWaitlist: (entryId: string, reason = '') =>
+    adminApiRequest<{ ok: boolean; entry_id: string; status: string }>(
+      `/waitlist/${entryId}/reject/`,
+      { method: 'POST', body: JSON.stringify({ reason }) }
+    ),
+
+  // ---- x-verification ops ----
+  approveXVerification: (requestId: string) =>
+    adminApiRequest<{ ok: boolean; request_id: string; status: string }>(
+      `/x-verification/${requestId}/approve/`,
+      { method: 'POST', body: JSON.stringify({}) }
+    ),
+  rejectXVerification: (requestId: string, notes = '') =>
+    adminApiRequest<{ ok: boolean; request_id: string; status: string }>(
+      `/x-verification/${requestId}/reject/`,
+      { method: 'POST', body: JSON.stringify({ notes }) }
+    ),
 };
 
 // URL normalization helper for frontend validation

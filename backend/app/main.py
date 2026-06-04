@@ -9,6 +9,7 @@ from app.models.user import User
 from app.api import site_settings
 from decimal import Decimal
 from app.services.credits import CreditService
+from app.services.site_settings import get_setting
 from app.api import waitlist
 from app.api import users
 from app.api import x_verification
@@ -16,6 +17,7 @@ from app.api import sessions
 from app.api import claims
 from app.api import posts
 from app.api import feature_interest
+from app.api import admin as admin_api
 from app.admin_panel import mount_admin
 from app.core.limiter import limiter
 from app.core.exception_handlers import register_exception_handlers
@@ -36,6 +38,9 @@ async def lifespan(app: FastAPI):
         # the ?telegram_id= auth bypass is active in debug — MUST be off in prod
         print("WARNING: DEBUG=True — Telegram auth bypass is ENABLED. Never run prod like this.")
     yield
+    # close the shared arq/Redis pool (if one was opened by enqueue())
+    from app.tasks.enqueue import close_pool
+    await close_pool()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -52,6 +57,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def security_headers(request, call_next):
+    """Defensive response headers on every response (closes the ZAP baseline
+    warnings). Values suit a JSON API plus the one standalone HTML page (the X
+    OAuth callback, which uses only inline styles): CSP allows inline style but
+    nothing else, and CORP is 'cross-origin' because a separate frontend calls
+    this API."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+    )
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+    )
+    return response
+
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(site_settings.router)
@@ -61,6 +88,16 @@ register_exception_handlers(app)
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+# Public mini-app settings (the frontend fetches this once on load to know the
+# post-cost range). Matches the Django contract path /api/miniapp/settings/.
+@app.get("/settings/")
+async def miniapp_settings(db=Depends(get_session)):
+    return {
+        "post_cost_min": await get_setting(db, "POST_COST_MIN"),
+        "post_cost_max": await get_setting(db, "POST_COST_MAX"),
+    }
 
 
 @app.get("/whoami")
@@ -75,6 +112,9 @@ app.include_router(sessions.router)
 app.include_router(claims.router)
 app.include_router(posts.router)
 app.include_router(feature_interest.router)
+# privileged admin API (RBAC-gated; service-backed). Distinct from the SQLAdmin
+# UI at /admin — this one is for the Next.js admin dashboard and CLI tools.
+app.include_router(admin_api.router)
 
 # the SQLAdmin operations panel at /admin (separate admin login)
 mount_admin(app)

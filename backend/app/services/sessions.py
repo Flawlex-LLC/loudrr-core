@@ -100,6 +100,8 @@ async def start_session(db, *, user) -> dict:
 
 # ---- endpoint 10: POST /session/click/ ----
 async def record_click(db, *, user, post_id) -> dict:
+    if user.is_banned:
+        raise Forbidden("Your account has been suspended")
     if not post_id:
         raise BadRequest("Missing post_id")
 

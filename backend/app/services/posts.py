@@ -13,6 +13,7 @@ from app.core.errors import BadRequest, Conflict, Forbidden, ServiceUnavailable
 from app.integrations.twitter import extract_tweet_id, get_twitter_client
 from app.models.engagement import Engagement
 from app.models.post import Post
+from app.models.user import User
 from app.repositories.post import PostRepository
 from app.repositories.x_profile import XProfileRepository
 from app.services.credits import CreditService, InsufficientCreditsError
@@ -150,6 +151,17 @@ async def submit_post(db, *, user, x_link: str, karma_amount=None) -> dict:
     posts = PostRepository(db)
     if await posts.exists(x_link=x_link, status="active"):
         raise BadRequest("This post is already active in the system.")
+
+    # Lock the poster's row BEFORE inserting the post. Inserting a post takes a
+    # FK share-lock on users; spend() then needs FOR UPDATE — that upgrade
+    # deadlocks two concurrent submits by the same user. Taking FOR UPDATE first
+    # gives every path the same lock order, so the loser blocks then fails
+    # gracefully (insufficient credits) instead of erroring on a deadlock. The
+    # external tweet fetch above held no lock (spec §7); none is held until here.
+    await db.execute(
+        select(User).where(User.id == user.id)
+        .with_for_update().execution_options(populate_existing=True)
+    )
 
     post = await posts.create(
         user_id=user.id, x_link=x_link, tweet_id=tweet_id, platform="web",

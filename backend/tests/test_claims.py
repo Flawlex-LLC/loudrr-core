@@ -179,6 +179,44 @@ async def test_rerun_is_idempotent(client, make_user, db_session, monkeypatch):
     assert viewer.credits == Decimal("1.0000")  # not double-credited
 
 
+async def test_multi_engagement_batch_mixed_outcomes(client, make_user, db_session, monkeypatch):
+    """A batch of 3: two verify, one fails. Settlement is per-engagement — the
+    two pass (escrow + credit move on each), the failure is deleted and docks
+    honesty, and the failed post's escrow is left untouched."""
+    from app.repositories.engagement import EngagementRepository
+
+    owner = await make_user(telegram_id=8201)
+    viewer = await make_user(telegram_id=8202, x_username="v")  # Anon x1.00
+    p1 = await _make_post(db_session, owner_id=owner.id, escrow="50", tweet_id="t1", x_link="https://x.com/o/status/t1")
+    p2 = await _make_post(db_session, owner_id=owner.id, escrow="50", tweet_id="t2", x_link="https://x.com/o/status/t2")
+    p3 = await _make_post(db_session, owner_id=owner.id, escrow="50", tweet_id="t3", x_link="https://x.com/o/status/t3")
+    e1 = await _make_engagement(db_session, user_id=viewer.id, post_id=p1.id)
+    e2 = await _make_engagement(db_session, user_id=viewer.id, post_id=p2.id)
+    e3 = await _make_engagement(db_session, user_id=viewer.id, post_id=p3.id)
+    e3_id = e3.id
+
+    class _PerTweet:
+        async def verify_reply(self, tweet_id, x_username):
+            ok = tweet_id != "t3"  # only t3 fails
+            return {"passed": ok, "reply_verified": ok, "like_verified": True,
+                    "error": None if ok else "no reply", "skipped": False}
+
+    monkeypatch.setattr(twitter, "get_twitter_client", lambda: _PerTweet())
+
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[e1.id, e2.id, e3_id])
+    await claims.run_batch(db_session, batch.id)
+
+    assert (batch.passed, batch.failed) == (2, 1)
+    assert batch.credits_awarded == Decimal("2.0000")     # 1.00 each for the two that passed
+    assert viewer.credits == Decimal("2.0000")
+    assert viewer.total_engagements == 2                  # only the awarded ones count
+    assert viewer.honesty_score == 49                     # one failure → ceil(1/2)=1
+    assert p1.escrow == Decimal("49.0000")                # each passed post paid 1
+    assert p2.escrow == Decimal("49.0000")
+    assert p3.escrow == Decimal("50.0000")                # failed → escrow untouched
+    assert await EngagementRepository(db_session).get(id=e3_id) is None  # failed deleted
+
+
 # ============ queue-claim gates (endpoint) ============
 def _no_background(monkeypatch):
     async def _noop(batch_id):

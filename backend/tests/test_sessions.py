@@ -62,6 +62,25 @@ async def test_start_banned_403(client, make_user):
     assert r.status_code == 403
 
 
+# ---- POST /session/click/ — edge cases ----
+async def test_click_cancelled_post_404(client, make_user, db_session):
+    owner = await make_user(telegram_id=7101)
+    await make_user(telegram_id=7102)
+    post = await _make_post(db_session, owner_id=owner.id, escrow="0", status="cancelled")
+    r = await client.post(
+        "/session/click/", params={"telegram_id": 7102}, json={"post_id": str(post.id)}
+    )
+    assert r.status_code == 404
+
+
+async def test_click_malformed_uuid_422(client, make_user):
+    await make_user(telegram_id=7103)
+    r = await client.post(
+        "/session/click/", params={"telegram_id": 7103}, json={"post_id": "not-a-uuid"}
+    )
+    assert r.status_code == 422  # rejected by the schema, never reaches the service
+
+
 # ---- POST /session/click/ ----
 async def test_click_creates_engagement(client, make_user, db_session):
     owner = await make_user(telegram_id=7005)

@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from sqlalchemy import func, select
 
+from app.core.errors import Forbidden
 from app.db.session import SessionLocal
 from app.models.engagement import Engagement
 from app.models.post import Post
@@ -39,6 +40,8 @@ async def _pending_count(db, user_id) -> int:
 # ---- endpoint 12: POST /session/queue-claim/ ----
 async def queue_claim(db, *, user, schedule) -> tuple[dict, int]:
     """Returns (body, http_status). `schedule(batch_id)` enqueues processing."""
+    if user.is_banned:
+        raise Forbidden("Your account has been suspended")
     if not user.x_username:
         return (
             {"success": False, "error": "x_account_required",

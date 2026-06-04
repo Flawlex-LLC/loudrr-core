@@ -103,6 +103,13 @@ async def settle(db, *, user_id, results) -> dict:
         )
     ).scalar_one()
 
+    # defensive: a user banned after queueing but before settlement runs earns
+    # nothing — release the lock and award zero (queue_claim already blocks the
+    # normal path; this guards the ban-mid-flight race)
+    if user.is_banned:
+        await db.commit()
+        return {"total_awarded": Decimal("0"), "new_balance": user.credits}
+
     post_ids = sorted({r.post_id for r in results})
     posts = {}
     if post_ids:

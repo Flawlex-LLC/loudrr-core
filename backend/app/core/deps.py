@@ -2,6 +2,7 @@ from fastapi import Header, HTTPException, Depends, Query
 from sqlalchemy import select
 from app.core.telegram_auth import verify_init_data
 from app.core.config import settings
+from app.core.errors import Forbidden
 from app.models.user import User
 from app.db.session import get_session
 
@@ -33,6 +34,22 @@ async def get_current_user(
     return user
 
 
+# ---- RBAC: admin gates (build on the authenticated user + their role) ----
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Authenticated user with the 'admin' or 'superadmin' role (Forbidden→403)."""
+    if user.role not in ("admin", "superadmin"):
+        raise Forbidden("Admin access required")
+    return user
+
+
+async def require_superadmin(user: User = Depends(get_current_user)) -> User:
+    """Authenticated user with the 'superadmin' role — for the most sensitive
+    operations (e.g. revoking credits), matching the Django superuser gate."""
+    if user.role != "superadmin":
+        raise Forbidden("Superadmin access required")
+    return user
+
+
 async def get_telegram_identity(
     x_telegram_init_data: str | None = Header(default=None),
     telegram_id: int | None = Query(default=None),
@@ -43,8 +60,10 @@ async def get_telegram_identity(
     from app.core.errors import Unauthorized
     # DEV SHORTCUT: when debug=True, trust ?telegram_id= so you can test
     # in a browser without a real signed Telegram request. NEVER in prod.
+    # The mocked identity matches Django's reference (miniapp/views.py:144)
+    # so a debug waitlist registration lands as "Oxblest" instead of blank.
     if settings.debug and telegram_id is not None:
-        return {"id": telegram_id, "username": "", "first_name": ""}
+        return {"id": telegram_id, "username": "Oxblest", "first_name": "Oxblest"}
     if not x_telegram_init_data:
         raise Unauthorized("Invalid Telegram data")
     try:

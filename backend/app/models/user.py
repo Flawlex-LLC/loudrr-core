@@ -70,6 +70,13 @@ class User(Base):
     )
     is_banned: Mapped[bool] = mapped_column(default=False, server_default="false")
 
+    # admin RBAC role: "" (regular user) | "admin" | "superadmin". Gates the
+    # /api/admin/* endpoints via require_admin/require_superadmin (core/deps.py).
+    # Bootstrapped from ADMIN_TELEGRAM_IDS (seed_admins.py).
+    role: Mapped[str] = mapped_column(
+        String(20), default="", server_default="", index=True
+    )
+
     # referral
     referral_code: Mapped[str] = mapped_column(String(10), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -83,5 +90,20 @@ class User(Base):
         CheckConstraint("NOT (is_whitelisted AND is_banned)", name="ban_xor_whitelist"),
         CheckConstraint(
             "honesty_score >= 0 AND honesty_score <= 50", name="honesty_score_range"
+        ),
+        # money invariants — the DB itself refuses a corrupted balance, even if
+        # buggy/racing code tried to write one (matches the Django reference,
+        # which has credits>=0; we add the totals + daily floors too)
+        CheckConstraint("credits >= 0", name="credits_non_negative"),
+        CheckConstraint(
+            "total_credits_earned >= 0", name="total_earned_non_negative"
+        ),
+        CheckConstraint("total_credits_spent >= 0", name="total_spent_non_negative"),
+        CheckConstraint(
+            "daily_credits_earned >= 0", name="daily_earned_non_negative"
+        ),
+        # RBAC role must be one of the known values
+        CheckConstraint(
+            "role IN ('', 'admin', 'superadmin')", name="user_role_valid"
         ),
     )

@@ -265,8 +265,11 @@ export default function MiniApp() {
     );
   }
 
-  // Show onboarding screen for new whitelisted users (tweetscout_score == 0)
-  if (user && user.is_whitelisted && (user.tweetscout_score === 0 || user.tweetscout_score === undefined) && user.x_username) {
+  // Show onboarding screen for whitelisted users who haven't completed the
+  // TweetScout onboarding fetch yet. Gate on tweetscout_last_updated (set by
+  // /onboarding/complete/ regardless of success) — NOT on score — so a user
+  // doesn't loop back here when TweetScout returns 0 or fails (403/network).
+  if (user && user.is_whitelisted && user.x_username && !user.tweetscout_last_updated) {
     return (
       <OnboardingScreen
         user={user}

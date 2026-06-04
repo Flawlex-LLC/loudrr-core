@@ -128,3 +128,68 @@ async def test_apply_penalty_deducts(db_session, make_user):
     assert user.credits == Decimal("70")
     assert txn.amount == Decimal("-30")
     assert txn.type == TransactionType.APPLY_PENALTY
+
+
+# ---- hardening: a penalty can never corrupt the balance ----
+async def test_penalty_larger_than_balance_floors_at_zero(db_session, make_user):
+    """A penalty bigger than the balance takes only what's there — the balance
+    floors at 0, never negative (graceful sad-path; the DB check is the backstop)."""
+    user = await make_user(credits=Decimal("30"), total_credits_earned=Decimal("30"))
+    txn = await CreditService(db_session, user).apply_penalty(
+        Decimal("100"), admin_id=uuid.uuid4(), idempotency_key="p_over"
+    )
+    await db_session.refresh(user)
+    assert user.credits == Decimal("0")          # floored, not -70
+    assert txn.amount == Decimal("-30")          # only the available 30 was taken
+    assert txn.balance_after == Decimal("0")
+
+
+async def test_penalty_on_empty_balance_is_noop(db_session, make_user):
+    """Nothing to take → no 0-amount ledger row is written (that would violate
+    transaction_amount_nonzero); the call returns None and the balance stays 0."""
+    user = await make_user(credits=Decimal("0"))
+    txn = await CreditService(db_session, user).apply_penalty(
+        Decimal("50"), admin_id=uuid.uuid4(), idempotency_key="p_empty"
+    )
+    assert txn is None
+    await db_session.refresh(user)
+    assert user.credits == Decimal("0")
+
+
+async def test_penalty_is_idempotent(db_session, make_user):
+    user = await make_user(credits=Decimal("100"), total_credits_earned=Decimal("100"))
+    svc = CreditService(db_session, user)
+    first = await svc.apply_penalty(Decimal("30"), admin_id=uuid.uuid4(), idempotency_key="dup")
+    second = await svc.apply_penalty(Decimal("30"), admin_id=uuid.uuid4(), idempotency_key="dup")
+    assert first.id == second.id                 # same row, not a second deduction
+    await db_session.refresh(user)
+    assert user.credits == Decimal("70")         # deducted exactly once
+
+
+# ---- hardening: no operation may write a zero / negative amount ----
+async def test_earn_rejects_non_positive(db_session, make_user):
+    user = await make_user()
+    with pytest.raises(ValueError):
+        await CreditService(db_session, user).earn(Decimal("0"), idempotency_key="z")
+
+
+async def test_refund_rejects_non_positive(db_session, make_user):
+    user = await make_user()
+    with pytest.raises(ValueError):
+        await CreditService(db_session, user).refund(Decimal("0"), idempotency_key="z")
+
+
+async def test_admin_grant_rejects_non_positive(db_session, make_user):
+    user = await make_user()
+    with pytest.raises(ValueError):
+        await CreditService(db_session, user).admin_grant(
+            Decimal("0"), admin_id=uuid.uuid4(), idempotency_key="z"
+        )
+
+
+async def test_penalty_rejects_non_positive(db_session, make_user):
+    user = await make_user(credits=Decimal("10"), total_credits_earned=Decimal("10"))
+    with pytest.raises(ValueError):
+        await CreditService(db_session, user).apply_penalty(
+            Decimal("0"), admin_id=uuid.uuid4(), idempotency_key="z"
+        )

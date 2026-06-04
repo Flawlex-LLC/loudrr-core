@@ -51,4 +51,7 @@ class Transaction(Base):
             "idempotency_key",
             name="transaction_idempotency_unique",
         ),
+        # a zero-amount ledger row is meaningless — refuse it (matches Django).
+        # services must skip a no-op rather than write a 0 here.
+        CheckConstraint("amount <> 0", name="transaction_amount_nonzero"),
     )

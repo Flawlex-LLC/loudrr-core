@@ -23,8 +23,12 @@ def extract_x_username(x_link: str) -> str | None:
     if _X_USERNAME.match(s):
         return s
 
-    # parse as URL
-    parsed = urlparse(s if "://" in s else f"https://{s}")
+    # parse as URL — urlparse raises ValueError on malformed input (e.g. a bare
+    # "[" looks like a broken IPv6 host), so treat any parse failure as "not a handle"
+    try:
+        parsed = urlparse(s if "://" in s else f"https://{s}")
+    except ValueError:
+        return None
     if (parsed.netloc or "").lower() not in _X_HOSTS:
         return None
 

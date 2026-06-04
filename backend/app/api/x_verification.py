@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse
 
@@ -6,6 +8,7 @@ from app.db.session import get_session
 from app.models.user import User
 from app.services import x_verification as svc
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["x-verification"])
 
 
@@ -73,7 +76,17 @@ async def x_oauth_callback(
     error: str | None = Query(default=None),
     db=Depends(get_session),
 ):
-    result = await svc.handle_callback(db, code=code, state=state, error=error)
+    # public, unauthenticated endpoint (X redirects the browser here) — it must
+    # never show a raw 500 stack page on unexpected input/infra errors
+    try:
+        result = await svc.handle_callback(db, code=code, state=state, error=error)
+    except Exception:
+        logger.exception("x oauth callback failed")
+        result = svc.CallbackResult(
+            "Something Went Wrong",
+            "We couldn't complete verification. Open Loudrr again to retry.",
+            False, 500,
+        )
     return HTMLResponse(
         content=_callback_html(result.title, result.message, result.success),
         status_code=result.status_code,

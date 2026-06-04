@@ -138,6 +138,52 @@ async def test_submit_over_max_400(client, make_user, db_session, monkeypatch):
     assert "Maximum karma" in r.json()["error"]
 
 
+async def test_submit_at_exact_min_and_max_boundaries(client, make_user, db_session, monkeypatch):
+    await _seed_costs(db_session, lo=10, hi=100)
+    await _linked_user(make_user, db_session, 9010, credits="1000")
+    _mock_twitter(monkeypatch, _CONTENT)
+    # exactly the minimum is allowed
+    r_min = await client.post(
+        "/post/submit/", params={"telegram_id": 9010},
+        json={"x_link": "https://x.com/me/status/501", "karma_amount": 10},
+    )
+    assert r_min.status_code == 200 and r_min.json()["escrow"] == 10
+    # exactly the maximum is allowed
+    r_max = await client.post(
+        "/post/submit/", params={"telegram_id": 9010},
+        json={"x_link": "https://x.com/me/status/502", "karma_amount": 100},
+    )
+    assert r_max.status_code == 200 and r_max.json()["escrow"] == 100
+
+
+async def test_submit_one_below_min_400(client, make_user, db_session, monkeypatch):
+    await _seed_costs(db_session, lo=10, hi=100)
+    await _linked_user(make_user, db_session, 9011, credits="1000")
+    _mock_twitter(monkeypatch, _CONTENT)
+    r = await client.post(
+        "/post/submit/", params={"telegram_id": 9011},
+        json={"x_link": LINK, "karma_amount": 9},  # one under the floor
+    )
+    assert r.status_code == 400
+    assert "Minimum karma" in r.json()["error"]
+
+
+async def test_submit_duplicate_active_post_400(client, make_user, db_session, monkeypatch):
+    await _seed_costs(db_session)
+    await _linked_user(make_user, db_session, 9012, credits="1000")
+    _mock_twitter(monkeypatch, _CONTENT)
+    first = await client.post(
+        "/post/submit/", params={"telegram_id": 9012}, json={"x_link": LINK, "karma_amount": 10}
+    )
+    assert first.status_code == 200
+    # the same link, still active → refused (no double escrow on one post)
+    dup = await client.post(
+        "/post/submit/", params={"telegram_id": 9012}, json={"x_link": LINK, "karma_amount": 10}
+    )
+    assert dup.status_code == 400
+    assert "already active" in dup.json()["error"]
+
+
 async def test_cancel_refunds_escrow(make_user, db_session):
     owner = await make_user(telegram_id=9009, credits=Decimal("0"), total_credits_earned=Decimal("0"))
     post = Post(

@@ -50,6 +50,10 @@ class CreditService:
         # the amount is always a decimal
         if not isinstance(amount, Decimal):
             amount = Decimal(str(amount))
+        # a zero/negative earn is meaningless and would write a 0-amount ledger
+        # row (now blocked by transaction_amount_nonzero) — refuse it up front
+        if amount <= Decimal("0"):
+            raise ValueError("Amount must be positive!")
         result = await self.db.execute(
             select(Transaction).where(
                 Transaction.user_id == self.user.id,
@@ -275,7 +279,10 @@ class CreditService:
         idempotency_key: str,
         reference_id=None,
         description: str = "",
-    ) -> Transaction:
+    ) -> Transaction | None:
+        """Deduct up to `amount`, clamped to the available balance so it can
+        never drive credits negative. Returns the ledger row, or None when the
+        balance was already empty (nothing to take → no 0-amount row written)."""
         # strict: refuse empty
         if not idempotency_key:
             raise ValueError("idempotency_key is required")
@@ -305,17 +312,26 @@ class CreditService:
             .execution_options(populate_existing=True)
         )
         user = result.scalar_one()
-        # move the balances
-        user.credits -= amount
-        # user.total_credits_spent += amount - this is  not applicable for penalty
+        # graceful clamp: take only what's there, so the balance floors at 0
+        # instead of going negative (the DB credits_non_negative check is the
+        # backstop; this keeps the normal path clean and audit-honest).
+        available = user.credits if user.credits > Decimal("0") else Decimal("0")
+        deducted = min(amount, available)
+        if deducted <= Decimal("0"):
+            # nothing to take — a 0-amount ledger row is illegal
+            # (transaction_amount_nonzero), so record nothing and release the lock
+            await self.db.commit()
+            return None
+        # total_credits_spent is intentionally NOT touched for a penalty
+        user.credits -= deducted
         txn = Transaction(
             user_id=user.id,
             type=TransactionType.APPLY_PENALTY,
-            amount=-amount,
+            amount=-deducted,
             balance_after=user.credits,
             reference_id=reference_id,
             idempotency_key=idempotency_key,
-            description=description or f" penalty of {amount} by {admin_id}.",
+            description=description or f"penalty of {deducted} by {admin_id}.",
         )
         self.db.add(txn)
         await self.db.commit()
