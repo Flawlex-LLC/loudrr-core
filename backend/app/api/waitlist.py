@@ -43,6 +43,9 @@ async def waitlist_status(
     if result.status == "approved":
         return {"status": "approved"}
     if result.status == "waitlisted":
+        # services/waitlist.py:151 always populates result.entry on this branch;
+        # the assert lets mypy narrow Optional[WaitlistEntry] -> WaitlistEntry
+        assert result.entry is not None
         # .isoformat() makes the datetime JSON-friendly
         return {
             "status": "waitlisted",

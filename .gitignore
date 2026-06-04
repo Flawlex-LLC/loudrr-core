@@ -23,3 +23,9 @@ node_modules/
 .next/
 frontend/.env*.local
 *.tsbuildinfo
+# coverage + transient scan outputs
+backend/.coverage
+*.coverage
+mypy_output.txt
+zap-scan-output.txt
+*zap-scan-output.txt

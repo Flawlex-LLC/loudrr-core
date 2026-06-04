@@ -60,6 +60,6 @@ class Settings(BaseSettings):
 
 
 # business logic settings
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # pydantic-settings reads required fields from .env at runtime
 
 print(f"{settings.app_name}\n{settings.debug}\n{settings.items_per_page}")
