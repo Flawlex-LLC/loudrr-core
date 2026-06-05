@@ -163,9 +163,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
       <Sidebar collapsed={collapsed} items={navItems} footer={footer} />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="relative flex flex-1 flex-col overflow-hidden">
+        {/* Ambient orange orb in the top-right (matches the landing page's
+            decorative-orb language). Pointer-events: none so it doesn't eat
+            clicks. Fixed to the main area, never scrolls with content. */}
+        <div
+          aria-hidden
+          className="orb orb-orange pointer-events-none absolute -right-40 -top-40 h-[480px] w-[480px] opacity-60"
+        />
+        {/* Subtle noise texture overlay for organic feel — also from landing. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.025] mix-blend-soft-light"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+            backgroundRepeat: 'repeat',
+          }}
+        />
         <TopBar breadcrumb={breadcrumb} />
-        <main className="scrollbar-content flex-1 overflow-y-auto p-8">{children}</main>
+        <main className="scrollbar-content relative flex-1 overflow-y-auto p-8">{children}</main>
       </div>
 
       <Toaster

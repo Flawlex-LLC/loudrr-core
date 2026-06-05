@@ -8,7 +8,7 @@ interface TopBarProps {
 
 export function TopBar({ breadcrumb }: TopBarProps) {
   return (
-    <header className="sticky top-0 z-20 flex h-12 items-center gap-4 border-b border-white/[0.06] bg-[#0a0a0a]/85 px-5 backdrop-blur">
+    <header className="sticky top-0 z-20 flex h-14 items-center gap-4 border-b border-white/[0.06] bg-[#0a0a0a]/85 px-6 backdrop-blur">
       {/* Breadcrumb */}
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-xs">
         {breadcrumb.map((crumb, i) => {
@@ -36,7 +36,7 @@ export function TopBar({ breadcrumb }: TopBarProps) {
           href="http://localhost:8000/docs"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-2.5 py-1 transition-colors hover:bg-white/[0.04] hover:text-zinc-200"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-1.5 transition-all duration-300 hover:border-white/20 hover:bg-white/[0.05] hover:text-white active:scale-[0.98]"
           title="FastAPI Swagger docs"
         >
           <span>API docs</span>
@@ -46,7 +46,7 @@ export function TopBar({ breadcrumb }: TopBarProps) {
           href="http://localhost:8000/admin"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-2.5 py-1 transition-colors hover:bg-white/[0.04] hover:text-zinc-200"
+          className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-1.5 transition-all duration-300 hover:border-white/20 hover:bg-white/[0.05] hover:text-white active:scale-[0.98]"
           title="SQLAdmin raw DB browser"
         >
           <span>SQLAdmin</span>
