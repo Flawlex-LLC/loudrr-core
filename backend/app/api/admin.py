@@ -10,18 +10,27 @@ The acting admin's own id is threaded through as the audit actor_id.
 Mounted under /api/admin (SQLAdmin owns /admin).
 """
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select, func
 
 from app.core.deps import require_admin, require_superadmin
+from app.core.site_settings_meta import ALL_GROUPS
+from app.core.time_utils import utcnow
 from app.db.session import get_session
+from app.models.audit_log import AuditLog
+from app.models.engagement import Engagement
+from app.models.post import Post
+from app.models.site_setting import SiteSetting
 from app.models.user import User
+from app.models.verification_batch import VerificationBatch
 from app.models.waitlist_entry import WaitlistEntry
 from app.models.x_verification_request import XVerificationRequest
 from app.services import admin as admin_svc
+from app.services import site_settings as site_settings_svc
 from app.services import waitlist as waitlist_svc
 from app.services import x_verification as xverify_svc
 
@@ -45,6 +54,10 @@ class ReasonBody(BaseModel):
 
 class NotesBody(BaseModel):
     notes: str = ""
+
+
+class SiteSettingUpdateBody(BaseModel):
+    value: str = Field(max_length=255)
 
 
 # ---- user credit + ban operations ----
@@ -246,3 +259,291 @@ async def search_users(
         }
         for u in rows
     ]
+
+
+# ---- site settings (admin tunables: money math, caps, feature toggles) ----
+# Source of truth for *which* keys exist + their docs is ALL_GROUPS in
+# core/site_settings_meta.py. The SiteSetting table only stores the *current
+# values* — missing rows fall back to the spec default and are flagged
+# persisted=false so the UI can show "(default, not yet stored)".
+def _coerce_value(value: str, data_type: str):
+    """Coerce a raw string per data_type. Raises ValueError if it doesn't fit."""
+    if data_type == "int":
+        return int(value)
+    if data_type == "float":
+        return float(value)
+    if data_type == "decimal":
+        return Decimal(value)
+    if data_type == "bool":
+        if value.strip().lower() not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+            raise ValueError(f"{value!r} is not a valid bool")
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if data_type == "str":
+        return value
+    raise ValueError(f"unknown data_type {data_type!r}")
+
+
+@router.get("/site-settings/")
+async def list_site_settings(
+    _admin: User = Depends(require_admin),
+    db=Depends(get_session),
+):
+    """Return every known setting grouped by category. The metadata
+    (groups + specs + defaults + data_type) lives in
+    core/site_settings_meta.ALL_GROUPS — we just overlay the persisted
+    SiteSetting row's value where it exists."""
+    # one query to fetch everything currently persisted
+    persisted_rows = (await db.execute(select(SiteSetting))).scalars().all()
+    by_key = {row.key: row for row in persisted_rows}
+
+    groups_out = []
+    for group in ALL_GROUPS:
+        settings_out = []
+        for spec in group.settings:
+            row = by_key.get(spec.key)
+            persisted = row is not None
+            value = row.value if persisted else spec.default
+            settings_out.append({
+                "key": spec.key,
+                "value": value,
+                "default": spec.default,
+                "data_type": spec.data_type,
+                "description": spec.description,
+                "live": spec.live,
+                "persisted": persisted,
+            })
+        groups_out.append({
+            "name": group.name,
+            "description": group.description,
+            "settings": settings_out,
+        })
+    return {"groups": groups_out}
+
+
+@router.put("/site-settings/{key}")
+async def update_site_setting(
+    key: str,
+    body: SiteSettingUpdateBody,
+    admin: User = Depends(require_superadmin),  # tunes money math → superadmin only
+    db=Depends(get_session),
+):
+    """Upsert a single setting. The key must be declared in ALL_GROUPS;
+    the value must coerce cleanly to the spec's data_type."""
+    # find the spec across all groups
+    spec = None
+    for group in ALL_GROUPS:
+        for s in group.settings:
+            if s.key == key:
+                spec = s
+                break
+        if spec is not None:
+            break
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"unknown setting key {key!r}")
+
+    if len(body.value) > 255:
+        raise HTTPException(status_code=422, detail="value too long (max 255 chars)")
+
+    try:
+        _coerce_value(body.value, spec.data_type)
+    except (ValueError, ArithmeticError) as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"value does not coerce to {spec.data_type}: {e}",
+        )
+
+    existing = (
+        await db.execute(select(SiteSetting).where(SiteSetting.key == key))
+    ).scalar_one_or_none()
+    old_value = existing.value if existing is not None else None
+
+    if existing is None:
+        db.add(SiteSetting(
+            key=key, value=body.value,
+            data_type=spec.data_type, description=spec.description,
+        ))
+    else:
+        existing.value = body.value
+        # keep data_type / description in sync with the spec
+        existing.data_type = spec.data_type
+        existing.description = spec.description
+
+    # bust the in-process cache so the next read sees the new value
+    site_settings_svc._cache.pop(key, None)
+
+    db.add(AuditLog(
+        actor_id=admin.id,
+        action="update_site_setting",
+        target_type="site_setting",
+        target_id=None,
+        detail={"key": key, "old_value": old_value, "new_value": body.value},
+    ))
+    await db.commit()
+
+    # TIER_* keys feed the in-memory tier bands consulted by sync
+    # tier_for/multiplier_for callers; rebuild immediately so the change
+    # takes effect without a restart. A failure here is non-fatal —
+    # log via the helper's own warning and keep serving the response.
+    if key.startswith("TIER_"):
+        from app.services.tier import load_tiers_from_settings
+        try:
+            await load_tiers_from_settings(db)
+        except Exception:  # pragma: no cover — defensive
+            pass
+
+    return {"ok": True, "key": key, "value": body.value, "data_type": spec.data_type}
+
+
+# ---- dashboard stats (one round-trip for the admin homepage) ----
+@router.get("/stats/")
+async def admin_stats(
+    _admin: User = Depends(require_admin),
+    db=Depends(get_session),
+):
+    """One-shot dashboard metrics for the admin UI. Everything is computed
+    in aggregate SQL (count / sum / group-by) — no N+1, no row iteration."""
+    now = utcnow()
+    week_ago = now - timedelta(days=7)
+    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # ---- users (one grouped query + a few small filtered counts) ----
+    user_total = (await db.execute(select(func.count(User.id)))).scalar_one()
+    role_rows = (
+        await db.execute(select(User.role, func.count(User.id)).group_by(User.role))
+    ).all()
+    by_role = {"regular": 0, "admin": 0, "superadmin": 0}
+    for role, cnt in role_rows:
+        key = role if role else "regular"
+        by_role[key] = by_role.get(key, 0) + int(cnt)
+
+    banned = (
+        await db.execute(select(func.count(User.id)).where(User.is_banned.is_(True)))
+    ).scalar_one()
+    whitelisted = (
+        await db.execute(select(func.count(User.id)).where(User.is_whitelisted.is_(True)))
+    ).scalar_one()
+    x_verified = (
+        await db.execute(select(func.count(User.id)).where(User.x_verified.is_(True)))
+    ).scalar_one()
+    new_users_week = (
+        await db.execute(
+            select(func.count(User.id)).where(User.created_at >= week_ago)
+        )
+    ).scalar_one()
+
+    # ---- credits (single aggregate query, three SUMs together) ----
+    credit_row = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(User.credits), 0),
+                func.coalesce(func.sum(User.total_credits_earned), 0),
+                func.coalesce(func.sum(User.total_credits_spent), 0),
+            )
+        )
+    ).one()
+    in_circulation, total_earned, total_spent = credit_row
+
+    # ---- posts (status counts + escrow sum on active) ----
+    post_status_rows = (
+        await db.execute(select(Post.status, func.count(Post.id)).group_by(Post.status))
+    ).all()
+    post_counts = {"active": 0, "completed": 0, "cancelled": 0}
+    for status, cnt in post_status_rows:
+        if status in post_counts:
+            post_counts[status] = int(cnt)
+
+    total_escrow_active = (
+        await db.execute(
+            select(func.coalesce(func.sum(Post.escrow), 0)).where(Post.status == "active")
+        )
+    ).scalar_one()
+
+    # ---- engagements (total + today + 7d) ----
+    eng_total = (await db.execute(select(func.count(Engagement.id)))).scalar_one()
+    eng_today = (
+        await db.execute(
+            select(func.count(Engagement.id)).where(
+                Engagement.clicked_at >= today_midnight
+            )
+        )
+    ).scalar_one()
+    eng_week = (
+        await db.execute(
+            select(func.count(Engagement.id)).where(Engagement.clicked_at >= week_ago)
+        )
+    ).scalar_one()
+
+    # ---- queues (admin moderation backlogs) ----
+    pending_waitlist = (
+        await db.execute(
+            select(func.count(WaitlistEntry.id)).where(
+                WaitlistEntry.status == "submitted"
+            )
+        )
+    ).scalar_one()
+    pending_x = (
+        await db.execute(
+            select(func.count(XVerificationRequest.id)).where(
+                XVerificationRequest.status == "PENDING"
+            )
+        )
+    ).scalar_one()
+    pending_batches = (
+        await db.execute(
+            select(func.count(VerificationBatch.id)).where(
+                VerificationBatch.status.in_(("pending", "processing"))
+            )
+        )
+    ).scalar_one()
+
+    # ---- recent audit (most recent 10 rows) ----
+    recent_rows = (
+        await db.execute(
+            select(AuditLog).order_by(AuditLog.created_at.desc()).limit(10)
+        )
+    ).scalars().all()
+    recent_audit = [
+        {
+            "id": str(r.id),
+            "actor_id": str(r.actor_id) if r.actor_id else None,
+            "action": r.action,
+            "target_type": r.target_type,
+            "target_id": str(r.target_id) if r.target_id else None,
+            "detail": r.detail,
+            "created_at_iso": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in recent_rows
+    ]
+
+    return {
+        "users": {
+            "total": int(user_total),
+            "by_role": {k: int(v) for k, v in by_role.items()},
+            "banned": int(banned),
+            "whitelisted": int(whitelisted),
+            "x_verified": int(x_verified),
+            "new_this_week": int(new_users_week),
+        },
+        "credits": {
+            "in_circulation": float(in_circulation),
+            "total_earned": float(total_earned),
+            "total_spent": float(total_spent),
+        },
+        "posts": {
+            "active": post_counts["active"],
+            "completed": post_counts["completed"],
+            "cancelled": post_counts["cancelled"],
+            "total_escrow_active": float(total_escrow_active),
+        },
+        "engagements": {
+            "total": int(eng_total),
+            "today": int(eng_today),
+            "this_week": int(eng_week),
+        },
+        "queues": {
+            "pending_waitlist": int(pending_waitlist),
+            "pending_x_verifications": int(pending_x),
+            "pending_batches": int(pending_batches),
+        },
+        "recent_audit": recent_audit,
+    }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Toaster } from 'sonner';
-import { LayoutDashboard, UserCheck, ShieldCheck, Users, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, UserCheck, ShieldCheck, Users, Settings2, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
@@ -11,6 +11,7 @@ const NAV = [
   { href: '/admin/waitlist', label: 'Waitlist', icon: UserCheck },
   { href: '/admin/x-verification', label: 'X Verification', icon: ShieldCheck },
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/site-settings', label: 'Site Settings', icon: Settings2 },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

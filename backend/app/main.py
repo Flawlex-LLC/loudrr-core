@@ -21,9 +21,10 @@ from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.exception_handlers import register_exception_handlers
 from app.core.limiter import limiter
-from app.db.session import engine, get_session
+from app.db.session import engine, SessionLocal, get_session
 from app.models.user import User
 from app.services.site_settings import get_setting
+from app.services.tier import load_tiers_from_settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +39,14 @@ async def lifespan(app: FastAPI):
     if settings.debug:
         # the ?telegram_id= auth bypass is active in debug — MUST be off in prod
         print("WARNING: DEBUG=True — Telegram auth bypass is ENABLED. Never run prod like this.")
+    # rebuild the in-memory tier bands from any TIER_* SiteSetting overrides;
+    # a failure here is non-fatal — fall back to the hardcoded defaults so the
+    # app can still boot during a partial migration / empty-DB scenario.
+    try:
+        async with SessionLocal() as _tier_db:
+            await load_tiers_from_settings(_tier_db)
+    except Exception as e:  # pragma: no cover — defensive
+        print(f"WARNING: load_tiers_from_settings failed at startup: {e!r} — using defaults")
     yield
     # close the shared arq/Redis pool (if one was opened by enqueue())
     from app.tasks.enqueue import close_pool

@@ -679,6 +679,67 @@ export interface AdminUserRow {
   x_verified: boolean;
 }
 
+export interface SiteSettingRow {
+  key: string;
+  value: string;
+  default: string;
+  data_type: 'int' | 'float' | 'decimal' | 'bool' | 'str';
+  description: string;
+  live: boolean;       // true if backend code currently reads this
+  persisted: boolean;  // false means: no SiteSetting row yet, default shown
+}
+
+export interface SiteSettingsGroup {
+  name: string;
+  description: string;
+  settings: SiteSettingRow[];
+}
+
+export interface SiteSettingsResponse {
+  groups: SiteSettingsGroup[];
+}
+
+export interface AdminStats {
+  users: {
+    total: number;
+    by_role: { regular: number; admin: number; superadmin: number };
+    banned: number;
+    whitelisted: number;
+    x_verified: number;
+    new_this_week: number;
+  };
+  credits: {
+    in_circulation: number;
+    total_earned: number;
+    total_spent: number;
+  };
+  posts: {
+    active: number;
+    completed: number;
+    cancelled: number;
+    total_escrow_active: number;
+  };
+  engagements: {
+    total: number;
+    today: number;
+    this_week: number;
+  };
+  queues: {
+    pending_waitlist: number;
+    pending_x_verifications: number;
+    pending_batches: number;
+  };
+  recent_audit: Array<{
+    id: string;
+    actor_id: string | null;
+    action: string;
+    target_type: string;
+    target_id: string | null;
+    detail: Record<string, unknown>;
+    created_at_iso: string;
+  }>;
+}
+
 export const adminApi = {
   // ---- read ----
   pendingWaitlist: (limit = 50) =>
@@ -734,6 +795,16 @@ export const adminApi = {
     adminApiRequest<{ ok: boolean; request_id: string; status: string }>(
       `/x-verification/${requestId}/reject/`,
       { method: 'POST', body: JSON.stringify({ notes }) }
+    ),
+
+  getStats: () => adminApiRequest<AdminStats>(`/stats/`),
+
+  getSiteSettings: () => adminApiRequest<SiteSettingsResponse>(`/site-settings/`),
+
+  updateSiteSetting: (key: string, value: string) =>
+    adminApiRequest<{ ok: boolean; key: string; value: string; data_type: string }>(
+      `/site-settings/${encodeURIComponent(key)}`,
+      { method: 'PUT', body: JSON.stringify({ value }) }
     ),
 };
 
