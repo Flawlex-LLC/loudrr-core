@@ -15,6 +15,7 @@ from app.core.time_utils import utcnow
 from app.integrations.telegram import get_telegram_client
 from app.models.outbox_event import OutboxEvent, OutboxEventType, OutboxStatus
 from app.repositories.outbox_event import OutboxEventRepository
+from app.services.site_settings import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -52,23 +53,42 @@ class OutboxService:
 
 
 # ---- dispatch ----
-def _waitlist_submitted_text(p: dict) -> str:
-    return (
-        "🎉 You're on the Loudrr waitlist"
-        + (f", @{p['x_username']}" if p.get("x_username") else "")
-        + "! We'll message you the moment you're approved."
+# Hardcoded fallbacks used if the SiteSetting row is missing or the admin's
+# template contains a typo that breaks .format(). These must match what the
+# pre-refactor _waitlist_*_text helpers returned so existing behavior is
+# preserved on a fresh DB.
+_WAITLIST_SUBMITTED_DEFAULT = (
+    "🎉 You're on the Loudrr waitlist{x_username_part}! "
+    "We'll message you the moment you're approved."
+)
+_WAITLIST_APPROVED_DEFAULT = (
+    "✅ You're in! Your Loudrr access is approved{x_username_part}. "
+    "Open the app to start earning karma."
+)
+
+
+async def _render_template(db, key: str, payload: dict, default_template: str) -> str:
+    """Render a Telegram message template stored in SiteSetting[key].
+
+    Computes ``x_username_part`` from ``payload['x_username']`` (", @handle"
+    or ""), fetches the template (falling back to ``default_template`` if the
+    row is missing), and substitutes via ``str.format``. If the admin's
+    template references an unknown placeholder we swallow the KeyError and
+    re-render with the hardcoded default so a typo never crashes dispatch.
+    """
+    x_username_part = (
+        f", @{payload['x_username']}" if payload.get("x_username") else ""
     )
+    template = await get_setting(db, key, default=default_template)
+    try:
+        return template.format(x_username_part=x_username_part, **payload)
+    except (KeyError, IndexError):
+        return default_template.format(
+            x_username_part=x_username_part, **payload
+        )
 
 
-def _waitlist_approved_text(p: dict) -> str:
-    return (
-        "✅ You're in! Your Loudrr access is approved"
-        + (f", @{p['x_username']}" if p.get("x_username") else "")
-        + ". Open the app to start earning karma."
-    )
-
-
-async def _dispatch(ev: OutboxEvent) -> None:
+async def _dispatch(db, ev: OutboxEvent) -> None:
     """Deliver one event by type. Raises on failure (→ retry)."""
     p = ev.payload or {}
     telegram = get_telegram_client()
@@ -77,10 +97,16 @@ async def _dispatch(ev: OutboxEvent) -> None:
         await telegram.send_message(p["telegram_id"], p.get("message", ""))
     elif ev.event_type == OutboxEventType.WAITLIST_SUBMITTED.value:
         if p.get("telegram_id"):
-            await telegram.send_message(p["telegram_id"], _waitlist_submitted_text(p))
+            text = await _render_template(
+                db, "TG_MSG_WAITLIST_SUBMITTED", p, _WAITLIST_SUBMITTED_DEFAULT,
+            )
+            await telegram.send_message(p["telegram_id"], text)
     elif ev.event_type == OutboxEventType.WAITLIST_APPROVED.value:
         if p.get("telegram_id"):
-            await telegram.send_message(p["telegram_id"], _waitlist_approved_text(p))
+            text = await _render_template(
+                db, "TG_MSG_WAITLIST_APPROVED", p, _WAITLIST_APPROVED_DEFAULT,
+            )
+            await telegram.send_message(p["telegram_id"], text)
     else:
         # credits_earned / post_completed / tweetscout_fetch / external_api etc.
         # currently just logged (tweetscout_fetch is handled by its own task, Ch16)
@@ -106,7 +132,7 @@ async def drain(db, *, limit: int = 50) -> dict:
     sent = failed = 0
     for ev in rows:
         try:
-            await _dispatch(ev)
+            await _dispatch(db, ev)
             ev.status = OutboxStatus.SENT.value
             ev.processed_at = utcnow()
             ev.error_message = ""

@@ -9,6 +9,7 @@ endpoints never touch the DB directly. Access is gated by role:
 The acting admin's own id is threaded through as the audit actor_id.
 Mounted under /api/admin (SQLAdmin owns /admin).
 """
+import enum
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -25,6 +26,7 @@ from app.models.audit_log import AuditLog
 from app.models.engagement import Engagement
 from app.models.post import Post
 from app.models.site_setting import SiteSetting
+from app.models.transaction import Transaction, TransactionType
 from app.models.user import User
 from app.models.verification_batch import VerificationBatch
 from app.models.waitlist_entry import WaitlistEntry
@@ -546,4 +548,110 @@ async def admin_stats(
             "pending_batches": int(pending_batches),
         },
         "recent_audit": recent_audit,
+    }
+
+
+# ---- timeseries stats (per-day buckets for the admin charts) ----
+class TimeseriesMetric(str, enum.Enum):
+    """Which series the admin UI is asking for."""
+    KARMA_EARNED = "karma_earned"
+    ENGAGEMENTS = "engagements"
+    NEW_USERS = "new_users"
+
+
+async def _bucketed_series(db, *, metric: TimeseriesMetric, start, end):
+    """Run ONE aggregate query per metric, bucketed by day via date_trunc.
+
+    Returns a dict {date_obj: numeric_total} for every day the DB actually
+    produced a row for. Missing days are filled by the caller.
+    """
+    if metric is TimeseriesMetric.KARMA_EARNED:
+        column = Transaction.created_at
+        agg = func.coalesce(func.sum(Transaction.amount), 0)
+        stmt = (
+            select(func.date_trunc("day", column).label("bucket"), agg.label("value"))
+            .where(Transaction.type == TransactionType.EARNED)
+            .where(column >= start)
+            .where(column < end)
+            .group_by("bucket")
+        )
+    elif metric is TimeseriesMetric.ENGAGEMENTS:
+        column = Engagement.clicked_at
+        stmt = (
+            select(
+                func.date_trunc("day", column).label("bucket"),
+                func.count(Engagement.id).label("value"),
+            )
+            .where(column >= start)
+            .where(column < end)
+            .group_by("bucket")
+        )
+    elif metric is TimeseriesMetric.NEW_USERS:
+        column = User.created_at
+        stmt = (
+            select(
+                func.date_trunc("day", column).label("bucket"),
+                func.count(User.id).label("value"),
+            )
+            .where(column >= start)
+            .where(column < end)
+            .group_by("bucket")
+        )
+    else:  # pragma: no cover — enum is exhaustive
+        raise HTTPException(status_code=422, detail=f"unknown metric {metric!r}")
+
+    rows = (await db.execute(stmt)).all()
+    out = {}
+    for bucket, value in rows:
+        # bucket is a datetime at midnight; key by date for easy fill
+        out[bucket.date()] = float(value) if value is not None else 0.0
+    return out
+
+
+@router.get("/stats/timeseries")
+async def stats_timeseries(
+    metric: TimeseriesMetric = Query(...),
+    days: int = Query(default=30, ge=1, le=90),
+    _admin: User = Depends(require_admin),
+    db=Depends(get_session),
+):
+    """Per-day bucketed totals for one metric over the last `days` days.
+
+    The series is contiguous: missing days are filled with 0 so the chart
+    always renders `days` points. `delta_pct` compares this window's total
+    to the prior equivalent window (e.g. 30d vs the 30d before that) and
+    is null when the prior window had no data.
+    """
+    now = utcnow()
+    today_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # window is [start, end) where end is tomorrow-midnight so today is included
+    end = today_midnight + timedelta(days=1)
+    start = end - timedelta(days=days)
+    prior_end = start
+    prior_start = prior_end - timedelta(days=days)
+
+    current_by_day = await _bucketed_series(db, metric=metric, start=start, end=end)
+    prior_by_day = await _bucketed_series(db, metric=metric, start=prior_start, end=prior_end)
+
+    # build a contiguous series of `days` points, oldest first
+    points = []
+    total = 0.0
+    for i in range(days):
+        d = (start + timedelta(days=i)).date()
+        v = current_by_day.get(d, 0.0)
+        total += v
+        points.append({"date": d.isoformat(), "value": v})
+
+    prior_total = sum(prior_by_day.values())
+    if prior_total > 0:
+        delta_pct: float | None = round(((total - prior_total) / prior_total) * 100.0, 2)
+    else:
+        delta_pct = None
+
+    return {
+        "metric": metric.value,
+        "days": days,
+        "points": points,
+        "total": total,
+        "delta_pct": delta_pct,
     }

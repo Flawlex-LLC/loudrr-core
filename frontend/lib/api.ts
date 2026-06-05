@@ -740,6 +740,16 @@ export interface AdminStats {
   }>;
 }
 
+export type TimeseriesMetric = 'karma_earned' | 'engagements' | 'new_users';
+export interface TimeseriesPoint { date: string; value: number; }
+export interface TimeseriesResponse {
+  metric: TimeseriesMetric;
+  days: number;
+  points: TimeseriesPoint[];
+  total: number;
+  delta_pct: number | null;
+}
+
 export const adminApi = {
   // ---- read ----
   pendingWaitlist: (limit = 50) =>
@@ -798,6 +808,9 @@ export const adminApi = {
     ),
 
   getStats: () => adminApiRequest<AdminStats>(`/stats/`),
+
+  getTimeseries: (metric: TimeseriesMetric, days = 30) =>
+    adminApiRequest<TimeseriesResponse>(`/stats/timeseries?metric=${metric}&days=${days}`),
 
   getSiteSettings: () => adminApiRequest<SiteSettingsResponse>(`/site-settings/`),
 

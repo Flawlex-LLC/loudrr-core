@@ -1,43 +1,72 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { AlertTriangle, RefreshCcw, Search, Settings2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Coins,
+  Crown,
+  Flame,
+  Megaphone,
+  RefreshCcw,
+  Search,
+  Settings2,
+  ShieldCheck,
+  TrendingDown,
+  TrendingUp,
+  type LucideIcon,
+} from 'lucide-react';
 import {
   adminApi,
   SiteSettingRow,
   SiteSettingsGroup,
 } from '@/lib/api';
 import { Button } from '@/components/admin/Button';
-import { Modal } from '@/components/admin/Modal';
-import { Input } from '@/components/admin/Input';
 import { Badge } from '@/components/admin/Badge';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { Skeleton } from '@/components/admin/Skeleton';
+import { InlineEdit, InlineEditValue } from '@/components/admin/InlineEdit';
 import { cn } from '@/lib/utils';
 
-interface EditState {
-  setting: SiteSettingRow | null;
-  value: string;
+// Map group names to lucide icons. Matches names emitted by the backend.
+const GROUP_ICONS: Record<string, LucideIcon> = {
+  Economy: Coins,
+  Verification: ShieldCheck,
+  'Tier thresholds': Crown,
+  'Tier multipliers': TrendingUp,
+  Streaks: Flame,
+  Sponsored: Megaphone,
+  'Karma decay': TrendingDown,
+};
+
+function iconForGroup(name: string): LucideIcon {
+  return GROUP_ICONS[name] ?? Settings2;
 }
 
-const EMPTY_EDIT: EditState = { setting: null, value: '' };
+function inlineKind(dt: SiteSettingRow['data_type']): 'text' | 'number' | 'bool' {
+  if (dt === 'bool') return 'bool';
+  if (dt === 'int' || dt === 'float' || dt === 'decimal') return 'number';
+  return 'text';
+}
 
 export default function SiteSettingsPage() {
   const [groups, setGroups] = useState<SiteSettingsGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [liveOnly, setLiveOnly] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [edit, setEdit] = useState<EditState>(EMPTY_EDIT);
-  const [saving, setSaving] = useState(false);
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
 
   async function load() {
     setError(null);
     try {
       const res = await adminApi.getSiteSettings();
       setGroups(res.groups);
-      setLastUpdated(new Date());
+      // Initialize active group on first successful load.
+      setActiveGroup((prev) => {
+        if (prev && res.groups.some((g) => g.name === prev)) return prev;
+        return res.groups[0]?.name ?? null;
+      });
     } catch (e) {
       const msg = (e as Error).message;
       setError(msg);
@@ -46,12 +75,18 @@ export default function SiteSettingsPage() {
   }
 
   useEffect(() => {
-    load();
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filteredGroups = useMemo(() => {
-    if (!groups) return null;
+  // Apply Live-only filter to a group's settings (without considering search).
+  const liveFilter = (s: SiteSettingRow) => (liveOnly ? s.live : true);
+
+  // Right-pane content: either selected group's settings, or a flat search/live-only view.
+  const isFlatView = query.trim().length > 0 || liveOnly;
+
+  const flatGroups = useMemo<SiteSettingsGroup[]>(() => {
+    if (!groups) return [];
     const q = query.trim().toLowerCase();
     return groups
       .map((g) => ({
@@ -68,42 +103,42 @@ export default function SiteSettingsPage() {
       .filter((g) => g.settings.length > 0);
   }, [groups, query, liveOnly]);
 
-  const totalShown = useMemo(
-    () => filteredGroups?.reduce((acc, g) => acc + g.settings.length, 0) ?? 0,
-    [filteredGroups],
-  );
+  const selectedGroup = useMemo<SiteSettingsGroup | null>(() => {
+    if (!groups || !activeGroup) return null;
+    const g = groups.find((x) => x.name === activeGroup);
+    if (!g) return null;
+    return { ...g, settings: g.settings.filter(liveFilter) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, activeGroup, liveOnly]);
 
-  function startEdit(setting: SiteSettingRow) {
-    setEdit({ setting, value: setting.value });
-  }
+  // Per-group counts for the nav (respecting Live-only toggle so the number
+  // matches what the right pane will show when that group is selected).
+  const groupCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    if (!groups) return m;
+    for (const g of groups) {
+      m[g.name] = g.settings.filter(liveFilter).length;
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, liveOnly]);
 
-  function closeEdit() {
-    if (saving) return;
-    setEdit(EMPTY_EDIT);
-  }
-
-  async function save() {
-    if (!edit.setting) return;
-    const key = edit.setting.key;
-    const value = edit.value.trim();
-    setSaving(true);
+  async function saveSetting(s: SiteSettingRow, next: InlineEditValue): Promise<void> {
+    const key = s.key;
+    const valueStr = typeof next === 'boolean' ? (next ? 'true' : 'false') : String(next);
     try {
-      await adminApi.updateSiteSetting(key, value);
+      await adminApi.updateSiteSetting(key, valueStr);
       toast.success(`Updated ${key}`, {
-        description: edit.setting.live
+        description: s.live
           ? 'Live setting — change takes effect immediately.'
           : 'Stored. Will apply once backend code wires this setting.',
       });
-      setEdit(EMPTY_EDIT);
+      // Refetch all settings so other groups/cards reflect any cross-effects.
       await load();
     } catch (e) {
       const msg = (e as Error).message;
-      // Error shape: "<status>: <detail>"
       if (msg.startsWith('403')) {
-        toast.error('Superadmin required', {
-          description:
-            'Editing site settings requires the superadmin role. Promote your account or ask a superadmin.',
-        });
+        toast.error('Superadmin required to edit settings');
       } else if (msg.startsWith('422') || msg.startsWith('400')) {
         toast.error(`Invalid value for ${key}`, {
           description: msg.replace(/^\d+:\s*/, ''),
@@ -111,8 +146,9 @@ export default function SiteSettingsPage() {
       } else {
         toast.error(`Failed to update ${key}`, { description: msg });
       }
-    } finally {
-      setSaving(false);
+      // Re-throw a quiet sentinel so InlineEdit reverts its draft without
+      // showing a second toast with the raw "<status>: <detail>" message.
+      throw new SilentSaveError();
     }
   }
 
@@ -155,223 +191,285 @@ export default function SiteSettingsPage() {
         </Button>
       </div>
 
-      {/* Sticky filter bar */}
-      <div className="sticky top-[57px] z-10 -mx-6 border-b border-white/[0.06] bg-[#0a0a0a]/85 px-6 py-3 backdrop-blur">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[260px] flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter by key or description (e.g. POST_COST, decay, tier)…"
-              className="w-full rounded-lg border border-white/[0.08] bg-[#0a0a0a] py-2 pl-9 pr-3 text-sm text-white placeholder:text-zinc-600 focus:border-[#f95400]/40 focus:outline-none focus:ring-1 focus:ring-[#f95400]/40"
-            />
-          </div>
-
-          <label className="inline-flex items-center gap-2 rounded-lg border border-white/[0.08] bg-[#0d0d0d] px-3 py-2 text-xs text-zinc-300">
-            <input
-              type="checkbox"
-              checked={liveOnly}
-              onChange={(e) => setLiveOnly(e.target.checked)}
-              className="h-3.5 w-3.5 accent-[#f95400]"
-            />
-            Show only LIVE settings
-          </label>
-
-          <div className="ml-auto text-[11px] text-zinc-600">
-            {groups === null
-              ? 'Loading…'
-              : `Showing ${totalShown} setting${totalShown === 1 ? '' : 's'} · Last updated: ${formatLastUpdated(lastUpdated)}`}
-          </div>
-        </div>
-      </div>
-
-      {/* Body */}
       {groups === null ? (
-        <div className="space-y-8">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="space-y-3">
-              <Skeleton className="h-5 w-48" />
-              <Skeleton className="h-3 w-72" />
-              <div className="space-y-2 pt-2">
-                {Array.from({ length: 4 }).map((__, j) => (
-                  <Skeleton key={j} className="h-16 w-full" />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : filteredGroups && filteredGroups.length === 0 ? (
-        <EmptyState
-          icon={Settings2}
-          title="No settings match"
-          description={
-            query
-              ? `Nothing matches "${query}"${liveOnly ? ' (with LIVE filter on)' : ''}. Try a broader search.`
-              : liveOnly
-                ? 'No live settings — toggle the filter off to see stored-but-not-yet-wired ones.'
-                : 'No site settings defined. Run backend/scripts/seed_settings.py to seed defaults.'
-          }
-          action={
-            (query || liveOnly) ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => { setQuery(''); setLiveOnly(false); }}
-              >
-                Clear filters
-              </Button>
-            ) : undefined
-          }
-        />
+        <LoadingSkeleton />
       ) : (
-        <div className="space-y-10">
-          {filteredGroups!.map((group) => (
-            <section key={group.name} className="space-y-3">
-              <div>
-                <h2 className="font-syne text-lg font-semibold tracking-tight text-white">
-                  {group.name}
-                </h2>
-                <p className="mt-0.5 text-sm text-zinc-500">{group.description}</p>
+        <div className="grid grid-cols-12 gap-6">
+          {/* LEFT — Category nav */}
+          <aside className="col-span-12 lg:col-span-3">
+            <div className="sticky top-6 space-y-3">
+              {/* Search */}
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600"
+                />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search all settings…"
+                  className="w-full rounded-lg border border-white/[0.08] bg-[#0a0a0a] py-2 pl-9 pr-3 text-sm text-white placeholder:text-zinc-600 focus:border-[#f95400]/40 focus:outline-none focus:ring-1 focus:ring-[#f95400]/40"
+                />
               </div>
 
-              <div className="overflow-hidden rounded-2xl border border-white/[0.06]">
-                <ul className="divide-y divide-white/[0.04]">
-                  {group.settings.map((s) => (
-                    <li
-                      key={s.key}
-                      className="flex flex-col gap-3 bg-[#111] px-4 py-3 transition-colors hover:bg-[#161616] sm:flex-row sm:items-center"
+              {/* Group list */}
+              <nav className="space-y-1">
+                {groups.map((g) => {
+                  const Icon = iconForGroup(g.name);
+                  const isActive = !isFlatView && g.name === activeGroup;
+                  const count = groupCounts[g.name] ?? 0;
+                  return (
+                    <button
+                      key={g.name}
+                      type="button"
+                      onClick={() => {
+                        // Clicking a group clears search so the right pane
+                        // switches back to the per-group view as advertised.
+                        setQuery('');
+                        setActiveGroup(g.name);
+                      }}
+                      className={cn(
+                        'group relative flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+                        isActive
+                          ? 'border-transparent bg-gradient-to-r from-[#f95400]/25 via-[#f95400]/10 to-transparent text-white'
+                          : 'border-transparent text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-300',
+                      )}
                     >
-                      {/* Left: ~60% */}
-                      <div className="min-w-0 flex-[3] space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <code className="font-mono text-sm text-white">{s.key}</code>
-                          {s.live ? (
-                            <Badge tone="success">live</Badge>
-                          ) : (
-                            <Badge tone="warning">stored, not yet wired</Badge>
-                          )}
-                          {s.value !== s.default && (
-                            <span className="text-[11px] text-zinc-600">
-                              default: <span className="font-mono">{s.default}</span>
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-zinc-500">{s.description}</p>
-                        {!s.persisted && (
-                          <p className="text-[11px] text-amber-400/80">
-                            (using default — not yet stored)
-                          </p>
-                        )}
-                      </div>
+                      {isActive && (
+                        <span
+                          aria-hidden
+                          className="absolute inset-y-1 left-0 w-[3px] rounded-r bg-[#f95400]"
+                        />
+                      )}
+                      <Icon
+                        size={14}
+                        className={cn(isActive ? 'text-[#f95400]' : 'text-zinc-500')}
+                      />
+                      <span className="flex-1 truncate">{g.name}</span>
+                      <span className="font-mono text-[11px] text-zinc-600">{count}</span>
+                    </button>
+                  );
+                })}
+              </nav>
 
-                      {/* Right: ~40% — value pill */}
-                      <div className="flex-[2] sm:text-right">
-                        <button
-                          onClick={() => startEdit(s)}
-                          className={cn(
-                            'inline-flex max-w-full items-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm transition-colors',
-                            'border-white/[0.08] bg-[#0a0a0a] text-zinc-100 hover:border-[#f95400]/40 hover:bg-[#1a0d05] hover:text-[#f95400]',
-                          )}
-                          title={`Edit ${s.key}`}
-                        >
-                          <span className="truncate">{s.value}</span>
-                          <span className="text-[10px] uppercase tracking-wide text-zinc-600">
-                            {s.data_type}
-                          </span>
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-
-      {/* Edit modal */}
-      <Modal
-        open={edit.setting !== null}
-        onClose={closeEdit}
-        title={edit.setting?.key ?? ''}
-        description={edit.setting?.description}
-        size="md"
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeEdit} disabled={saving}>
-              Cancel
-            </Button>
-            <Button variant="primary" loading={saving} onClick={save}>
-              Save
-            </Button>
-          </>
-        }
-      >
-        {edit.setting && (
-          <form
-            className="space-y-3 text-sm"
-            onSubmit={(e) => { e.preventDefault(); void save(); }}
-          >
-            <div className="rounded-lg border border-white/[0.06] bg-[#0a0a0a] p-3 text-xs">
-              <div className="grid grid-cols-[100px_1fr] gap-y-1.5">
-                <span className="text-zinc-500">Type</span>
-                <span className="font-mono text-zinc-200">{edit.setting.data_type}</span>
-                <span className="text-zinc-500">Default</span>
-                <span className="font-mono text-zinc-200">{edit.setting.default}</span>
-                <span className="text-zinc-500">Status</span>
-                <span className={cn(edit.setting.live ? 'text-emerald-400' : 'text-amber-400')}>
-                  {edit.setting.live ? 'live (read by backend now)' : 'stored, not yet wired'}
-                </span>
-                <span className="text-zinc-500">Stored row</span>
-                <span className={cn(edit.setting.persisted ? 'text-zinc-200' : 'text-amber-400')}>
-                  {edit.setting.persisted ? 'yes' : 'no — will be created on save'}
-                </span>
-              </div>
+              {/* Live-only toggle */}
+              <label className="flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-white/[0.08] bg-[#0d0d0d] px-3 py-2 text-xs text-zinc-300">
+                <span>Live only</span>
+                <input
+                  type="checkbox"
+                  checked={liveOnly}
+                  onChange={(e) => setLiveOnly(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-[#f95400]"
+                />
+              </label>
             </div>
+          </aside>
 
-            {edit.setting.data_type === 'bool' ? (
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-zinc-400">Value</label>
-                <select
-                  value={edit.value}
-                  onChange={(e) => setEdit({ ...edit, value: e.target.value })}
-                  className="w-full rounded-lg border border-white/[0.08] bg-[#0a0a0a] px-3 py-2 text-sm text-white focus:border-[#f95400]/40 focus:outline-none focus:ring-1 focus:ring-[#f95400]/40"
-                >
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-                <p className="mt-1 text-xs text-zinc-600">
-                  Default: <span className="font-mono">{edit.setting.default}</span>
-                </p>
+          {/* RIGHT — Settings pane */}
+          <section className="col-span-12 lg:col-span-9">
+            {isFlatView ? (
+              <FlatResults
+                groups={flatGroups}
+                query={query}
+                liveOnly={liveOnly}
+                onClear={() => {
+                  setQuery('');
+                  setLiveOnly(false);
+                }}
+                onSave={saveSetting}
+              />
+            ) : selectedGroup ? (
+              <div className="space-y-4">
+                <div>
+                  <h2 className="font-syne text-lg font-semibold tracking-tight text-white">
+                    {selectedGroup.name}
+                  </h2>
+                  <p className="mt-0.5 text-sm text-zinc-500">{selectedGroup.description}</p>
+                </div>
+
+                {selectedGroup.settings.length === 0 ? (
+                  <EmptyState
+                    icon={Settings2}
+                    title="No settings to show"
+                    description={
+                      liveOnly
+                        ? 'All settings in this group are stored-but-not-yet-wired. Toggle Live only off to see them.'
+                        : 'This group has no settings defined.'
+                    }
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    {selectedGroup.settings.map((s) => (
+                      <SettingCard key={s.key} setting={s} onSave={saveSetting} />
+                    ))}
+                  </div>
+                )}
               </div>
             ) : (
-              <Input
-                label="Value"
-                value={edit.value}
-                onChange={(e) => setEdit({ ...edit, value: e.target.value })}
-                placeholder={edit.setting.default}
-                hint={`Default: ${edit.setting.default} (${edit.setting.data_type})`}
-                autoFocus
+              <EmptyState
+                icon={Settings2}
+                title="No site settings defined"
+                description="Run backend/scripts/seed_settings.py to seed defaults."
               />
             )}
-
-            <p className="text-[11px] text-zinc-600">
-              Saving requires the <span className="text-zinc-400">superadmin</span> role and is
-              audit-logged. {edit.setting.live ? 'This setting is live — change applies on next request.' : 'This setting is not yet read by backend code; the value will be stored for future use.'}
-            </p>
-          </form>
-        )}
-      </Modal>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
 
-function formatLastUpdated(d: Date | null): string {
-  if (!d) return '—';
-  const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (diffSec < 5) return 'now';
-  if (diffSec < 60) return `${diffSec}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  return d.toLocaleTimeString();
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+class SilentSaveError extends Error {
+  constructor() {
+    super('');
+    this.name = 'SilentSaveError';
+  }
+}
+
+interface SaveFn {
+  (s: SiteSettingRow, next: InlineEditValue): Promise<void>;
+}
+
+function SettingCard({ setting, onSave }: { setting: SiteSettingRow; onSave: SaveFn }) {
+  const kind = inlineKind(setting.data_type);
+  // Coerce the displayed value to its typed form for InlineEdit.
+  const typedValue: InlineEditValue =
+    kind === 'number'
+      ? Number(setting.value)
+      : kind === 'bool'
+        ? setting.value === 'true'
+        : setting.value;
+
+  return (
+    <motion.div
+      whileHover={{ scale: 1.005 }}
+      transition={{ duration: 0.12 }}
+      className="rounded-xl border border-white/[0.06] bg-[#111] p-4 transition-colors hover:border-white/[0.12]"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="font-mono text-sm text-white">{setting.key}</code>
+        {setting.live ? (
+          <Badge tone="success">live</Badge>
+        ) : (
+          <Badge tone="warning">stored</Badge>
+        )}
+        {setting.value !== setting.default && (
+          <span className="text-[11px] text-zinc-600">
+            default: <span className="font-mono">{setting.default}</span>
+          </span>
+        )}
+        {!setting.persisted && (
+          <span className="text-[11px] text-amber-400/80">(using default — not yet stored)</span>
+        )}
+      </div>
+
+      {setting.description && (
+        <p className="mt-1 text-sm text-zinc-400">{setting.description}</p>
+      )}
+
+      <div className="mt-3">
+        <InlineEdit
+          value={typedValue}
+          kind={kind}
+          placeholder={setting.default}
+          multiline={
+            setting.data_type === 'str' &&
+            (setting.value.includes(String.fromCharCode(10)) || setting.value.length > 80)
+          }
+          onSave={(next) => onSave(setting, next)}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+function FlatResults({
+  groups,
+  query,
+  liveOnly,
+  onClear,
+  onSave,
+}: {
+  groups: SiteSettingsGroup[];
+  query: string;
+  liveOnly: boolean;
+  onClear: () => void;
+  onSave: SaveFn;
+}) {
+  const total = groups.reduce((acc, g) => acc + g.settings.length, 0);
+
+  if (total === 0) {
+    return (
+      <EmptyState
+        icon={Settings2}
+        title="No settings match"
+        description={
+          query
+            ? `Nothing matches "${query}"${liveOnly ? ' (with Live only on)' : ''}. Try a broader search.`
+            : 'No live settings — toggle Live only off to see stored-but-not-yet-wired ones.'
+        }
+        action={
+          <Button variant="secondary" size="sm" onClick={onClear}>
+            Clear filters
+          </Button>
+        }
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-[11px] text-zinc-600">
+        {total} setting{total === 1 ? '' : 's'}
+        {query && <> matching <span className="font-mono text-zinc-400">{query}</span></>}
+        {liveOnly && <> · live only</>}
+      </div>
+
+      {groups.map((g) => {
+        const Icon = iconForGroup(g.name);
+        return (
+          <section key={g.name} className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Icon size={14} className="text-zinc-500" />
+              <h3 className="font-syne text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                {g.name}
+              </h3>
+              <span className="font-mono text-[11px] text-zinc-600">{g.settings.length}</span>
+            </div>
+            <div className="space-y-3">
+              {g.settings.map((s) => (
+                <SettingCard key={s.key} setting={s} onSave={onSave} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="grid grid-cols-12 gap-6">
+      <aside className="col-span-12 lg:col-span-3">
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-full" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-full" />
+          ))}
+        </div>
+      </aside>
+      <section className="col-span-12 space-y-3 lg:col-span-9">
+        <Skeleton className="h-5 w-48" />
+        <Skeleton className="h-3 w-72" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full" />
+        ))}
+      </section>
+    </div>
+  );
 }

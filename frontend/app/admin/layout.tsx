@@ -1,82 +1,172 @@
 'use client';
 
-import Link from 'next/link';
+import { useCallback, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Toaster } from 'sonner';
-import { LayoutDashboard, UserCheck, ShieldCheck, Users, Settings2, ExternalLink } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Crown,
+  LayoutDashboard,
+  Settings2,
+  ShieldCheck,
+  UserCheck,
+  Users,
+} from 'lucide-react';
+
+import { Sidebar, type SidebarItem } from '@/components/admin/Sidebar';
+import { TopBar } from '@/components/admin/TopBar';
+import { adminApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-const NAV = [
+const NAV_BASE: Array<Omit<SidebarItem, 'badge'> & { badgeKey?: 'waitlist' | 'xVerification' }> = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/waitlist', label: 'Waitlist', icon: UserCheck },
-  { href: '/admin/x-verification', label: 'X Verification', icon: ShieldCheck },
+  { href: '/admin/waitlist', label: 'Waitlist', icon: UserCheck, badgeKey: 'waitlist' },
+  { href: '/admin/x-verification', label: 'X Verification', icon: ShieldCheck, badgeKey: 'xVerification' },
   { href: '/admin/users', label: 'Users', icon: Users },
   { href: '/admin/site-settings', label: 'Site Settings', icon: Settings2 },
 ];
 
+const COLLAPSE_KEY = 'loudrr.admin.sidebar.collapsed';
+
+// Hardcoded dev user — matches the Oxblest superadmin seeded for local dev.
+const DEV_USER = {
+  initial: 'O',
+  telegram_username: 'Oxblest',
+  role: 'superadmin' as const,
+};
+
+function breadcrumbFromPathname(pathname: string): string[] {
+  // /admin              -> ['Admin', 'Dashboard']
+  // /admin/site-settings -> ['Admin', 'Site Settings']
+  // /admin/x-verification -> ['Admin', 'X Verification']
+  const segments = pathname.split('/').filter(Boolean); // ['admin', ...]
+  if (segments.length <= 1) return ['Admin', 'Dashboard'];
+  const rest = segments.slice(1).map((seg) =>
+    seg
+      .split('-')
+      .map((word) => (word.toLowerCase() === 'x' ? 'X' : word.charAt(0).toUpperCase() + word.slice(1)))
+      .join(' '),
+  );
+  return ['Admin', ...rest];
+}
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+  const [pendingWaitlist, setPendingWaitlist] = useState<number>(0);
+  const [pendingX, setPendingX] = useState<number>(0);
 
-  return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#0a0a0a]/85 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center gap-8 px-6 py-3">
-          <Link href="/admin" className="flex items-center gap-2 group">
-            <div className="h-7 w-7 rounded-md bg-[#f95400] grid place-items-center font-syne font-bold text-black text-sm leading-none">L</div>
-            <div className="leading-tight">
-              <div className="font-syne text-sm font-bold tracking-tight">Loudrr</div>
-              <div className="text-[10px] uppercase tracking-wider text-zinc-500">Admin Console</div>
-            </div>
-          </Link>
+  // Restore collapsed state from localStorage on mount.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(COLLAPSE_KEY);
+      if (stored === '1') setCollapsed(true);
+    } catch {
+      /* no-op: localStorage unavailable (SSR / privacy mode) */
+    }
+  }, []);
 
-          <nav className="flex items-center gap-1">
-            {NAV.map(({ href, label, icon: Icon }) => {
-              const active = href === '/admin' ? pathname === '/admin' : pathname.startsWith(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  className={cn(
-                    'inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                    active
-                      ? 'bg-white/[0.08] text-white'
-                      : 'text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-200'
-                  )}
-                >
-                  <Icon size={14} />
-                  {label}
-                </Link>
-              );
-            })}
-          </nav>
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
+      } catch {
+        /* no-op */
+      }
+      return next;
+    });
+  }, []);
 
-          <div className="ml-auto flex items-center gap-3 text-xs text-zinc-500">
-            <a
-              href="http://localhost:8000/docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-2.5 py-1 transition-colors hover:bg-white/[0.04] hover:text-zinc-200"
-              title="FastAPI Swagger docs"
-            >
-              <span>API docs</span>
-              <ExternalLink size={11} />
-            </a>
-            <a
-              href="http://localhost:8000/admin"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] px-2.5 py-1 transition-colors hover:bg-white/[0.04] hover:text-zinc-200"
-              title="SQLAdmin raw DB browser"
-            >
-              <span>SQLAdmin</span>
-              <ExternalLink size={11} />
-            </a>
-            <div className="hidden md:block text-[11px] text-zinc-600">All actions audit-logged</div>
-          </div>
+  // Refresh pending counts on every route change.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [waitlist, xVer] = await Promise.all([
+          adminApi.pendingWaitlist(50),
+          adminApi.pendingXVerifications(50),
+        ]);
+        if (!cancelled) {
+          setPendingWaitlist(Array.isArray(waitlist) ? waitlist.length : 0);
+          setPendingX(Array.isArray(xVer) ? xVer.length : 0);
+        }
+      } catch {
+        // Silently ignore — badges are nice-to-have, not blocking.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  const navItems: SidebarItem[] = NAV_BASE.map(({ badgeKey, ...item }) => {
+    if (badgeKey === 'waitlist' && pendingWaitlist > 0) return { ...item, badge: pendingWaitlist };
+    if (badgeKey === 'xVerification' && pendingX > 0) return { ...item, badge: pendingX };
+    return item;
+  });
+
+  const breadcrumb = breadcrumbFromPathname(pathname);
+
+  const footer = (
+    <div className={cn('flex flex-col gap-2', collapsed && 'items-center')}>
+      {/* UserPill */}
+      <div
+        className={cn(
+          'flex items-center gap-2 rounded-md px-2 py-1.5',
+          collapsed ? 'justify-center' : 'hover:bg-white/[0.04]',
+        )}
+        title={collapsed ? `${DEV_USER.telegram_username} (${DEV_USER.role})` : undefined}
+      >
+        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#f95400] text-xs font-bold text-black">
+          {DEV_USER.initial}
         </div>
-      </header>
+        {!collapsed && (
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="truncate text-xs font-medium text-zinc-200">
+              {DEV_USER.telegram_username}
+            </span>
+            {DEV_USER.role === 'superadmin' && (
+              <span
+                className="inline-flex items-center gap-0.5 rounded border border-purple-900/60 bg-purple-950/60 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-purple-300"
+                title="Superadmin"
+              >
+                <Crown size={9} />
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
-      <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      {/* CollapseToggle */}
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className={cn(
+          'inline-flex items-center gap-2 rounded-md border border-white/[0.06] text-xs text-zinc-500 transition-colors hover:bg-white/[0.04] hover:text-zinc-200',
+          collapsed ? 'h-8 w-8 justify-center p-0' : 'w-full justify-center px-2 py-1.5',
+        )}
+      >
+        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        {!collapsed && <span>Collapse</span>}
+      </button>
+    </div>
+  );
+
+  // globals.css locks html/body overflow for the Telegram mini-app, so the
+  // admin shell owns its own scroll. Root is h-screen + overflow-hidden;
+  // the inner <main> is the actual scroll container.
+  return (
+    <div className="flex h-screen overflow-hidden bg-[#0a0a0a] text-white">
+      <Sidebar collapsed={collapsed} items={navItems} footer={footer} />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <TopBar breadcrumb={breadcrumb} />
+        <main className="scrollbar-content flex-1 overflow-y-auto p-8">{children}</main>
+      </div>
 
       <Toaster
         theme="dark"

@@ -3,17 +3,20 @@
 * GET  /api/admin/site-settings/       — list every known setting (admin)
 * PUT  /api/admin/site-settings/{key}  — upsert one setting (superadmin)
 * GET  /api/admin/stats/               — dashboard metrics (admin)
+* GET  /api/admin/stats/timeseries     — per-day buckets for one metric (admin)
 
 These match the style of test_admin_endpoints.py: ``?telegram_id=`` debug
 bypass for auth, Decimal for credit amounts, and assertions on persisted
 side effects (SiteSetting row, AuditLog row) where relevant.
 """
+import uuid
 from decimal import Decimal
 
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
 from app.models.site_setting import SiteSetting
+from app.models.transaction import Transaction, TransactionType
 
 
 # ---------------------------------------------------------------------------
@@ -214,3 +217,120 @@ async def test_stats_with_data(client, make_user):
     expected_min = float(u1.credits + u2.credits + u3.credits)
     assert data["credits"]["in_circulation"] >= expected_min
     assert data["credits"]["total_earned"] >= expected_min
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/stats/timeseries
+# ---------------------------------------------------------------------------
+async def test_timeseries_karma_admin_ok(client, make_user):
+    """Admin can call timeseries for karma_earned; payload shape checks out."""
+    admin = await make_user(role="admin")
+    r = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"telegram_id": admin.telegram_id, "metric": "karma_earned", "days": 30},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["metric"] == "karma_earned"
+    assert data["days"] == 30
+    assert isinstance(data["points"], list)
+    assert len(data["points"]) == 30
+    for p in data["points"]:
+        assert "date" in p and "value" in p
+    assert "total" in data
+    # delta_pct is either a number or None
+    assert data["delta_pct"] is None or isinstance(data["delta_pct"], (int, float))
+
+
+async def test_timeseries_engagements_admin_ok(client, make_user):
+    admin = await make_user(role="admin")
+    r = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"telegram_id": admin.telegram_id, "metric": "engagements", "days": 14},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["metric"] == "engagements"
+    assert data["days"] == 14
+    assert len(data["points"]) == 14
+    assert "total" in data
+    assert "delta_pct" in data
+
+
+async def test_timeseries_new_users_admin_ok(client, make_user):
+    admin = await make_user(role="admin")
+    r = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"telegram_id": admin.telegram_id, "metric": "new_users", "days": 7},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["metric"] == "new_users"
+    assert data["days"] == 7
+    assert len(data["points"]) == 7
+    # the admin user we just made must count toward today's bucket
+    assert data["total"] >= 1
+
+
+async def test_timeseries_bad_metric_422(client, make_user):
+    admin = await make_user(role="admin")
+    r = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"telegram_id": admin.telegram_id, "metric": "not_a_metric", "days": 30},
+    )
+    assert r.status_code == 422
+
+
+async def test_timeseries_days_out_of_range_422(client, make_user):
+    admin = await make_user(role="admin")
+    r0 = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"telegram_id": admin.telegram_id, "metric": "karma_earned", "days": 0},
+    )
+    assert r0.status_code == 422
+
+    r200 = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"telegram_id": admin.telegram_id, "metric": "karma_earned", "days": 200},
+    )
+    assert r200.status_code == 422
+
+
+async def test_timeseries_unauthenticated_401(client):
+    r = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"metric": "karma_earned", "days": 30},
+    )
+    assert r.status_code == 401
+
+
+async def test_timeseries_fills_missing_days(client, make_user, db_session):
+    """One earned tx today + 7-day window → 7 points, only today is non-zero."""
+    admin = await make_user(role="admin")
+    user = await make_user(credits=Decimal("10"), total_credits_earned=Decimal("10"))
+    db_session.add(Transaction(
+        user_id=user.id,
+        type=TransactionType.EARNED,
+        amount=Decimal("12.5"),
+        balance_after=Decimal("12.5"),
+        idempotency_key=uuid.uuid4().hex,
+        description="test earn",
+    ))
+    await db_session.commit()
+
+    r = await client.get(
+        "/api/admin/stats/timeseries",
+        params={"telegram_id": admin.telegram_id, "metric": "karma_earned", "days": 7},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert len(data["points"]) == 7
+    # exactly one bucket has a non-zero value, and it equals our 12.5
+    non_zero = [p for p in data["points"] if p["value"] != 0]
+    assert len(non_zero) == 1
+    assert non_zero[0]["value"] == 12.5
+    # so the other 6 days are zero-filled
+    zero_points = [p for p in data["points"] if p["value"] == 0]
+    assert len(zero_points) == 6
+    # total reflects just the one row
+    assert data["total"] == 12.5

@@ -36,7 +36,7 @@ export function StatCard({ label, value, hint, href, icon: Icon, tone = 'default
           </div>
         )}
       </div>
-      <div className="mt-3 font-syne text-3xl font-bold text-white tabular-nums">
+      <div className="mt-3 text-3xl font-bold text-white tabular-nums">
         {value === null ? <span className="text-zinc-700">—</span> : value}
       </div>
       {hint && <div className="mt-1 text-xs text-zinc-500">{hint}</div>}

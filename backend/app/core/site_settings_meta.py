@@ -101,6 +101,30 @@ ALL_GROUPS: tuple[SettingGroup, ...] = (
             SettingSpec("KARMA_DECAY_RATE", "0.015", "float", "Daily fraction of karma decayed once over threshold", live=False),
         ),
     ),
+    SettingGroup(
+        name="Telegram message templates",
+        description=(
+            "Text shown in the Telegram cards sent to users by the outbox. "
+            "Supports {x_username_part} placeholder (rendered as ', @handle' "
+            "if known, otherwise empty)."
+        ),
+        settings=(
+            SettingSpec(
+                "TG_MSG_WAITLIST_SUBMITTED",
+                "🎉 You are on the Loudrr waitlist{x_username_part}! We will message you the moment you are approved.",
+                "str",
+                "Telegram message sent when a user joins the waitlist.",
+                live=True,
+            ),
+            SettingSpec(
+                "TG_MSG_WAITLIST_APPROVED",
+                "✅ You are in! Your Loudrr access is approved{x_username_part}. Open the app to start earning karma.",
+                "str",
+                "Telegram message sent when a user is approved off the waitlist.",
+                live=True,
+            ),
+        ),
+    ),
 )
 
 
