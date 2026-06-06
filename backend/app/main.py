@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.deps import get_current_user
 from app.core.exception_handlers import register_exception_handlers
 from app.core.limiter import limiter
+from app.core.request_context import RequestContextMiddleware
 from app.db.session import engine, SessionLocal, get_session
 from app.models.user import User
 from app.services.site_settings import get_setting
@@ -88,6 +89,14 @@ async def security_headers(request, call_next):
     return response
 
 
+# Request-ID + structlog context binding. Added LAST so it's the OUTERMOST
+# middleware — Starlette runs middlewares in reverse-add order, so this
+# wraps CORS + security_headers and is alive for every log line emitted
+# during a request, including ones from other middlewares + exception
+# handlers. Pairs with structlog.contextvars.merge_contextvars in
+# app/core/logging.py.
+app.add_middleware(RequestContextMiddleware)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]  # slowapi handler signature; runtime is correct
 app.include_router(site_settings.router)
@@ -96,7 +105,63 @@ register_exception_handlers(app)
 
 @app.get("/health")
 def health_check():
+    """Liveness probe — proves the process is alive and the event loop responsive.
+
+    Intentionally trivial: does NOT touch the DB / Redis / external services,
+    so a transient dep outage (e.g. Postgres failover, Redis restart) won't
+    flap the liveness signal and trigger needless pod restarts. For
+    dependency health, use /readyz.
+    """
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz(db=Depends(get_session)):
+    """Readiness probe — pings the dependencies the API ACTUALLY needs to serve
+    traffic. Returns 200 + per-check dict on success, 503 + dict on any failure.
+
+    Coolify / k8s should route this to the readiness signal: when one of the
+    deps is degraded the orchestrator stops sending NEW traffic to this pod
+    but leaves /health (liveness) alone so the existing requests can drain.
+
+    Checks:
+      - db    : SELECT 1 against Postgres (always)
+      - redis : PING against Redis IF settings.redis_url is set (otherwise
+                skipped — local dev with no queue is a valid topology)
+    """
+    from starlette.responses import JSONResponse
+
+    checks: dict[str, str] = {}
+    ok = True
+
+    # DB — required. Fail loudly if Postgres is unreachable.
+    try:
+        await db.execute(text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as e:  # pragma: no cover — depends on live infra
+        checks["db"] = f"error: {type(e).__name__}: {e}"
+        ok = False
+
+    # Redis — optional. Only check when the queue is wired.
+    if settings.redis_url:
+        try:
+            import redis.asyncio as aioredis  # type: ignore[import-untyped]
+
+            client = aioredis.from_url(
+                settings.redis_url, socket_timeout=2, socket_connect_timeout=2
+            )
+            await client.ping()
+            await client.aclose()
+            checks["redis"] = "ok"
+        except Exception as e:  # pragma: no cover — depends on live infra
+            checks["redis"] = f"error: {type(e).__name__}: {e}"
+            ok = False
+    else:
+        checks["redis"] = "skipped (REDIS_URL unset)"
+
+    if ok:
+        return checks
+    return JSONResponse(content=checks, status_code=503)
 
 
 # Public mini-app settings (the frontend fetches this once on load to know the
