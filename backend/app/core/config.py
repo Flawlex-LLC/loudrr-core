@@ -58,8 +58,19 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = ""           # set in prod; blank disables admin login
 
+    # --- observability ---
+    # DEBUG, INFO, WARNING, ERROR, CRITICAL. INFO is sensible in prod; flip to
+    # DEBUG locally when you need to see SQLAlchemy echo + asyncio internals.
+    log_level: str = "INFO"
+
 
 # business logic settings
 settings = Settings()  # type: ignore[call-arg]  # pydantic-settings reads required fields from .env at runtime
 
-print(f"{settings.app_name}\n{settings.debug}\n{settings.items_per_page}")
+# Configure structured logging the moment Settings is built — every subsequent
+# `logging.getLogger(__name__)` call across the codebase will route through
+# structlog automatically (pretty key=val in dev, single-line JSON in prod).
+# Done here (not in main.py) so test imports + arq workers + scripts/* also
+# get the new format without each having to remember to call it.
+from app.core.logging import configure_logging  # noqa: E402  — must come after settings is built
+configure_logging(debug=settings.debug, log_level=settings.log_level)
