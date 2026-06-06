@@ -1,5 +1,6 @@
 # Loudrr-FastAPI Local Development Startup
-# Run:  .\dev.ps1
+# Run:  .\scripts\dev.ps1   (from repo root)
+#   or: cd scripts; .\dev.ps1
 #
 # Mirrors the Django reference's dev.ps1 (projects/loudrr/dev.ps1) but adapted
 # for the FastAPI stack: uvicorn + arq worker instead of Django + django-q2.
@@ -13,9 +14,10 @@
 #   6. logs     (interactive shell for ad-hoc queries / curl)
 #
 # If Windows Terminal isn't installed, falls back to separate PowerShell windows.
-# Tear down with:  .\dev-stop.ps1
+# Tear down with:  .\scripts\dev-stop.ps1
 
-$projectRoot = $PSScriptRoot
+# This script lives in <repo>/scripts/, so the project root is one level up.
+$projectRoot = Split-Path -Parent $PSScriptRoot
 $backend = Join-Path $projectRoot "backend"
 $frontend = Join-Path $projectRoot "frontend"
 $venv = Join-Path $projectRoot ".venv\Scripts\Activate.ps1"

@@ -1,11 +1,12 @@
 # Loudrr-FastAPI Tear-Down
-# Run:  .\dev-stop.ps1
+# Run:  .\scripts\dev-stop.ps1   (from repo root)
 #
 # Kills anything bound to the dev ports (8000, 3000) and stops the
 # docker-compose stack (postgres + redis). Leaves Docker Desktop itself
 # running; close that manually if you want a fully clean state.
 
-$projectRoot = $PSScriptRoot
+# This script lives in <repo>/scripts/, so the project root is one level up.
+$projectRoot = Split-Path -Parent $PSScriptRoot
 $backend = Join-Path $projectRoot "backend"
 
 Write-Host "Stopping Loudrr-FastAPI dev stack..." -ForegroundColor Yellow

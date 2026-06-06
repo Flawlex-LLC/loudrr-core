@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Loudrr-FastAPI Local Dev (bash/macOS/Linux variant)
-# Run:  ./dev.sh
+# Run:  ./scripts/dev.sh   (from repo root)
 #
 # Mirrors dev.ps1 but for bash environments. Uses `tmux` if available for one
 # multiplexed window, else falls back to backgrounding each service and
 # capturing logs to /tmp/loudrr-fastapi/*.log.
 set -e
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# This script lives in <repo>/scripts/, so the project root is one level up.
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND="$PROJECT_ROOT/backend"
 FRONTEND="$PROJECT_ROOT/frontend"
 VENV_PY="$PROJECT_ROOT/.venv/bin/python"   # adjust if venv lives at backend/.venv
