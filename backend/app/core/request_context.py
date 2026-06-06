@@ -69,6 +69,15 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         try:
             response = await call_next(request)
+        except Exception as exc:
+            # Pre-empt the BaseHTTPMiddleware-vs-sentry-auto-capture quirk:
+            # when this middleware's stack handling swallows the exception
+            # context, the SDK's middleware-level auto-capture can silently
+            # miss it. Explicit capture here guarantees the report fires
+            # exactly once. No-op if sentry_sdk.init() was never called.
+            import sentry_sdk
+            sentry_sdk.capture_exception(exc)
+            raise
         finally:
             # Clear so the next request on this asyncio task starts fresh.
             structlog.contextvars.clear_contextvars()

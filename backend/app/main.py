@@ -48,6 +48,21 @@ async def lifespan(app: FastAPI):
             await load_tiers_from_settings(_tier_db)
     except Exception as e:  # pragma: no cover — defensive
         print(f"WARNING: load_tiers_from_settings failed at startup: {e!r} — using defaults")
+
+    # Initialize the error-tracking SDK exactly once, gated on a DSN being
+    # configured. sentry-sdk speaks both Sentry's and GlitchTip's protocols
+    # — same DSN format, same auto-instrumentation. send_default_pii=False
+    # so we never leak telegram_id / x_username into error reports.
+    dsn = settings.glitchtip_dsn or settings.sentry_dsn
+    if dsn:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=dsn,
+            send_default_pii=False,
+            traces_sample_rate=0.1 if not settings.debug else 0.0,
+            environment=settings.sentry_environment or ("dev" if settings.debug else "prod"),
+        )
+        print(f"Error tracking ENABLED: {('GlitchTip' if settings.glitchtip_dsn else 'Sentry')}")
     yield
     # close the shared arq/Redis pool (if one was opened by enqueue())
     from app.tasks.enqueue import close_pool

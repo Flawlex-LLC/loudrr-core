@@ -5,8 +5,6 @@ hits the actual ASGI app via the `client` fixture, so the middleware stack
 + routes + dep-overrides + structlog binding are exercised exactly as in
 real requests.
 """
-import re
-import uuid
 
 
 # ---------------------------------------------------------------------------
@@ -126,3 +124,49 @@ async def test_telegram_id_query_param_binds_via_middleware(client):
     r = await client.get("/health", params={"telegram_id": 9999})
     assert r.status_code == 200
     assert r.headers.get("x-request-id")
+
+
+# ---------------------------------------------------------------------
+# Error tracking — 500s must reach the SDK explicitly
+# ---------------------------------------------------------------------
+async def test_500_is_reported_to_error_tracking(client, monkeypatch):
+    """Pre-empts the volume.fun bug: BaseHTTPMiddleware can swallow the
+    exception context so sentry-sdk's auto-capture misses it. Our
+    middleware fixes this by calling capture_exception explicitly in the
+    error path. This test mocks the SDK + adds a temporary route that
+    raises, then asserts the mock was called with the raised exception."""
+    import sentry_sdk
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+
+    captured: list[BaseException] = []
+    monkeypatch.setattr(sentry_sdk, "capture_exception", lambda exc: captured.append(exc))
+
+    async def _boom():
+        raise RuntimeError("test 500 — must reach the SDK")
+    app.add_api_route("/__test_boom__", _boom)
+
+    # Build a local transport with raise_app_exceptions=False so Starlette's
+    # ServerErrorMiddleware (which fires LAST in production and converts any
+    # uncaught exception into a 500 response) actually runs — the default
+    # test transport re-raises into pytest before that conversion can happen.
+    # This mirrors real prod behavior: caller sees 500, SDK sees the exception.
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as boom_client:
+            r = await boom_client.get("/__test_boom__")
+        # FastAPI returns 500 to the caller — that's correct, the SDK
+        # report happens out-of-band.
+        assert r.status_code == 500, f"expected 500 from raising route, got {r.status_code}"
+        assert len(captured) >= 1, (
+            "sentry_sdk.capture_exception was NEVER called — the middleware "
+            "is swallowing the exception context (this is the volume.fun bug)."
+        )
+        assert isinstance(captured[0], RuntimeError)
+        assert "test 500 — must reach the SDK" in str(captured[0])
+    finally:
+        # Remove the synthetic route so it doesn't leak to other tests
+        app.routes[:] = [
+            rt for rt in app.routes
+            if getattr(rt, "path", "") != "/__test_boom__"
+        ]

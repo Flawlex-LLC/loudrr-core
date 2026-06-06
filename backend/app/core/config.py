@@ -68,6 +68,19 @@ class Settings(BaseSettings):
     # DEBUG locally when you need to see SQLAlchemy echo + asyncio internals.
     log_level: str = "INFO"
 
+    # --- error tracking (Sentry / GlitchTip) ---
+    # Both fields accept the same DSN format (sentry-sdk speaks both). When
+    # ONE is set the SDK initializes at startup and the request-id middleware
+    # explicitly captures unhandled exceptions on the way through. When BOTH
+    # are unset the SDK never initializes — no overhead in dev.
+    # Set GLITCHTIP_DSN to point at your self-hosted GlitchTip; SENTRY_DSN
+    # is the same shape if you switch to Sentry-hosted later.
+    sentry_dsn: str = ""
+    glitchtip_dsn: str = ""
+    # Comma-separated environments. Defaults to deriving from debug: 'dev'
+    # when debug=True, else 'prod'. Override to 'staging' etc. in .env.
+    sentry_environment: str = ""
+
 
 # business logic settings
 settings = Settings()  # type: ignore[call-arg]  # pydantic-settings reads required fields from .env at runtime
