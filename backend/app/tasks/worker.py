@@ -55,6 +55,21 @@ async def expire_old_posts(ctx):
         return await maintenance.expire_old_posts(db)
 
 
+async def requeue_stuck_batches(ctx):
+    """Sweep VerificationBatch rows stuck in pending/processing past the
+    expected processing window and re-enqueue them through the arq pool.
+    Recovers from arq worker death mid-batch — without this, a user whose
+    batch is stuck stays locked out of claiming forever.
+    """
+    from app.tasks.enqueue import enqueue
+
+    async def _schedule(batch_id):
+        await enqueue("process_verification_batch", str(batch_id))
+
+    async with SessionLocal() as db:
+        return await claims.requeue_stuck_batches(db, schedule=_schedule)
+
+
 class WorkerSettings:
     redis_settings = RedisSettings.from_dsn(settings.redis_url or "redis://localhost:6379/0")
     functions = [
@@ -65,6 +80,7 @@ class WorkerSettings:
         cleanup_old_outbox_events,
         reset_daily_credits,
         expire_old_posts,
+        requeue_stuck_batches,
     ]
     cron_jobs = [
         # drain the outbox every minute
@@ -77,4 +93,9 @@ class WorkerSettings:
         cron(reset_daily_credits, hour={0}, minute={0}),
         # expire+refund stale posts hourly
         cron(expire_old_posts, minute={0}),
+        # service-audit P1: recover from stuck verification batches every 5 min
+        # (parity with Django's `requeue_stuck_batches` management command, but
+        # automated — Django leaves it manual). Sweeps batches stuck in
+        # pending/processing past the expected processing window.
+        cron(requeue_stuck_batches, minute=set(range(0, 60, 5))),
     ]

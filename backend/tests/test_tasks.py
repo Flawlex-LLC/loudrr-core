@@ -76,5 +76,45 @@ def test_worker_settings_registered():
     names = {f.__name__ for f in WorkerSettings.functions}
     assert "process_verification_batch" in names
     assert "process_pending_outbox_events" in names
-    assert len(WorkerSettings.functions) == 7
-    assert len(WorkerSettings.cron_jobs) == 5
+    # service-audit P1: requeue_stuck_batches recovers from worker death
+    assert "requeue_stuck_batches" in names
+    assert len(WorkerSettings.functions) == 8
+    assert len(WorkerSettings.cron_jobs) == 6
+
+
+# ---- requeue_stuck_batches (service-audit P1: stuck-batch recovery) ----
+async def test_requeue_stuck_batches_recovers_old_pending(
+    make_user, db_session
+):
+    """A batch stuck in PROCESSING past the cutoff should flip back to PENDING
+    and call the schedule hook with its id."""
+    from datetime import timedelta
+    from app.models.verification_batch import BatchStatus, VerificationBatch
+    from app.services import claims
+
+    user = await make_user(telegram_id=10101, x_username="v")
+    stuck = VerificationBatch(
+        user_id=user.id, engagement_ids=[],
+        status=BatchStatus.PROCESSING.value,
+        created_at=utcnow() - timedelta(minutes=20),  # past the 10-min cutoff
+    )
+    fresh = VerificationBatch(
+        user_id=user.id, engagement_ids=[],
+        status=BatchStatus.PROCESSING.value,
+        created_at=utcnow(),  # too young — should NOT requeue
+    )
+    db_session.add_all([stuck, fresh])
+    await db_session.commit()
+
+    scheduled: list = []
+
+    async def _schedule(batch_id):
+        scheduled.append(batch_id)
+
+    n = await claims.requeue_stuck_batches(db_session, schedule=_schedule)
+    assert n == 1
+    await db_session.refresh(stuck)
+    await db_session.refresh(fresh)
+    assert stuck.status == "pending"
+    assert fresh.status == "processing"  # young one untouched
+    assert scheduled == [stuck.id]

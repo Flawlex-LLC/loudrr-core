@@ -1,5 +1,6 @@
 """Ch15 — transactional outbox: queue, drain, retry, and waitlist wiring.
 Telegram is mocked."""
+import uuid
 from datetime import timedelta
 
 
@@ -16,10 +17,10 @@ class _FakeTelegram:
         self.fail = fail
         self.sent = []
 
-    async def send_message(self, chat_id, text, parse_mode="HTML"):
+    async def send_message(self, chat_id, text, parse_mode="HTML", reply_markup=None):
         if self.fail:
             raise RuntimeError("telegram down")
-        self.sent.append((chat_id, text))
+        self.sent.append((chat_id, text, reply_markup))
         return True
 
 
@@ -113,7 +114,6 @@ async def test_waitlist_register_queues_event(client, db_session):
 # the expected event_type and payload keys. Keeps wiring honest: if anyone
 # renames a key without updating these, the test breaks.
 # ============================================================================
-import uuid
 
 
 async def test_queue_waitlist_rejected(db_session):
@@ -232,6 +232,83 @@ async def test_queue_post_expired(db_session):
 # test exercises the new template renderer + dispatch wiring once for the most
 # valuable user-facing notification.
 # ============================================================================
+# ============================================================================
+# Send-shape parity (P1) — waitlist_approved and waitlist_submitted ship with
+# an "Open Loudrr" WebApp inline-keyboard button so users have a one-tap path
+# back to the mini-app (parity with Django bots/telegram/notifications.py).
+# Other event types (e.g. claim_completed) deliver bare text — no keyboard.
+# ============================================================================
+async def test_drain_attaches_webapp_button_for_waitlist_approved(
+    db_session, monkeypatch
+):
+    """Parity with Django: WAITLIST_APPROVED dispatch should attach the
+    inline-keyboard with the WebApp button when settings.miniapp_url is set."""
+    fake = _FakeTelegram()
+    monkeypatch.setattr(telegram, "get_telegram_client", lambda: fake)
+    monkeypatch.setattr(outbox, "get_telegram_client", telegram.get_telegram_client)
+    monkeypatch.setattr(outbox.settings, "miniapp_url", "https://miniapp.example/")
+
+    await OutboxService.queue_waitlist_approved(
+        db_session, entry_id=uuid.uuid4(), telegram_id=42, x_username="alice",
+    )
+    await db_session.commit()
+    result = await outbox.drain(db_session)
+    assert result["sent"] == 1 and result["failed"] == 0
+
+    assert len(fake.sent) == 1
+    chat_id, _text, reply_markup = fake.sent[0]
+    assert chat_id == 42
+    assert reply_markup is not None
+    # one row, one button: "Open Loudrr" with a WebApp link
+    btn = reply_markup["inline_keyboard"][0][0]
+    assert btn["text"] == "Open Loudrr"
+    assert btn["web_app"]["url"] == "https://miniapp.example/"
+
+
+async def test_drain_no_webapp_button_when_miniapp_url_unset(
+    db_session, monkeypatch
+):
+    """If miniapp_url is empty (dev/test default), dispatch must NOT send a
+    half-broken inline keyboard — falls back to bare text."""
+    fake = _FakeTelegram()
+    monkeypatch.setattr(telegram, "get_telegram_client", lambda: fake)
+    monkeypatch.setattr(outbox, "get_telegram_client", telegram.get_telegram_client)
+    monkeypatch.setattr(outbox.settings, "miniapp_url", "")
+
+    await OutboxService.queue_waitlist_submitted(
+        db_session, entry_id=uuid.uuid4(), telegram_id=43,
+        x_username="bob", email="b@x.com",
+    )
+    await db_session.commit()
+    await outbox.drain(db_session)
+
+    assert len(fake.sent) == 1
+    _chat_id, _text, reply_markup = fake.sent[0]
+    assert reply_markup is None  # no half-baked button when URL is unset
+
+
+async def test_drain_no_webapp_button_for_non_waitlist_events(
+    db_session, monkeypatch
+):
+    """The WebApp button is waitlist-card-only: claim_completed et al render
+    as plain text even when miniapp_url is configured."""
+    fake = _FakeTelegram()
+    monkeypatch.setattr(telegram, "get_telegram_client", lambda: fake)
+    monkeypatch.setattr(outbox, "get_telegram_client", telegram.get_telegram_client)
+    monkeypatch.setattr(outbox.settings, "miniapp_url", "https://miniapp.example/")
+
+    await OutboxService.queue_claim_completed(
+        db_session, batch_id=uuid.uuid4(), user_id=uuid.uuid4(),
+        telegram_id=44, passed=3, failed=0, awarded="3.0000",
+    )
+    await db_session.commit()
+    await outbox.drain(db_session)
+
+    assert len(fake.sent) == 1
+    _chat_id, _text, reply_markup = fake.sent[0]
+    assert reply_markup is None
+
+
 async def test_drain_dispatches_claim_completed(db_session, monkeypatch):
     _mock_telegram(monkeypatch)
     await OutboxService.queue_claim_completed(
@@ -243,11 +320,9 @@ async def test_drain_dispatches_claim_completed(db_session, monkeypatch):
     result = await outbox.drain(db_session)
     assert result["sent"] == 1 and result["failed"] == 0
 
-    # The fake Telegram client recorded the (chat_id, text). Verify the
-    # rendered text contains the template's payload substitutions.
-    client = telegram.get_telegram_client()
-    # The mock factory returns a fresh instance per call, so we can't read .sent
-    # back here. Instead, verify the OutboxEvent is now sent + processed_at set.
+    # The mock factory returns a fresh instance per call, so we can't read
+    # .sent back from the client. Instead, verify the OutboxEvent is now
+    # sent + processed_at set — proves the dispatch path executed.
     ev = (await OutboxEventRepository(db_session).list(limit=1))[0]
     assert ev.status == "sent"
     assert ev.processed_at is not None

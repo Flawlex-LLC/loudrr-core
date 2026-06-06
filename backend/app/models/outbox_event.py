@@ -61,6 +61,15 @@ class OutboxEvent(Base):
     max_retries: Mapped[int] = mapped_column(default=3, server_default="3")
     error_message: Mapped[str] = mapped_column(Text, default="", server_default="")
     processed_at: Mapped[datetime | None] = mapped_column(default=None)
+    # When set, drain() must skip this row until utcnow() >= next_retry_at.
+    # Populated by the 429-backoff path (Retry-After header). NULL means
+    # "available immediately" — the default for newly queued events.
+    next_retry_at: Mapped[datetime | None] = mapped_column(default=None)
+    # Optional per-event-type idempotency token. When present, the (event_type,
+    # idempotency_key) pair must be unique — guarantees only one row per logical
+    # event (e.g. daily_cap_reached per user-per-day). NULL means "no dedup"
+    # — every queue() call inserts a new row.
+    idempotency_key: Mapped[str | None] = mapped_column(String(200), default=None)
     created_at: Mapped[datetime] = mapped_column(
         default=utcnow, server_default=text("now()")
     )
@@ -75,4 +84,12 @@ class OutboxEvent(Base):
         ),
         Index("ix_outbox_status_created", "status", "created_at"),
         Index("ix_outbox_type_status", "event_type", "status"),
+        # Partial unique: enforce uniqueness only when idempotency_key is set.
+        # Two rows with NULL idempotency_key are NOT considered duplicates.
+        Index(
+            "ix_outbox_event_type_idempotency_key",
+            "event_type", "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )

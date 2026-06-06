@@ -105,6 +105,29 @@ async def record_click(db, *, user, post_id) -> dict:
     if not post_id:
         raise BadRequest("Missing post_id")
 
+    # ENGAGEMENT_COOLDOWN — admin-tunable lockout (seconds) between clicks by
+    # the same user (parity intent with Django core/services/engagements.py:116).
+    # Default 0 = disabled (current behavior; only the unique (user,post) index
+    # blocks the dup-click race). Flipped live=True so settings.engagement_cooldown
+    # at 5/30/60s starts applying immediately without a deploy.
+    cooldown = int(await get_setting(db, "ENGAGEMENT_COOLDOWN", 0))
+    if cooldown > 0:
+        latest = (
+            await db.execute(
+                select(Engagement.clicked_at)
+                .where(Engagement.user_id == user.id)
+                .order_by(Engagement.clicked_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if latest is not None:
+            elapsed = (utcnow() - latest).total_seconds()
+            if elapsed < cooldown:
+                remaining = int(cooldown - elapsed)
+                raise BadRequest(
+                    f"Please wait {remaining} seconds before engaging again."
+                )
+
     # lock the post row: serializes concurrent clicks, so the check-then-create
     # below is race-free (the unique (user,post) index is the final backstop)
     async with locked_row(db, Post, id=post_id) as post:

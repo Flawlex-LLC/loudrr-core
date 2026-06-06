@@ -6,10 +6,12 @@ the money atomically. Skipped (no tweet_id / no API key / API down) counts as
 **passed** — benefit of the doubt.
 """
 import logging
+import random
 import uuid
 from dataclasses import dataclass
 
 from app.integrations import twitter
+from app.services.site_settings import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +54,34 @@ async def _verify_single(client, item: ToVerify, x_username: str) -> VResult:
     )
 
 
-async def verify_engagements(items: list[ToVerify], x_username: str) -> list[VResult]:
-    """Run Phase 1 over a batch. No DB writes, no locks — only HTTP."""
+async def verify_engagements(
+    items: list[ToVerify], x_username: str, *, db=None,
+) -> list[VResult]:
+    """Run Phase 1 over a batch. No DB writes, no locks — only HTTP.
+
+    AUDIT_PROBABILITY (live, default 1.0) gates which engagements are actually
+    verified against the Twitter API. A roll above the threshold short-circuits
+    to a trusted pass — preserves API budget while still randomly sampling for
+    fraud. Default 1.0 = verify every item (current behavior). Caller passes
+    ``db`` so we can read the setting; if ``db`` is None we keep the legacy
+    "verify everything" path so existing tests / unit calls don't regress."""
     client = twitter.get_twitter_client()
-    results = [await _verify_single(client, it, x_username) for it in items]
+    audit_prob = 1.0
+    if db is not None:
+        # cast defensively — settings can come back as Decimal/float/str.
+        audit_prob = float(await get_setting(db, "AUDIT_PROBABILITY", 1.0))
+
+    results: list[VResult] = []
+    for it in items:
+        if audit_prob < 1.0 and random.random() >= audit_prob:
+            # trusted skip — counts as passed, no API call. Distinct from the
+            # "tweet_id missing / API skipped" path: error stays None.
+            results.append(VResult(
+                it.engagement_id, it.post_id, passed=True,
+                reply_verified=False, skipped=True, error=None,
+            ))
+            continue
+        results.append(await _verify_single(client, it, x_username))
     passed = sum(1 for r in results if r.passed)
     logger.info("Phase 1 done: %s passed, %s failed", passed, len(results) - passed)
     return results

@@ -278,6 +278,101 @@ async def test_queue_success_creates_batch(client, make_user, db_session, monkey
     assert body["position"] == 1
 
 
+# ============ AUDIT_PROBABILITY (live wiring) ============
+# verify_engagements now reads AUDIT_PROBABILITY (default 1.0 = verify all).
+# When set <1.0, items rolled above the threshold get a trusted-skip pass
+# without ever hitting the Twitter API. We monkeypatch random.random() so the
+# behavior is deterministic in the test.
+async def test_audit_probability_skips_api_call(
+    client, make_user, db_session, monkeypatch
+):
+    # set the setting low; force random() to return a value ABOVE it so the
+    # item is trusted-skipped
+    db_session.add(SiteSetting(
+        key="AUDIT_PROBABILITY", value="0.05", data_type="float",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+
+    # twitter client should NOT be consulted on the trusted skip
+    class _ExplodingTwitter:
+        async def verify_reply(self, *a, **kw):
+            raise AssertionError("Twitter API must not be called on trusted skip")
+
+    monkeypatch.setattr(twitter, "get_twitter_client", lambda: _ExplodingTwitter())
+    # random.random() returns 0.5 — above 0.05 — so the item is skipped
+    from app.services import verification as verification_mod
+    monkeypatch.setattr(verification_mod.random, "random", lambda: 0.5)
+
+    owner = await make_user(telegram_id=8501)
+    viewer = await make_user(telegram_id=8502, x_username="v")
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+
+    await claims.run_batch(db_session, batch.id)
+    # trusted skip is recorded as passed — engagement is credited normally
+    assert (batch.passed, batch.failed) == (1, 0)
+    assert viewer.credits == Decimal("1.0000")
+
+
+async def test_audit_probability_default_verifies_everything(
+    client, make_user, db_session, monkeypatch
+):
+    """No AUDIT_PROBABILITY row in site_settings → service-level default 1.0
+    → every engagement gets the full Twitter check (current behavior)."""
+    site_settings._cache.clear()
+    calls = {"n": 0}
+
+    class _CountingTwitter:
+        async def verify_reply(self, *a, **kw):
+            calls["n"] += 1
+            return {"passed": True, "reply_verified": True, "like_verified": True,
+                    "error": None, "skipped": False}
+
+    monkeypatch.setattr(twitter, "get_twitter_client", lambda: _CountingTwitter())
+
+    owner = await make_user(telegram_id=8503)
+    viewer = await make_user(telegram_id=8504, x_username="v")
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+
+    await claims.run_batch(db_session, batch.id)
+    assert calls["n"] == 1  # the API WAS called
+
+
+# ============ VERIFICATION_BATCH_SIZE (live wiring) ============
+async def test_verification_batch_size_caps_batch(
+    client, make_user, db_session, monkeypatch
+):
+    """When VERIFICATION_BATCH_SIZE is set, only the oldest N pending
+    engagements ride this batch; the rest stay queued for the next claim."""
+    _seed(db_session, MIN_ENGAGEMENTS_TO_CLAIM=1, MIN_SESSION_DURATION_SECONDS=0)
+    db_session.add(SiteSetting(
+        key="VERIFICATION_BATCH_SIZE", value="2", data_type="int",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+    _no_background(monkeypatch)
+
+    owner = await make_user(telegram_id=8505)
+    viewer = await make_user(telegram_id=8506, x_username="v")
+    # create 5 engagements; only the 2 oldest should enter this batch
+    for i in range(5):
+        p = await _make_post(
+            db_session, owner_id=owner.id, escrow="50",
+            tweet_id=str(100 + i),
+            x_link=f"https://x.com/owner/status/{100 + i}",
+        )
+        await _make_engagement(db_session, user_id=viewer.id, post_id=p.id)
+
+    r = await client.post("/session/queue-claim/", params={"telegram_id": 8506})
+    body = r.json()
+    assert body["success"] is True
+    assert body["engagement_count"] == 2  # capped
+
+
 # ============ claim history (endpoint) ============
 async def test_claim_history_lists_batches(client, make_user, db_session):
     viewer = await make_user(telegram_id=8021, x_username="v")

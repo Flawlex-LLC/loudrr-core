@@ -188,6 +188,13 @@ async def approve_entry(
         db, entry_id=entry.id, telegram_id=entry.telegram_id, x_username=entry.x_username,
     )
     await db.commit()
+    # Parity with Django (core/admin.py:741) — kick off the TweetScout fetch
+    # for the freshly created User so their tier multiplier is populated soon
+    # after approval. Best-effort: arq enqueue runs post-commit, never blocks
+    # the response. With redis/use_task_queue unset (tests/dev), enqueue() is
+    # a no-op — the user can still be backfilled manually via /onboarding/.
+    from app.tasks.enqueue import enqueue
+    await enqueue("fetch_tweetscout_for_user", str(user.id))
     return user
 
 

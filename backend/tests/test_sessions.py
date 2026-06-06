@@ -143,6 +143,61 @@ async def test_click_completed_post_404(client, make_user, db_session):
     assert r.status_code == 404
 
 
+# ---- ENGAGEMENT_COOLDOWN (live wiring) ----
+# Regression: a >0 ENGAGEMENT_COOLDOWN setting must lock the user out of a
+# fresh click for that many seconds after their previous engagement. This is
+# the parity-with-Django gap the audit flagged — sessions.record_click now
+# reads the setting (default 0 = disabled, current behavior).
+async def test_engagement_cooldown_blocks_back_to_back_clicks(
+    client, make_user, db_session
+):
+    db_session.add(SiteSetting(
+        key="ENGAGEMENT_COOLDOWN", value="60", data_type="int",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+
+    owner = await make_user(telegram_id=7301)
+    await make_user(telegram_id=7302)
+    p1 = await _make_post(db_session, owner_id=owner.id)
+    p2 = await _make_post(db_session, owner_id=owner.id)
+    # first click lands cleanly
+    r1 = await client.post(
+        "/session/click/", params={"telegram_id": 7302}, json={"post_id": str(p1.id)},
+    )
+    assert r1.status_code == 200
+    # second click within the 60s window must be blocked with a clear message
+    r2 = await client.post(
+        "/session/click/", params={"telegram_id": 7302}, json={"post_id": str(p2.id)},
+    )
+    assert r2.status_code == 400
+    assert "wait" in r2.json()["error"].lower()
+
+
+async def test_engagement_cooldown_zero_is_disabled(
+    client, make_user, db_session
+):
+    """The default ENGAGEMENT_COOLDOWN=0 keeps the legacy "fire away" behavior
+    so the wiring is safe to roll out without any config flip."""
+    db_session.add(SiteSetting(
+        key="ENGAGEMENT_COOLDOWN", value="0", data_type="int",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+
+    owner = await make_user(telegram_id=7311)
+    await make_user(telegram_id=7312)
+    p1 = await _make_post(db_session, owner_id=owner.id)
+    p2 = await _make_post(db_session, owner_id=owner.id)
+    r1 = await client.post(
+        "/session/click/", params={"telegram_id": 7312}, json={"post_id": str(p1.id)},
+    )
+    r2 = await client.post(
+        "/session/click/", params={"telegram_id": 7312}, json={"post_id": str(p2.id)},
+    )
+    assert r1.status_code == 200 and r2.status_code == 200
+
+
 async def test_click_show_verification_threshold(client, make_user, db_session):
     # seed a low claim threshold so a single click flips show_verification
     db_session.add(SiteSetting(key="MIN_ENGAGEMENTS_TO_CLAIM", value="1", data_type="int"))

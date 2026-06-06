@@ -87,3 +87,24 @@ async def test_reject_sets_status(db_session, make_user):
     )
     assert entry.status == "rejected"
     assert entry.rejection_reason == "spam"
+
+
+# ---- Outbox-parity gap (P1): approve_entry must kick off the TweetScout fetch
+# (parity with Django core/admin.py:741) so the new User's tier multiplier is
+# populated soon after approval.
+async def test_approve_enqueues_tweetscout_fetch(db_session, make_user, monkeypatch):
+    captured: list[tuple[str, tuple]] = []
+
+    async def _fake_enqueue(task_name, *args):
+        captured.append((task_name, args))
+        return True
+
+    monkeypatch.setattr("app.tasks.enqueue.enqueue", _fake_enqueue)
+
+    admin = await make_user()
+    reg = await svc.register_entry(db_session, tg_user=_tg(), payload=_payload())
+    user = await svc.approve_entry(
+        db_session, entry_id=reg.entry.id, admin_id=admin.id
+    )
+    # exactly one enqueue, for fetch_tweetscout_for_user, with the new user id
+    assert captured == [("fetch_tweetscout_for_user", (str(user.id),))]

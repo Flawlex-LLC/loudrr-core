@@ -62,6 +62,14 @@ async def queue_claim(db, *, user, schedule) -> tuple[dict, int]:
         )
     ).scalars().all()
 
+    # VERIFICATION_BATCH_SIZE — cap on engagements processed per batch (parity
+    # with Django seeded setting; default 0 = no cap, take everything). When
+    # set, only the oldest N pending engagements ride this batch; the rest
+    # stay queued for the next /session/queue-claim/ call. The min_to_claim
+    # gate is still applied to the FULL pending count so the user can claim
+    # as long as they meet the threshold across batches.
+    batch_size = int(await get_setting(db, "VERIFICATION_BATCH_SIZE", 0))
+
     if len(pending) < min_to_claim:
         return (
             {"success": False,
@@ -94,7 +102,10 @@ async def queue_claim(db, *, user, schedule) -> tuple[dict, int]:
         ).scalar_one()
     )
 
-    engagement_ids = [str(e.id) for e in pending]
+    # slice to the configured batch size (oldest-first preserves FIFO order so
+    # the next claim picks up the leftovers in the right order)
+    snapshot = pending if batch_size <= 0 else pending[:batch_size]
+    engagement_ids = [str(e.id) for e in snapshot]
     batch = await VerificationBatchRepository(db).create(
         user_id=user.id, engagement_ids=engagement_ids, status=BatchStatus.PENDING.value,
     )
@@ -216,8 +227,12 @@ async def run_batch(db, batch_id) -> dict:
                 tweet_id = p.tweet_id or extract_tweet_id(p.x_link) or ""
             items.append(ToVerify(engagement_id=e.id, post_id=e.post_id, tweet_id=tweet_id))
 
-        # Phase 1 — external, no locks
-        results = await verification.verify_engagements(items, user.x_username)
+        # Phase 1 — external, no locks. Pass db so verify_engagements can read
+        # AUDIT_PROBABILITY (live, default 1.0 = always verify) for trusted-skip
+        # sampling without re-hitting site_settings inline at the request layer.
+        results = await verification.verify_engagements(
+            items, user.x_username, db=db,
+        )
         passed = sum(1 for r in results if r.passed)
         failed = sum(1 for r in results if not r.passed)
 
@@ -248,3 +263,48 @@ async def process_batch_in_new_session(batch_id) -> dict:
     (Ch16 will replace the dispatch with an arq enqueue; this stays the body.)"""
     async with SessionLocal() as db:
         return await run_batch(db, batch_id)
+
+
+# ---- cron: requeue stuck verification batches (Ch16, missing-cron audit) ----
+# Parity with Django's `requeue_stuck_batches` management command. If an arq
+# worker dies mid-batch, the VerificationBatch row stays in PROCESSING (or
+# never leaves PENDING) and the user's pending engagements are stranded. This
+# cron sweeps for those rows and re-enqueues them.
+async def requeue_stuck_batches(
+    db, *, older_than_minutes: int = 10, schedule=None,
+) -> int:
+    """Reset stuck pending/processing batches and re-enqueue them.
+
+    A batch is "stuck" if it has been in pending or processing for longer than
+    ``older_than_minutes`` (default 10 — well past the longest expected
+    Phase 1 + Phase 2 round-trip). We flip status back to PENDING and re-fire
+    the processor via ``schedule(batch_id)`` (the same shape ``queue_claim``
+    uses). Returns the number of batches requeued.
+
+    ``schedule=None`` makes the function safely callable from a test without
+    a real arq pool — only the status reset runs.
+    """
+    from datetime import timedelta
+
+    cutoff = utcnow() - timedelta(minutes=older_than_minutes)
+    stuck = (
+        await db.execute(
+            select(VerificationBatch).where(
+                VerificationBatch.status.in_((
+                    BatchStatus.PENDING.value, BatchStatus.PROCESSING.value,
+                )),
+                VerificationBatch.created_at < cutoff,
+            )
+        )
+    ).scalars().all()
+    for batch in stuck:
+        batch.status = BatchStatus.PENDING.value  # force back to pending
+    await db.commit()
+    if schedule is not None:
+        for batch in stuck:
+            await schedule(batch.id)
+    if stuck:
+        logger.warning(
+            "requeue_stuck_batches: re-enqueued %s stuck batches", len(stuck)
+        )
+    return len(stuck)

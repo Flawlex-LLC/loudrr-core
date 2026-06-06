@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # --- URLs / misc ---
     site_url: str = ""
     landing_url: str = ""
+    # Telegram WebApp deep-link (the mini-app). Used as the WebApp URL of the
+    # "Open Loudrr" inline-keyboard button on waitlist_submitted / waitlist_approved
+    # cards (parity with Django bots/telegram/notifications.py:43-46). When unset,
+    # outbox dispatch sends the message without an inline keyboard.
+    miniapp_url: str = ""
     encryption_key: str = ""           # 32-byte key for redirect-URL encryption
     # comma-separated; default is the canonical dev admin (Oxblest,
     # telegram_id=6451704338) — matches the Django reference's default.

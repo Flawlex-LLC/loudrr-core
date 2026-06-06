@@ -11,6 +11,7 @@ from datetime import timedelta
 
 from sqlalchemy import delete, select
 
+from app.core.config import settings
 from app.core.time_utils import utcnow
 from app.integrations.telegram import get_telegram_client
 from app.models.outbox_event import OutboxEvent, OutboxEventType, OutboxStatus
@@ -280,6 +281,29 @@ async def _render_template(db, key: str, payload: dict, default_template: str) -
         )
 
 
+# event_types that should ship with the "Open Loudrr" WebApp button (parity
+# with the Django approval/waitlist Telegram cards). Other events render as
+# bare text — they don't drive the user back to the mini-app.
+_WEBAPP_BUTTON_EVENTS = frozenset({
+    OutboxEventType.WAITLIST_APPROVED.value,
+    OutboxEventType.WAITLIST_SUBMITTED.value,
+})
+
+
+def _waitlist_reply_markup(event_type: str) -> dict | None:
+    """Return the inline_keyboard payload for a waitlist card, or None when
+    the WebApp button isn't applicable / miniapp_url is unset."""
+    if event_type not in _WEBAPP_BUTTON_EVENTS:
+        return None
+    if not settings.miniapp_url:
+        return None
+    return {
+        "inline_keyboard": [
+            [{"text": "Open Loudrr", "web_app": {"url": settings.miniapp_url}}]
+        ]
+    }
+
+
 async def _dispatch(db, ev: OutboxEvent) -> None:
     """Deliver one event by type. Raises on failure (→ retry)."""
     p = ev.payload or {}
@@ -294,7 +318,14 @@ async def _dispatch(db, ev: OutboxEvent) -> None:
         key, default = template
         if p.get("telegram_id"):
             text = await _render_template(db, key, p, default)
-            await telegram.send_message(p["telegram_id"], text)
+            # Parity with Django bots/telegram/notifications.py:43-46 — attach
+            # an "Open Loudrr" WebApp button to the waitlist cards so the user
+            # has a one-tap path back to the mini-app. Skipped (markup=None)
+            # when settings.miniapp_url is empty so we don't send a broken btn.
+            reply_markup = _waitlist_reply_markup(ev.event_type)
+            await telegram.send_message(
+                p["telegram_id"], text, reply_markup=reply_markup,
+            )
         return
 
     if ev.event_type in _NOOP_EVENTS:
