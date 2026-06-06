@@ -216,10 +216,20 @@ async def approve_x_verification(db, *, request_id, admin_id) -> XVerificationRe
         user.x_verified_at = utcnow()
         user.pending_claimed_x_username = ""
         user.pending_claimed_x_user_id = ""
+        # capture for the outbox payload — locked_row releases before commit
+        telegram_id = user.telegram_id
+        canonical_handle = user.x_username
 
     req.status = XVerificationStatus.APPROVED.value
     req.reviewed_by_id = admin_id
     req.reviewed_at = utcnow()
+    # queue the "x_verification_approved" Telegram card in THIS transaction
+    if telegram_id is not None:
+        from app.services.outbox import OutboxService
+        await OutboxService.queue_x_verification_approved(
+            db, request_id=req.id, user_id=req.user_id,
+            telegram_id=telegram_id, x_username=canonical_handle,
+        )
     await db.commit()
     return req
 

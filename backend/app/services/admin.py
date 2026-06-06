@@ -34,6 +34,12 @@ async def grant_credits(db, *, admin_id, user_id, amount, description="") -> Use
     )
     await _audit(db, actor_id=admin_id, action="grant_credits", target_type="user",
                  target_id=user_id, detail={"amount": str(amount)})
+    # queue the user-facing notification in THIS transaction
+    from app.services.outbox import OutboxService
+    await OutboxService.queue_admin_grant_credits(
+        db, user_id=user.id, telegram_id=user.telegram_id,
+        amount=Decimal(str(amount)), description=description or "",
+    )
     await db.commit()
     return user
 
@@ -46,6 +52,11 @@ async def revoke_credits(db, *, admin_id, user_id, amount, reason="") -> User:
     )
     await _audit(db, actor_id=admin_id, action="revoke_credits", target_type="user",
                  target_id=user_id, detail={"amount": str(amount), "reason": reason})
+    from app.services.outbox import OutboxService
+    await OutboxService.queue_admin_revoke_credits(
+        db, user_id=user.id, telegram_id=user.telegram_id,
+        amount=Decimal(str(amount)), reason=reason or "",
+    )
     await db.commit()
     return user
 
@@ -56,6 +67,10 @@ async def ban_user(db, *, admin_id, user_id, reason="") -> User:
     user.is_whitelisted = False  # respect the NOT(banned AND whitelisted) constraint
     await _audit(db, actor_id=admin_id, action="ban_user", target_type="user",
                  target_id=user_id, detail={"reason": reason})
+    from app.services.outbox import OutboxService
+    await OutboxService.queue_admin_ban(
+        db, user_id=user.id, telegram_id=user.telegram_id, reason=reason or "",
+    )
     await db.commit()
     return user
 
@@ -98,5 +113,13 @@ async def reject_x_verification(db, *, admin_id, request_id, notes="") -> XVerif
     await _audit(db, actor_id=admin_id, action="reject_x_verification",
                  target_type="x_verification_request", target_id=request_id,
                  detail={"notes": notes})
+    if user is not None and user.telegram_id is not None:
+        from app.services.outbox import OutboxService
+        await OutboxService.queue_x_verification_rejected(
+            db, request_id=req.id, telegram_id=user.telegram_id,
+            submitted_x_username=req.submitted_x_username or "",
+            claimed_x_username=req.claimed_x_username or "",
+            notes=notes or "",
+        )
     await db.commit()
     return req

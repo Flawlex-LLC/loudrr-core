@@ -150,6 +150,17 @@ async def _finish(db, batch, *, passed, failed, awarded, message) -> dict:
     batch.credits_awarded = awarded
     batch.message = message
     batch.completed_at = utcnow()
+    # queue the "claim_completed" Telegram card in THIS transaction so the
+    # user learns the outcome of their batch without polling /claims/history/
+    from app.repositories.user import UserRepository
+    from app.services.outbox import OutboxService
+    user = await UserRepository(db).get(id=batch.user_id)
+    if user is not None and user.telegram_id is not None:
+        await OutboxService.queue_claim_completed(
+            db, batch_id=batch.id, user_id=batch.user_id,
+            telegram_id=user.telegram_id, passed=passed, failed=failed,
+            awarded=awarded, message=message or "",
+        )
     await db.commit()
     return {"passed": passed, "failed": failed, "credits": float(awarded)}
 

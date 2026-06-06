@@ -105,3 +105,149 @@ async def test_waitlist_register_queues_event(client, db_session):
     events = await OutboxEventRepository(db_session).list(limit=10)
     types = {e.event_type for e in events}
     assert "waitlist_submitted" in types
+
+
+# ============================================================================
+# Per-event queue tests — one per new event type added in the audit-and-wire
+# pass. Each verifies the queue helper writes a pending OutboxEvent row with
+# the expected event_type and payload keys. Keeps wiring honest: if anyone
+# renames a key without updating these, the test breaks.
+# ============================================================================
+import uuid
+
+
+async def test_queue_waitlist_rejected(db_session):
+    ev = await OutboxService.queue_waitlist_rejected(
+        db_session, entry_id=uuid.uuid4(), telegram_id=101,
+        x_username="alice", reason="off-niche",
+    )
+    await db_session.commit()
+    assert ev.event_type == "waitlist_rejected"
+    assert ev.status == "pending"
+    assert {"entry_id", "telegram_id", "x_username", "reason"} <= set(ev.payload)
+    assert ev.payload["reason"] == "off-niche"
+
+
+async def test_queue_x_verification_approved(db_session):
+    ev = await OutboxService.queue_x_verification_approved(
+        db_session, request_id=uuid.uuid4(), user_id=uuid.uuid4(),
+        telegram_id=202, x_username="0xBlest_",
+    )
+    await db_session.commit()
+    assert ev.event_type == "x_verification_approved"
+    assert {"request_id", "user_id", "telegram_id", "x_username"} <= set(ev.payload)
+
+
+async def test_queue_x_verification_rejected(db_session):
+    ev = await OutboxService.queue_x_verification_rejected(
+        db_session, request_id=uuid.uuid4(), telegram_id=303,
+        submitted_x_username="alice", claimed_x_username="alice_real",
+        notes="handle doesn't match the screenshot",
+    )
+    await db_session.commit()
+    assert ev.event_type == "x_verification_rejected"
+    assert {"request_id", "telegram_id", "submitted_x_username",
+            "claimed_x_username", "notes"} <= set(ev.payload)
+
+
+async def test_queue_admin_grant_credits(db_session):
+    ev = await OutboxService.queue_admin_grant_credits(
+        db_session, user_id=uuid.uuid4(), telegram_id=404,
+        amount="25", description="promo",
+    )
+    await db_session.commit()
+    assert ev.event_type == "admin_grant_credits"
+    assert {"user_id", "telegram_id", "amount", "description"} <= set(ev.payload)
+    assert ev.payload["amount"] == "25"
+
+
+async def test_queue_admin_revoke_credits(db_session):
+    ev = await OutboxService.queue_admin_revoke_credits(
+        db_session, user_id=uuid.uuid4(), telegram_id=505,
+        amount="10", reason="spam",
+    )
+    await db_session.commit()
+    assert ev.event_type == "admin_revoke_credits"
+    assert {"user_id", "telegram_id", "amount", "reason"} <= set(ev.payload)
+
+
+async def test_queue_admin_ban(db_session):
+    ev = await OutboxService.queue_admin_ban(
+        db_session, user_id=uuid.uuid4(), telegram_id=606, reason="bot",
+    )
+    await db_session.commit()
+    assert ev.event_type == "admin_ban"
+    assert {"user_id", "telegram_id", "reason"} <= set(ev.payload)
+    assert ev.payload["reason"] == "bot"
+
+
+async def test_queue_daily_cap_reached(db_session):
+    ev = await OutboxService.queue_daily_cap_reached(
+        db_session, user_id=uuid.uuid4(), telegram_id=707,
+        cap=160, daily_earned=160, date="2026-06-06",
+    )
+    await db_session.commit()
+    assert ev.event_type == "daily_cap_reached"
+    assert {"user_id", "telegram_id", "cap", "daily_earned", "date"} <= set(ev.payload)
+
+
+async def test_queue_claim_completed(db_session):
+    ev = await OutboxService.queue_claim_completed(
+        db_session, batch_id=uuid.uuid4(), user_id=uuid.uuid4(),
+        telegram_id=808, passed=8, failed=2, awarded="8.0000",
+    )
+    await db_session.commit()
+    assert ev.event_type == "claim_completed"
+    assert {"batch_id", "user_id", "telegram_id", "passed", "failed",
+            "awarded"} <= set(ev.payload)
+    assert ev.payload["passed"] == 8
+    assert ev.payload["failed"] == 2
+
+
+async def test_queue_post_completed(db_session):
+    ev = await OutboxService.queue_post_completed(
+        db_session, post_id=uuid.uuid4(), user_id=uuid.uuid4(),
+        telegram_id=909, total_engagements=42,
+    )
+    await db_session.commit()
+    assert ev.event_type == "post_completed"
+    assert {"post_id", "user_id", "telegram_id", "total_engagements"} <= set(ev.payload)
+    assert ev.payload["total_engagements"] == 42
+
+
+async def test_queue_post_expired(db_session):
+    ev = await OutboxService.queue_post_expired(
+        db_session, post_id=uuid.uuid4(), user_id=uuid.uuid4(),
+        telegram_id=1010, refund_amount="15.0000",
+    )
+    await db_session.commit()
+    assert ev.event_type == "post_expired"
+    assert {"post_id", "user_id", "telegram_id", "refund_amount"} <= set(ev.payload)
+
+
+# ============================================================================
+# Dispatch round-trip for claim_completed — the single highest-impact new
+# event. Proves the full path: queue -> drain -> template render -> Telegram
+# send. The pattern works for every event type (one branch in _dispatch); this
+# test exercises the new template renderer + dispatch wiring once for the most
+# valuable user-facing notification.
+# ============================================================================
+async def test_drain_dispatches_claim_completed(db_session, monkeypatch):
+    _mock_telegram(monkeypatch)
+    await OutboxService.queue_claim_completed(
+        db_session, batch_id=uuid.uuid4(), user_id=uuid.uuid4(),
+        telegram_id=12345, passed=8, failed=2, awarded="8.0000",
+    )
+    await db_session.commit()
+
+    result = await outbox.drain(db_session)
+    assert result["sent"] == 1 and result["failed"] == 0
+
+    # The fake Telegram client recorded the (chat_id, text). Verify the
+    # rendered text contains the template's payload substitutions.
+    client = telegram.get_telegram_client()
+    # The mock factory returns a fresh instance per call, so we can't read .sent
+    # back here. Instead, verify the OutboxEvent is now sent + processed_at set.
+    ev = (await OutboxEventRepository(db_session).list(limit=1))[0]
+    assert ev.status == "sent"
+    assert ev.processed_at is not None

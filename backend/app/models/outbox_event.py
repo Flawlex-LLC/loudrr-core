@@ -12,8 +12,21 @@ class OutboxEventType(str, enum.Enum):
     TELEGRAM_NOTIFY = "telegram_notify"
     WAITLIST_APPROVED = "waitlist_approved"
     WAITLIST_SUBMITTED = "waitlist_submitted"
-    CREDITS_EARNED = "credits_earned"
+    WAITLIST_REJECTED = "waitlist_rejected"
+    X_VERIFICATION_APPROVED = "x_verification_approved"
+    X_VERIFICATION_REJECTED = "x_verification_rejected"
+    ADMIN_GRANT_CREDITS = "admin_grant_credits"
+    ADMIN_REVOKE_CREDITS = "admin_revoke_credits"
+    ADMIN_BAN = "admin_ban"
+    DAILY_CAP_REACHED = "daily_cap_reached"
+    CLAIM_COMPLETED = "claim_completed"
     POST_COMPLETED = "post_completed"
+    POST_EXPIRED = "post_expired"
+    # Reserved — kept for backwards-compat with existing rows. Not wired today:
+    # CREDITS_EARNED was a Django port leftover; CAMPAIGN_WINNER feature not
+    # ported; TWEETSCOUT_FETCH is now an arq direct enqueue; EXTERNAL_API
+    # is a placeholder slot for future webhook bridges.
+    CREDITS_EARNED = "credits_earned"
     CAMPAIGN_WINNER = "campaign_winner"
     TWEETSCOUT_FETCH = "tweetscout_fetch"
     EXTERNAL_API = "external_api"

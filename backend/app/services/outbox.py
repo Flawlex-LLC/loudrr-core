@@ -51,6 +51,112 @@ class OutboxService:
             {"entry_id": str(entry_id), "telegram_id": telegram_id, "x_username": x_username},
         )
 
+    @staticmethod
+    async def queue_waitlist_rejected(
+        db, *, entry_id, telegram_id, x_username="", reason="",
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.WAITLIST_REJECTED.value,
+            {"entry_id": str(entry_id), "telegram_id": telegram_id,
+             "x_username": x_username, "reason": reason or ""},
+        )
+
+    @staticmethod
+    async def queue_x_verification_approved(
+        db, *, request_id, user_id, telegram_id, x_username,
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.X_VERIFICATION_APPROVED.value,
+            {"request_id": str(request_id), "user_id": str(user_id),
+             "telegram_id": telegram_id, "x_username": x_username},
+        )
+
+    @staticmethod
+    async def queue_x_verification_rejected(
+        db, *, request_id, telegram_id, submitted_x_username="",
+        claimed_x_username="", notes="",
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.X_VERIFICATION_REJECTED.value,
+            {"request_id": str(request_id), "telegram_id": telegram_id,
+             "submitted_x_username": submitted_x_username,
+             "claimed_x_username": claimed_x_username, "notes": notes or ""},
+        )
+
+    @staticmethod
+    async def queue_admin_grant_credits(
+        db, *, user_id, telegram_id, amount, description="",
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.ADMIN_GRANT_CREDITS.value,
+            {"user_id": str(user_id), "telegram_id": telegram_id,
+             "amount": str(amount), "description": description or ""},
+        )
+
+    @staticmethod
+    async def queue_admin_revoke_credits(
+        db, *, user_id, telegram_id, amount, reason="",
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.ADMIN_REVOKE_CREDITS.value,
+            {"user_id": str(user_id), "telegram_id": telegram_id,
+             "amount": str(amount), "reason": reason or ""},
+        )
+
+    @staticmethod
+    async def queue_admin_ban(
+        db, *, user_id, telegram_id, reason="",
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.ADMIN_BAN.value,
+            {"user_id": str(user_id), "telegram_id": telegram_id,
+             "reason": reason or ""},
+        )
+
+    @staticmethod
+    async def queue_daily_cap_reached(
+        db, *, user_id, telegram_id, cap, daily_earned, date,
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.DAILY_CAP_REACHED.value,
+            {"user_id": str(user_id), "telegram_id": telegram_id,
+             "cap": str(cap), "daily_earned": str(daily_earned),
+             "date": str(date)},
+        )
+
+    @staticmethod
+    async def queue_claim_completed(
+        db, *, batch_id, user_id, telegram_id, passed, failed, awarded, message="",
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.CLAIM_COMPLETED.value,
+            {"batch_id": str(batch_id), "user_id": str(user_id),
+             "telegram_id": telegram_id, "passed": int(passed),
+             "failed": int(failed), "awarded": str(awarded),
+             "message": message or ""},
+        )
+
+    @staticmethod
+    async def queue_post_completed(
+        db, *, post_id, user_id, telegram_id, total_engagements,
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.POST_COMPLETED.value,
+            {"post_id": str(post_id), "user_id": str(user_id),
+             "telegram_id": telegram_id,
+             "total_engagements": int(total_engagements)},
+        )
+
+    @staticmethod
+    async def queue_post_expired(
+        db, *, post_id, user_id, telegram_id, refund_amount,
+    ) -> OutboxEvent:
+        return await OutboxService.queue(
+            db, OutboxEventType.POST_EXPIRED.value,
+            {"post_id": str(post_id), "user_id": str(user_id),
+             "telegram_id": telegram_id, "refund_amount": str(refund_amount)},
+        )
+
 
 # ---- dispatch ----
 # Hardcoded fallbacks used if the SiteSetting row is missing or the admin's
@@ -65,6 +171,92 @@ _WAITLIST_APPROVED_DEFAULT = (
     "✅ You're in! Your Loudrr access is approved{x_username_part}. "
     "Open the app to start earning karma."
 )
+_WAITLIST_REJECTED_DEFAULT = (
+    "Your Loudrr waitlist application{x_username_part} was not approved at this "
+    "time. Reason: {reason}"
+)
+_X_VERIFICATION_APPROVED_DEFAULT = (
+    "✅ Your X account{x_username_part} is verified. You can now earn karma on Loudrr."
+)
+_X_VERIFICATION_REJECTED_DEFAULT = (
+    "Your X verification request was rejected. Submitted: @{submitted_x_username}, "
+    "Claimed: @{claimed_x_username}. Note: {notes}"
+)
+_ADMIN_GRANT_CREDITS_DEFAULT = (
+    "An admin granted you {amount} karma. {description}"
+)
+_ADMIN_REVOKE_CREDITS_DEFAULT = (
+    "{amount} karma was deducted from your balance. Reason: {reason}"
+)
+_ADMIN_BAN_DEFAULT = (
+    "Your Loudrr account has been suspended. Reason: {reason}"
+)
+_DAILY_CAP_REACHED_DEFAULT = (
+    "You hit today's earning cap ({cap} karma). It resets at 00:00 UTC — "
+    "see you tomorrow."
+)
+_CLAIM_COMPLETED_DEFAULT = (
+    "Claim settled: earned {awarded} karma from {passed} engagements "
+    "({failed} failed verification)."
+)
+_POST_COMPLETED_DEFAULT = (
+    "Your post is complete — {total_engagements} engagements delivered. "
+    "Escrow fully paid out."
+)
+_POST_EXPIRED_DEFAULT = (
+    "Your post expired and {refund_amount} karma was refunded to your balance."
+)
+
+
+# event_type → (SiteSetting key, hardcoded default). Drives _dispatch.
+_TEMPLATE_BY_EVENT: dict[str, tuple[str, str]] = {
+    OutboxEventType.WAITLIST_SUBMITTED.value: (
+        "TG_MSG_WAITLIST_SUBMITTED", _WAITLIST_SUBMITTED_DEFAULT,
+    ),
+    OutboxEventType.WAITLIST_APPROVED.value: (
+        "TG_MSG_WAITLIST_APPROVED", _WAITLIST_APPROVED_DEFAULT,
+    ),
+    OutboxEventType.WAITLIST_REJECTED.value: (
+        "TG_MSG_WAITLIST_REJECTED", _WAITLIST_REJECTED_DEFAULT,
+    ),
+    OutboxEventType.X_VERIFICATION_APPROVED.value: (
+        "TG_MSG_X_VERIFICATION_APPROVED", _X_VERIFICATION_APPROVED_DEFAULT,
+    ),
+    OutboxEventType.X_VERIFICATION_REJECTED.value: (
+        "TG_MSG_X_VERIFICATION_REJECTED", _X_VERIFICATION_REJECTED_DEFAULT,
+    ),
+    OutboxEventType.ADMIN_GRANT_CREDITS.value: (
+        "TG_MSG_ADMIN_GRANT_CREDITS", _ADMIN_GRANT_CREDITS_DEFAULT,
+    ),
+    OutboxEventType.ADMIN_REVOKE_CREDITS.value: (
+        "TG_MSG_ADMIN_REVOKE_CREDITS", _ADMIN_REVOKE_CREDITS_DEFAULT,
+    ),
+    OutboxEventType.ADMIN_BAN.value: (
+        "TG_MSG_ADMIN_BAN", _ADMIN_BAN_DEFAULT,
+    ),
+    OutboxEventType.DAILY_CAP_REACHED.value: (
+        "TG_MSG_DAILY_CAP_REACHED", _DAILY_CAP_REACHED_DEFAULT,
+    ),
+    OutboxEventType.CLAIM_COMPLETED.value: (
+        "TG_MSG_CLAIM_COMPLETED", _CLAIM_COMPLETED_DEFAULT,
+    ),
+    OutboxEventType.POST_COMPLETED.value: (
+        "TG_MSG_POST_COMPLETED", _POST_COMPLETED_DEFAULT,
+    ),
+    OutboxEventType.POST_EXPIRED.value: (
+        "TG_MSG_POST_EXPIRED", _POST_EXPIRED_DEFAULT,
+    ),
+}
+
+# Reserved event_types that intentionally do nothing (no user-facing send).
+# Documented in OutboxEventType. Listed here so _dispatch can treat them as
+# a clean no-op instead of failing the "unknown type" hardening check.
+_NOOP_EVENTS = frozenset({
+    OutboxEventType.CREDITS_EARNED.value,
+    OutboxEventType.CAMPAIGN_WINNER.value,
+    OutboxEventType.TWEETSCOUT_FETCH.value,
+    OutboxEventType.EXTERNAL_API.value,
+})
 
 
 async def _render_template(db, key: str, payload: dict, default_template: str) -> str:
@@ -95,22 +287,31 @@ async def _dispatch(db, ev: OutboxEvent) -> None:
 
     if ev.event_type == OutboxEventType.TELEGRAM_NOTIFY.value:
         await telegram.send_message(p["telegram_id"], p.get("message", ""))
-    elif ev.event_type == OutboxEventType.WAITLIST_SUBMITTED.value:
+        return
+
+    template = _TEMPLATE_BY_EVENT.get(ev.event_type)
+    if template is not None:
+        key, default = template
         if p.get("telegram_id"):
-            text = await _render_template(
-                db, "TG_MSG_WAITLIST_SUBMITTED", p, _WAITLIST_SUBMITTED_DEFAULT,
-            )
+            text = await _render_template(db, key, p, default)
             await telegram.send_message(p["telegram_id"], text)
-    elif ev.event_type == OutboxEventType.WAITLIST_APPROVED.value:
-        if p.get("telegram_id"):
-            text = await _render_template(
-                db, "TG_MSG_WAITLIST_APPROVED", p, _WAITLIST_APPROVED_DEFAULT,
-            )
-            await telegram.send_message(p["telegram_id"], text)
-    else:
-        # credits_earned / post_completed / tweetscout_fetch / external_api etc.
-        # currently just logged (tweetscout_fetch is handled by its own task, Ch16)
-        logger.info("Outbox event %s (%s) — logged, no handler", ev.id, ev.event_type)
+        return
+
+    if ev.event_type in _NOOP_EVENTS:
+        # reserved enum values, no Telegram send wired today
+        logger.info(
+            "Outbox event %s (%s) — reserved/no-op, marking sent",
+            ev.id, ev.event_type,
+        )
+        return
+
+    # Unknown event_type — fail loudly so a missing dispatch branch can't masquerade
+    # as a successful delivery in the metrics. Marks the event FAILED (after the
+    # retry counter exhausts) with an actionable error_message.
+    raise NotImplementedError(
+        f"Unknown outbox event_type {ev.event_type!r}; "
+        "register it in _TEMPLATE_BY_EVENT or _NOOP_EVENTS."
+    )
 
 
 async def drain(db, *, limit: int = 50) -> dict:

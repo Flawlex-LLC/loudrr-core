@@ -12,7 +12,9 @@ from sqlalchemy import select, update
 from app.core.time_utils import utcnow
 from app.models.post import Post
 from app.models.user import User
+from app.repositories.user import UserRepository
 from app.services import posts as posts_svc
+from app.services.outbox import OutboxService
 from app.services.site_settings import get_setting
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,19 @@ async def expire_old_posts(db) -> int:
     ).scalars().all()
     count = 0
     for post in stale:
+        # capture the refund amount before cancel_post zeros the escrow
+        refund_amount = post.escrow
+        poster = await UserRepository(db).get(id=post.user_id)
         await posts_svc.cancel_post(db, post, refund=True)  # commits per post
+        # queue the user-facing notification in its own follow-up txn (cancel_post
+        # already committed). This is best-effort — the cancel/refund itself is
+        # the source of truth; the outbox just tells the user.
+        if poster is not None and poster.telegram_id is not None:
+            await OutboxService.queue_post_expired(
+                db, post_id=post.id, user_id=post.user_id,
+                telegram_id=poster.telegram_id, refund_amount=refund_amount,
+            )
+            await db.commit()
         count += 1
     if count:
         logger.info("expire_old_posts: cancelled+refunded %s posts", count)

@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from app.core.time_utils import utcnow
 from app.models.engagement import Engagement
+from app.models.outbox_event import OutboxEvent, OutboxEventType, OutboxStatus
 from app.models.post import Post
 from app.models.user import User
 from app.services import tier
@@ -23,6 +24,27 @@ from app.services.credits import CreditService
 from app.services.site_settings import get_setting
 
 logger = logging.getLogger(__name__)
+
+
+async def _has_daily_cap_event_today(db, *, user_id, today_iso: str) -> bool:
+    """Did we already queue (or send) a daily_cap_reached event for this user
+    in today's UTC window? Cheap dedup so the user gets at most one Telegram
+    card per UTC day even if they keep trying to earn after hitting the cap."""
+    row = (
+        await db.execute(
+            select(OutboxEvent.id).where(
+                OutboxEvent.event_type == OutboxEventType.DAILY_CAP_REACHED.value,
+                OutboxEvent.status.in_((
+                    OutboxStatus.PENDING.value,
+                    OutboxStatus.PROCESSING.value,
+                    OutboxStatus.SENT.value,
+                )),
+                OutboxEvent.payload["user_id"].astext == str(user_id),
+                OutboxEvent.payload["date"].astext == today_iso,
+            ).limit(1)
+        )
+    ).first()
+    return row is not None
 
 
 async def _settle_passed(db, user, post, engagement, r, base, credits):
@@ -57,6 +79,20 @@ async def _settle_passed(db, user, post, engagement, r, base, credits):
         engagement.verified = True
         engagement.credit_granted = False
         engagement.verification_data = {"verified_at": now.isoformat(), "result": "skipped_daily_cap"}
+        # one-per-UTC-day Telegram nudge so the user knows why they aren't
+        # earning. Dedup on (user_id, payload.date) — see _has_daily_cap_event_today.
+        if user.telegram_id is not None:
+            today_iso = now.date().isoformat()
+            if not await _has_daily_cap_event_today(
+                db, user_id=user.id, today_iso=today_iso,
+            ):
+                from app.services.outbox import OutboxService
+                cap = await get_setting(db, "DAILY_EARN_CAP")
+                await OutboxService.queue_daily_cap_reached(
+                    db, user_id=user.id, telegram_id=user.telegram_id,
+                    cap=cap, daily_earned=user.daily_credits_earned,
+                    date=today_iso,
+                )
         return ("skipped", Decimal("0"))
 
     is_partial = karma < (base * multiplier)
@@ -78,6 +114,31 @@ async def _settle_passed(db, user, post, engagement, r, base, credits):
             if post.escrow <= 0:  # escrow depleted → auto-complete
                 post.status = "completed"
                 post.completed_at = now
+                # notify the poster their post is done — fire-and-forget via
+                # the outbox so the savepoint can still be rolled back on error
+                from sqlalchemy import func
+                from app.repositories.user import UserRepository
+                from app.services.outbox import OutboxService
+                poster = await UserRepository(db).get(id=post.user_id)
+                if poster is not None and poster.telegram_id is not None:
+                    eng_count = int(
+                        (
+                            await db.execute(
+                                select(func.count())
+                                .select_from(Engagement)
+                                .where(
+                                    Engagement.post_id == post.id,
+                                    Engagement.credit_granted.is_(True),
+                                )
+                            )
+                        ).scalar_one()
+                    )
+                    # include the engagement we just settled in this savepoint
+                    await OutboxService.queue_post_completed(
+                        db, post_id=post.id, user_id=post.user_id,
+                        telegram_id=poster.telegram_id,
+                        total_engagements=eng_count + 1,
+                    )
             user.total_engagements += 1
             # TODO (sponsored): award sponsored XP here once the XP service exists
             await db.flush()

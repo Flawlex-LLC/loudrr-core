@@ -201,5 +201,11 @@ async def reject_entry(
     entry.rejection_reason = reason
     entry.approved_by_id = admin_id
     entry.approved_at = utcnow()
+    # queue the "waitlist_rejected" Telegram card in THIS transaction
+    from app.services.outbox import OutboxService
+    await OutboxService.queue_waitlist_rejected(
+        db, entry_id=entry.id, telegram_id=entry.telegram_id,
+        x_username=entry.x_username, reason=reason,
+    )
     await db.commit()
     return entry
