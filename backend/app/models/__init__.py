@@ -16,3 +16,4 @@ import app.models.verification_batch  # noqa: F401
 import app.models.outbox_event  # noqa: F401
 import app.models.feature_interest  # noqa: F401
 import app.models.audit_log  # noqa: F401
+import app.models.xp_transaction  # noqa: F401

@@ -16,6 +16,7 @@ from app.models.user import User
 from app.repositories.x_profile import XProfileRepository
 from app.services import feed
 from app.services import posts as posts_svc
+from app.services import streaks
 from app.services import tier
 from app.services import x_verification
 from app.services.site_settings import get_setting
@@ -157,10 +158,19 @@ async def fetch_tweetscout_for_user(db, user_id) -> bool:
     return True
 
 
+def _next_streak_threshold(current: int) -> int | None:
+    """Next streak milestone the user can still hit (or None if past 30)."""
+    for t in streaks.THRESHOLDS:
+        if current < t:
+            return t
+    return None
+
+
 # ---- endpoint 2: GET /user/ ----
 async def build_user_info(db, *, user: User) -> dict:
     daily_cap = await get_setting(db, "DAILY_EARN_CAP")
     pending_review = await x_verification.has_pending_review(db, user_id=user.id)
+    streak_multiplier = await streaks.get_band_multiplier(db, user.current_streak)
     return {
         "id": str(user.id),
         "display_name": user.display_name,
@@ -172,6 +182,9 @@ async def build_user_info(db, *, user: User) -> dict:
         "total_engagements": user.total_engagements,
         "tier": tier.tier_for(user.tweetscout_score),
         "current_streak": user.current_streak,
+        "longest_streak": user.longest_streak,
+        "streak_multiplier": float(streak_multiplier),
+        "streak_next_milestone": _next_streak_threshold(user.current_streak),
         "tweetscout_score": user.tweetscout_score or 0,
         "tweetscout_last_updated": (
             user.tweetscout_last_updated.isoformat()
@@ -191,6 +204,7 @@ async def build_user_info(db, *, user: User) -> dict:
 
 # ---- endpoint 3: GET /user/stats/ ----
 async def build_user_stats(db, *, user: User) -> dict:
+    streak_multiplier = await streaks.get_band_multiplier(db, user.current_streak)
     return {
         "user": {
             "display_name": user.display_name,
@@ -198,6 +212,9 @@ async def build_user_stats(db, *, user: User) -> dict:
             "credits": float(user.credits),
             "tier": tier.tier_for(user.tweetscout_score),
             "current_streak": user.current_streak,
+            "longest_streak": user.longest_streak,
+            "streak_multiplier": float(streak_multiplier),
+            "streak_next_milestone": _next_streak_threshold(user.current_streak),
             "total_credits_earned": float(user.total_credits_earned),
             "total_credits_spent": float(user.total_credits_spent),
         },

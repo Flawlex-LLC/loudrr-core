@@ -19,9 +19,10 @@ from app.models.engagement import Engagement
 from app.models.outbox_event import OutboxEvent, OutboxEventType, OutboxStatus
 from app.models.post import Post
 from app.models.user import User
-from app.services import tier
+from app.services import streaks, tier
 from app.services.credits import CreditService
 from app.services.site_settings import get_setting
+from app.services.xp import XPService, get_xp_for_sponsored_engagement
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +48,13 @@ async def _has_daily_cap_event_today(db, *, user_id, today_iso: str) -> bool:
     return row is not None
 
 
-async def _settle_passed(db, user, post, engagement, r, base, credits):
+async def _settle_passed(db, user, post, engagement, r, base, credits, streak_multiplier):
     """Settle one PASSED engagement → (status, amount). status is one of
-    'awarded' | 'partial' | 'skipped' | 'error'."""
+    'awarded' | 'partial' | 'skipped' | 'error'.
+
+    ``streak_multiplier`` (Decimal) is the active streak band's multiplier
+    (1.0 = no boost). Stacked on the tier multiplier inside karma_for.
+    """
     now = utcnow()
 
     if engagement is None or engagement.credit_granted or post is None:
@@ -63,7 +68,9 @@ async def _settle_passed(db, user, post, engagement, r, base, credits):
         engagement.verification_data = {"verified_at": now.isoformat(), "result": "skipped_post_inactive"}
         return ("skipped", Decimal("0"))
 
-    karma, multiplier = tier.karma_for(base, user.tweetscout_score or 0)
+    karma, multiplier = tier.karma_for(
+        base, user.tweetscout_score or 0, streak_multiplier=streak_multiplier,
+    )
 
     # partial payment — never deduct more than the escrow holds
     if post.escrow < karma:
@@ -140,7 +147,20 @@ async def _settle_passed(db, user, post, engagement, r, base, credits):
                         total_engagements=eng_count + 1,
                     )
             user.total_engagements += 1
-            # TODO (sponsored): award sponsored XP here once the XP service exists
+            # Sponsored-XP top-up (Django parity — core/services/settlement.py:383-395).
+            # Sponsored != free: the creator's escrow was already debited the karma
+            # above; this is the ADDITIONAL platform-funded XP nudge to the engager.
+            # Lives inside the savepoint so an XP write failure (e.g. tripped
+            # sponsored_xp_non_negative check) unwinds the karma earn too — stricter
+            # than Django's "non-critical" swallow but safer for accounting.
+            if post.is_sponsored:
+                xp_amount = await get_xp_for_sponsored_engagement(db)
+                if xp_amount > 0:
+                    await XPService(db, user).earn_from_sponsored(
+                        amount=xp_amount,
+                        post_id=post.id,
+                        description="Sponsored engagement reward",
+                    )
             await db.flush()
     except Exception:
         logger.exception("settlement failed for engagement %s", engagement.id)
@@ -196,16 +216,24 @@ async def settle(db, *, user_id, results) -> dict:
 
     base = Decimal(str(await get_setting(db, "CREDIT_PER_ENGAGEMENT", 1)))
     credits = CreditService(db, user)
+    # Streak multiplier — the band active BEFORE this batch's increment, so an
+    # engagement settled on day-6 still uses 1.0 even though it might tip the
+    # streak to 7. The day-7 boost kicks in on the NEXT batch (matches Django
+    # semantics: the streak bonus is paid on the *transition*, not retro-applied).
+    streak_multiplier = await streaks.get_band_multiplier(db, user.current_streak)
     total_awarded = Decimal("0")
     failures = 0
+    awarded_count = 0
 
     for r in results:
         if r.passed:
             status, amount = await _settle_passed(
-                db, user, posts.get(r.post_id), engs.get(r.engagement_id), r, base, credits
+                db, user, posts.get(r.post_id), engs.get(r.engagement_id), r, base, credits,
+                streak_multiplier,
             )
             if status in ("awarded", "partial"):
                 total_awarded += amount
+                awarded_count += 1
         else:
             eng = engs.get(r.engagement_id)
             if eng is not None:
@@ -216,5 +244,35 @@ async def settle(db, *, user_id, results) -> dict:
         drop = max(1, math.ceil(failures / 2))
         user.honesty_score = max(0, user.honesty_score - drop)
 
+    # Streak bump (once per batch, gated on "at least one award"). Runs inside
+    # the same atomic transaction as the karma writes so the streak state and
+    # the credit ledger commit together. Any milestone bonus is folded into
+    # total_awarded so the claim_completed Telegram card reflects the real
+    # total the user just earned.
+    bonus_awarded = Decimal("0")
+    streak_milestone = None
+    new_streak = int(user.current_streak or 0)
+    if awarded_count > 0:
+        outcome = await streaks.apply_streak_for_settlement(db, user)
+        bonus_awarded = outcome["bonus_awarded"]
+        streak_milestone = outcome["crossed_threshold"]
+        new_streak = outcome["new_streak"]
+        total_awarded += bonus_awarded
+
+        # Queue the milestone Telegram card in THIS transaction so it commits
+        # with the karma writes. Dedup'd by idempotency_key so a re-run cannot
+        # double-notify.
+        if streak_milestone is not None and user.telegram_id is not None:
+            from app.services.outbox import OutboxService
+            await OutboxService.queue_streak_milestone(
+                db, user_id=user.id, telegram_id=user.telegram_id,
+                streak=new_streak, threshold=streak_milestone,
+                bonus=bonus_awarded,
+            )
+
     await db.commit()
-    return {"total_awarded": total_awarded, "new_balance": user.credits}
+    return {
+        "total_awarded": total_awarded, "new_balance": user.credits,
+        "streak_bonus": bonus_awarded, "streak_milestone": streak_milestone,
+        "new_streak": new_streak,
+    }

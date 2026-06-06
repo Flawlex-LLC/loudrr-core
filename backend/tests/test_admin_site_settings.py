@@ -136,6 +136,77 @@ async def test_site_settings_update_bad_type_422(client, make_user):
 
 
 # ---------------------------------------------------------------------------
+# Streak port: STREAK_* settings are now live=True, admin editor round-trips.
+# ---------------------------------------------------------------------------
+async def test_streak_bonus_setting_round_trips(client, make_user, db_session):
+    """A superadmin can edit STREAK_7_DAY_BONUS and the new value is persisted —
+    proves the live=True flip surfaces the setting through the admin editor."""
+    admin = await make_user(role="superadmin")
+    r = await client.put(
+        "/api/admin/site-settings/STREAK_7_DAY_BONUS",
+        params={"telegram_id": admin.telegram_id},
+        json={"value": "12"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["key"] == "STREAK_7_DAY_BONUS"
+    assert body["value"] == "12"
+    row = (
+        await db_session.execute(
+            select(SiteSetting).where(SiteSetting.key == "STREAK_7_DAY_BONUS")
+        )
+    ).scalar_one()
+    assert row.value == "12"
+
+
+async def test_streak_multiplier_setting_round_trips(client, make_user, db_session):
+    """STREAK_30_DAY_MULTIPLIER is a decimal — the editor accepts a decimal
+    string and persists it. Settings cache is cleared on every PUT, so the
+    next karma_for call will see the new value."""
+    admin = await make_user(role="superadmin")
+    r = await client.put(
+        "/api/admin/site-settings/STREAK_30_DAY_MULTIPLIER",
+        params={"telegram_id": admin.telegram_id},
+        json={"value": "2.0"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["data_type"] == "decimal"
+    row = (
+        await db_session.execute(
+            select(SiteSetting).where(
+                SiteSetting.key == "STREAK_30_DAY_MULTIPLIER"
+            )
+        )
+    ).scalar_one()
+    assert row.value == "2.0"
+
+
+async def test_streak_settings_in_list_response(client, make_user):
+    """The list endpoint surfaces all 6 STREAK_* keys with live=True now that
+    the port wires them — exposes them in the admin UI Streak group."""
+    admin = await make_user(role="admin")
+    r = await client.get(
+        "/api/admin/site-settings/",
+        params={"telegram_id": admin.telegram_id},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    all_settings = {
+        s["key"]: s for g in data["groups"] for s in g["settings"]
+    }
+    for key in (
+        "STREAK_7_DAY_BONUS", "STREAK_7_DAY_MULTIPLIER",
+        "STREAK_14_DAY_BONUS", "STREAK_14_DAY_MULTIPLIER",
+        "STREAK_30_DAY_BONUS", "STREAK_30_DAY_MULTIPLIER",
+    ):
+        assert key in all_settings, f"missing streak key {key!r}"
+        assert all_settings[key]["live"] is True
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/stats/
 # ---------------------------------------------------------------------------
 async def test_stats_admin_ok(client, make_user):

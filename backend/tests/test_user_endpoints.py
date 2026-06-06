@@ -53,6 +53,11 @@ async def test_user_info_shape(client, make_user):
     assert body["available_posts"] == 0      # stubbed until Ch12
     assert body["x_verification_pending_review"] is False
     assert body["honesty_score"] == 50
+    # streak fields — fresh user has no streak data; 7 is the next milestone
+    assert body["current_streak"] == 0
+    assert body["longest_streak"] == 0
+    assert body["streak_multiplier"] == 1.0
+    assert body["streak_next_milestone"] == 7
 
 
 async def test_user_info_unknown_user_401(client):
@@ -70,6 +75,11 @@ async def test_user_stats_shape(client, make_user):
     assert body["posts"] == {"total": 0, "active": 0, "completed": 0}
     assert body["engagements"] == {"given": 0, "received": 0}
     assert body["recent_posts"] == []
+    # streak fields surfaced on /user/stats/ for the front-end progress card
+    assert body["user"]["current_streak"] == 0
+    assert body["user"]["longest_streak"] == 0
+    assert body["user"]["streak_multiplier"] == 1.0
+    assert body["user"]["streak_next_milestone"] == 7
 
 
 # ---- POST /user/link-x/ ----

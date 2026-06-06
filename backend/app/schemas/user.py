@@ -21,6 +21,9 @@ class UserInfoResponse(BaseModel):
     total_engagements: int
     tier: str
     current_streak: int
+    longest_streak: int
+    streak_multiplier: float
+    streak_next_milestone: int | None
     tweetscout_score: float
     tweetscout_last_updated: str | None
     honesty_score: int
@@ -40,6 +43,9 @@ class UserStatsUser(BaseModel):
     credits: float
     tier: str
     current_streak: int
+    longest_streak: int
+    streak_multiplier: float
+    streak_next_milestone: int | None
     total_credits_earned: float
     total_credits_spent: float
 

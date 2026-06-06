@@ -46,12 +46,22 @@ class TwitterClient:
     def _headers(self) -> dict:
         return {"X-API-Key": self.api_key}
 
-    async def verify_reply(self, tweet_id: str, x_username: str) -> dict:
+    async def verify_reply(
+        self, tweet_id: str, x_username: str, *, max_retries: int = 0,
+    ) -> dict:
         """Did @x_username reply to tweet_id?
 
         Returns {passed, reply_verified, like_verified, error, skipped}. A
         missing key / API error / network error returns passed+skipped (benefit
         of the doubt); a missing username is a hard fail.
+
+        ``max_retries`` (live, MAX_VERIFICATION_RETRIES) is the number of
+        ADDITIONAL attempts on transient failures only — network errors
+        (httpx.HTTPError that is not a status) and 5xx responses. We do NOT
+        retry 4xx (they will keep failing) and we do NOT retry a definitive
+        ``passed=False`` result (real verification fail, not transient). 0 =
+        single attempt (current behavior). Read once at the call site so the
+        get_setting hit doesn't happen inside the retry loop.
         """
         if not self.api_key:
             return {"passed": True, "reply_verified": True, "like_verified": True,
@@ -61,28 +71,58 @@ class TwitterClient:
                     "error": "User has no X username linked", "skipped": False}
 
         username = x_username.lower().lstrip("@")
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.get(
-                    f"{BASE_URL}/tweet/advanced_search",
-                    headers=self._headers(),
-                    params={"query": f"from:{username} conversation_id:{tweet_id}"},
+        attempts = max(0, int(max_retries)) + 1  # 0 retries => 1 attempt
+        last_transient_error: dict | None = None
+        for attempt in range(attempts):
+            try:
+                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                    resp = await client.get(
+                        f"{BASE_URL}/tweet/advanced_search",
+                        headers=self._headers(),
+                        params={"query": f"from:{username} conversation_id:{tweet_id}"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                logger.warning(
+                    "Twitter API %s (attempt %s/%s), assuming passed: %s",
+                    status, attempt + 1, attempts, e.response.text[:100],
                 )
-                resp.raise_for_status()
-                data = resp.json()
-        except httpx.HTTPStatusError as e:
-            logger.warning("Twitter API %s, assuming passed: %s",
-                           e.response.status_code, e.response.text[:100])
-            return {"passed": True, "reply_verified": True, "like_verified": True,
-                    "error": f"API error: {e.response.status_code}", "skipped": True}
-        except httpx.HTTPError as e:
-            logger.warning("Twitter verification error, assuming passed: %s", e)
-            return {"passed": True, "reply_verified": True, "like_verified": True,
-                    "error": str(e), "skipped": True}
+                err = {
+                    "passed": True, "reply_verified": True, "like_verified": True,
+                    "error": f"API error: {status}", "skipped": True,
+                }
+                # Only 5xx is transient — 4xx will keep failing, return now.
+                if status < 500 or attempt == attempts - 1:
+                    return err
+                last_transient_error = err
+                continue
+            except httpx.HTTPError as e:
+                logger.warning(
+                    "Twitter verification error (attempt %s/%s), assuming passed: %s",
+                    attempt + 1, attempts, e,
+                )
+                err = {
+                    "passed": True, "reply_verified": True, "like_verified": True,
+                    "error": str(e), "skipped": True,
+                }
+                if attempt == attempts - 1:
+                    return err
+                last_transient_error = err
+                continue
 
-        reply_found = len(data.get("tweets", [])) > 0
-        return {"passed": reply_found, "reply_verified": reply_found,
-                "like_verified": True, "error": None, "skipped": False}
+            # success path — do NOT retry a real passed=False result
+            reply_found = len(data.get("tweets", [])) > 0
+            return {"passed": reply_found, "reply_verified": reply_found,
+                    "like_verified": True, "error": None, "skipped": False}
+
+        # exhausted all attempts on transient errors (defensive — loop returns
+        # err on the last attempt above, so we should never get here)
+        return last_transient_error or {
+            "passed": True, "reply_verified": True, "like_verified": True,
+            "error": "max retries exceeded", "skipped": True,
+        }
 
     async def get_tweet_content(self, tweet_id: str) -> Optional[dict]:
         """Fetch a tweet's text, author, media for caching on a Post (Ch14).

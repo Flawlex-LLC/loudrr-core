@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from sqlalchemy import String, Numeric, CheckConstraint, text, BigInteger
+from sqlalchemy import Date, String, Numeric, CheckConstraint, text, BigInteger
 from sqlalchemy.orm import mapped_column, Mapped
 from app.core.time_utils import utcnow
 from app.db.base import Base
@@ -41,6 +41,31 @@ class User(Base):
     total_posts: Mapped[int] = mapped_column(default=0, server_default="0")
     current_streak: Mapped[int] = mapped_column(
         default=0, server_default="0", index=True
+    )
+    # Streak system (Django parity — core/models.py:78-81).
+    #   longest_streak         — lifetime max of current_streak (never decreases)
+    #   last_engagement_date   — UTC date of the last settled engagement; the
+    #                            consecutive-day check compares against this
+    #   streak_freeze_available — declared for Django parity; not yet read by
+    #                            runtime code, mirroring core/models.py:81
+    longest_streak: Mapped[int] = mapped_column(default=0, server_default="0")
+    last_engagement_date: Mapped[date | None] = mapped_column(
+        Date, default=None, nullable=True
+    )
+    streak_freeze_available: Mapped[bool] = mapped_column(
+        default=True, server_default="true"
+    )
+
+    # sponsored XP — separate, non-spendable currency awarded when a user
+    # engages with a sponsored post. Three denormalised counters mirror the
+    # Django reference (core/models.py:125-127) and let the admin UI render
+    # totals without scanning the xp_transactions ledger.
+    sponsored_xp: Mapped[int] = mapped_column(default=0, server_default="0")
+    total_sponsored_xp_earned: Mapped[int] = mapped_column(
+        default=0, server_default="0"
+    )
+    sponsored_engagements: Mapped[int] = mapped_column(
+        default=0, server_default="0"
     )
 
     # tier & X verification
@@ -106,5 +131,15 @@ class User(Base):
         # RBAC role must be one of the known values
         CheckConstraint(
             "role IN ('', 'admin', 'superadmin')", name="user_role_valid"
+        ),
+        # XP balance can never go negative — DB-level backstop matching the
+        # Django reference (core/models.py:176-178). XPService.admin_revoke
+        # clamps to the available balance so this is never hit normally.
+        CheckConstraint("sponsored_xp >= 0", name="sponsored_xp_non_negative"),
+        # Streak invariants — current_streak never negative, longest never
+        # less than current (it's the running max).
+        CheckConstraint("current_streak >= 0", name="current_streak_non_negative"),
+        CheckConstraint(
+            "longest_streak >= current_streak", name="longest_streak_ge_current"
         ),
     )

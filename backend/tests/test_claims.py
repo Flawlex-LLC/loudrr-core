@@ -5,6 +5,7 @@ award, tier multiplier, partial payment, failed-deletes-engagement,
 benefit-of-the-doubt, daily-cap skip, and idempotent re-run.
 """
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 
 
@@ -22,7 +23,7 @@ class _FakeTwitter:
     def __init__(self, *, passed=True, skipped=False):
         self.passed, self.skipped = passed, skipped
 
-    async def verify_reply(self, tweet_id, x_username):
+    async def verify_reply(self, tweet_id, x_username, *, max_retries=0):
         if self.skipped:
             return {"passed": True, "reply_verified": True, "like_verified": True,
                     "error": None, "skipped": True}
@@ -195,7 +196,7 @@ async def test_multi_engagement_batch_mixed_outcomes(client, make_user, db_sessi
     e3_id = e3.id
 
     class _PerTweet:
-        async def verify_reply(self, tweet_id, x_username):
+        async def verify_reply(self, tweet_id, x_username, *, max_retries=0):
             ok = tweet_id != "t3"  # only t3 fails
             return {"passed": ok, "reply_verified": ok, "like_verified": True,
                     "error": None if ok else "no reply", "skipped": False}
@@ -316,6 +317,134 @@ async def test_audit_probability_skips_api_call(
     assert viewer.credits == Decimal("1.0000")
 
 
+# ============ streak port: bump + bonus on settlement ============
+async def test_settlement_bumps_streak_to_one_on_first_engagement(
+    client, make_user, db_session, monkeypatch,
+):
+    """A user with no prior last_engagement_date starts at streak=1 after a
+    successful settlement (one bump per batch, gated on awarded_count > 0)."""
+    owner = await make_user(telegram_id=8601)
+    viewer = await make_user(telegram_id=8602, x_username="v")
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+    _mock_twitter(monkeypatch, passed=True)
+
+    await claims.run_batch(db_session, batch.id)
+    await db_session.refresh(viewer)
+    assert viewer.current_streak == 1
+    assert viewer.longest_streak == 1
+    assert viewer.last_engagement_date == utcnow().date()
+
+
+async def test_settlement_no_award_no_streak_bump(
+    client, make_user, db_session, monkeypatch,
+):
+    """All-failed batch (zero awards) must NOT bump the streak — the streak
+    is gated on at least one settled award per the port-plan."""
+    owner = await make_user(telegram_id=8603)
+    viewer = await make_user(telegram_id=8604, x_username="v")
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+    _mock_twitter(monkeypatch, passed=False)
+
+    await claims.run_batch(db_session, batch.id)
+    await db_session.refresh(viewer)
+    assert viewer.current_streak == 0
+    assert viewer.last_engagement_date is None
+
+
+async def test_settlement_at_streak_seven_pays_bonus(
+    client, make_user, db_session, monkeypatch,
+):
+    """Settlement lands the streak on 7 — milestone bonus (default 5) is
+    credited on top of the per-engagement karma, escrow only loses the
+    per-engagement portion (the bonus is platform-funded)."""
+    site_settings._cache.clear()
+    owner = await make_user(telegram_id=8701)
+    viewer = await make_user(
+        telegram_id=8702, x_username="v",
+        current_streak=6, longest_streak=6,
+        last_engagement_date=utcnow().date() - timedelta(days=1),
+    )
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+    _mock_twitter(monkeypatch, passed=True)
+
+    await claims.run_batch(db_session, batch.id)
+    await db_session.refresh(viewer)
+    await db_session.refresh(post)
+    assert viewer.current_streak == 7
+    # 1 karma per engagement (Anon tier × 1.0 streak) + 5 milestone bonus
+    assert viewer.credits == Decimal("6.0000")
+    assert viewer.total_credits_earned == Decimal("6.0000")
+    # escrow only debited the per-engagement karma; the bonus is platform-funded
+    assert post.escrow == Decimal("49.0000")
+    # batch.credits_awarded reflects the full delta the user just earned
+    assert batch.credits_awarded == Decimal("6.0000")
+
+
+async def test_settlement_streak_bonus_idempotent_on_rerun(
+    client, make_user, db_session, monkeypatch,
+):
+    """Re-running the same batch (already_processed branch) must NOT re-pay
+    the streak bonus — the bonus idempotency key is per (user, threshold)."""
+    site_settings._cache.clear()
+    owner = await make_user(telegram_id=8703)
+    viewer = await make_user(
+        telegram_id=8704, x_username="v",
+        current_streak=6, longest_streak=6,
+        last_engagement_date=utcnow().date() - timedelta(days=1),
+    )
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+    _mock_twitter(monkeypatch, passed=True)
+
+    await claims.run_batch(db_session, batch.id)
+    second = await claims.run_batch(db_session, batch.id)
+    assert second.get("already_processed") is True
+    await db_session.refresh(viewer)
+    # NOT double-paid: 1 karma + 5 bonus, exactly once
+    assert viewer.credits == Decimal("6.0000")
+
+
+async def test_settlement_streak_multiplier_compounds_with_tier(
+    client, make_user, db_session, monkeypatch,
+):
+    """STREAK_7_DAY_MULTIPLIER=1.5 stacks on the tier multiplier inside
+    karma_for. No-inflation invariant: escrow deducted == karma credited
+    for the per-engagement award."""
+    db_session.add(SiteSetting(
+        key="STREAK_7_DAY_MULTIPLIER", value="1.5", data_type="decimal",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+
+    owner = await make_user(telegram_id=8801)
+    viewer = await make_user(
+        telegram_id=8802, x_username="v", tweetscout_score=450,  # Based × 1.20
+        current_streak=7, longest_streak=7,  # already in the 7-day band
+        last_engagement_date=utcnow().date(),  # same day → no further bump
+    )
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+    _mock_twitter(monkeypatch, passed=True)
+
+    await claims.run_batch(db_session, batch.id)
+    await db_session.refresh(viewer)
+    await db_session.refresh(post)
+    # 1 * 1.20 (tier) * 1.5 (streak) = 1.8000
+    assert viewer.credits == Decimal("1.8000")
+    # no-inflation: escrow lost exactly what the user gained on the engagement
+    assert post.escrow == Decimal("48.2000")
+    # same UTC day → no streak bump, no milestone, no bonus
+    assert viewer.current_streak == 7
+
+
 async def test_audit_probability_default_verifies_everything(
     client, make_user, db_session, monkeypatch
 ):
@@ -371,6 +500,222 @@ async def test_verification_batch_size_caps_batch(
     body = r.json()
     assert body["success"] is True
     assert body["engagement_count"] == 2  # capped
+
+
+# ============ VERIFICATION_SAMPLE_SIZE (live wiring) ============
+async def test_verification_sample_size_caps_audits_per_batch(
+    client, make_user, db_session, monkeypatch
+):
+    """SAMPLE_SIZE caps how many items in this batch hit the Twitter API.
+    With AUDIT_PROBABILITY=1.0 (audit every roll) and SAMPLE_SIZE=1, exactly
+    one of the three engagements gets the real API call; the other two are
+    trusted-passed without consulting the Twitter client."""
+    db_session.add(SiteSetting(
+        key="AUDIT_PROBABILITY", value="1.0", data_type="float",
+    ))
+    db_session.add(SiteSetting(
+        key="VERIFICATION_SAMPLE_SIZE", value="1", data_type="int",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+
+    calls = {"n": 0}
+
+    class _CountingTwitter:
+        async def verify_reply(self, *a, **kw):
+            calls["n"] += 1
+            return {"passed": True, "reply_verified": True, "like_verified": True,
+                    "error": None, "skipped": False}
+
+    monkeypatch.setattr(twitter, "get_twitter_client", lambda: _CountingTwitter())
+
+    owner = await make_user(telegram_id=8601)
+    viewer = await make_user(telegram_id=8602, x_username="v")
+    eng_ids = []
+    for i in range(3):
+        p = await _make_post(
+            db_session, owner_id=owner.id, escrow="50",
+            tweet_id=str(200 + i),
+            x_link=f"https://x.com/owner/status/{200 + i}",
+        )
+        e = await _make_engagement(db_session, user_id=viewer.id, post_id=p.id)
+        eng_ids.append(e.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=eng_ids)
+
+    await claims.run_batch(db_session, batch.id)
+
+    assert calls["n"] == 1                          # only ONE API call
+    assert (batch.passed, batch.failed) == (3, 0)   # but all 3 counted as passed
+    assert viewer.credits == Decimal("3.0000")
+
+
+async def test_verification_sample_size_zero_means_no_cap(
+    client, make_user, db_session, monkeypatch
+):
+    """SAMPLE_SIZE=0 (and missing) is the 'no cap' sentinel — every item the
+    AUDIT_PROBABILITY roll picks gets the real API call."""
+    db_session.add(SiteSetting(
+        key="AUDIT_PROBABILITY", value="1.0", data_type="float",
+    ))
+    db_session.add(SiteSetting(
+        key="VERIFICATION_SAMPLE_SIZE", value="0", data_type="int",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+
+    calls = {"n": 0}
+
+    class _CountingTwitter:
+        async def verify_reply(self, *a, **kw):
+            calls["n"] += 1
+            return {"passed": True, "reply_verified": True, "like_verified": True,
+                    "error": None, "skipped": False}
+
+    monkeypatch.setattr(twitter, "get_twitter_client", lambda: _CountingTwitter())
+
+    owner = await make_user(telegram_id=8603)
+    viewer = await make_user(telegram_id=8604, x_username="v")
+    eng_ids = []
+    for i in range(3):
+        p = await _make_post(
+            db_session, owner_id=owner.id, escrow="50",
+            tweet_id=str(300 + i),
+            x_link=f"https://x.com/owner/status/{300 + i}",
+        )
+        e = await _make_engagement(db_session, user_id=viewer.id, post_id=p.id)
+        eng_ids.append(e.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=eng_ids)
+
+    await claims.run_batch(db_session, batch.id)
+    assert calls["n"] == 3  # every item got the API call
+
+
+# ============ MAX_VERIFICATION_RETRIES (live wiring) ============
+async def test_max_verification_retries_passed_through_to_client(
+    client, make_user, db_session, monkeypatch
+):
+    """The setting value is read from site_settings and forwarded to the
+    TwitterClient.verify_reply call via the max_retries kwarg. Bumping the
+    setting in the DB and clearing the cache must make the next batch see the
+    new value (proves the read is live, not hardcoded)."""
+    db_session.add(SiteSetting(
+        key="MAX_VERIFICATION_RETRIES", value="4", data_type="int",
+    ))
+    await db_session.commit()
+    site_settings._cache.clear()
+
+    seen: dict = {}
+
+    class _RecordingTwitter:
+        async def verify_reply(self, tweet_id, x_username, *, max_retries=0):
+            seen["max_retries"] = max_retries
+            return {"passed": True, "reply_verified": True, "like_verified": True,
+                    "error": None, "skipped": False}
+
+    monkeypatch.setattr(twitter, "get_twitter_client", lambda: _RecordingTwitter())
+
+    owner = await make_user(telegram_id=8701)
+    viewer = await make_user(telegram_id=8702, x_username="v")
+    post = await _make_post(db_session, owner_id=owner.id, escrow="50")
+    eng = await _make_engagement(db_session, user_id=viewer.id, post_id=post.id)
+    batch = await _make_batch(db_session, user_id=viewer.id, engagement_ids=[eng.id])
+
+    await claims.run_batch(db_session, batch.id)
+    assert seen["max_retries"] == 4
+
+
+async def test_twitter_client_retries_on_5xx_then_succeeds(monkeypatch):
+    """Direct test of the retry wrapper in TwitterClient.verify_reply:
+    a transient 500 on the first attempt followed by a 200 returns the
+    success result (not the benefit-of-doubt skip)."""
+    import httpx as _httpx
+
+    from app.integrations import twitter as tw
+    from app.integrations.twitter import TwitterClient
+
+    class _Resp:
+        def __init__(self, status, data=None, text=""):
+            self.status_code = status
+            self._data = data or {}
+            self.text = text
+
+        def json(self):
+            return self._data
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                req = _httpx.Request("GET", "https://x")
+                raise _httpx.HTTPStatusError(
+                    f"{self.status_code}", request=req, response=self,
+                )
+
+    calls = {"n": 0}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, headers=None, params=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return _Resp(500, text="upstream")
+            return _Resp(200, data={"tweets": [{"id": "9"}]})
+
+    monkeypatch.setattr(tw.httpx, "AsyncClient", lambda *a, **kw: _Client())
+
+    c = TwitterClient(api_key="key")
+    result = await c.verify_reply("123", "alice", max_retries=2)
+    assert calls["n"] == 2
+    assert result["passed"] is True
+    assert result["skipped"] is False
+    assert result["error"] is None
+
+
+async def test_twitter_client_does_not_retry_on_4xx(monkeypatch):
+    """4xx is non-transient — returns benefit-of-doubt without retrying."""
+    import httpx as _httpx
+
+    from app.integrations import twitter as tw
+    from app.integrations.twitter import TwitterClient
+
+    class _Resp:
+        def __init__(self, status, text=""):
+            self.status_code = status
+            self.text = text
+
+        def json(self):
+            return {}
+
+        def raise_for_status(self):
+            req = _httpx.Request("GET", "https://x")
+            raise _httpx.HTTPStatusError(
+                f"{self.status_code}", request=req, response=self,
+            )
+
+    calls = {"n": 0}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, headers=None, params=None):
+            calls["n"] += 1
+            return _Resp(404, text="not found")
+
+    monkeypatch.setattr(tw.httpx, "AsyncClient", lambda *a, **kw: _Client())
+
+    c = TwitterClient(api_key="key")
+    result = await c.verify_reply("123", "alice", max_retries=5)
+    assert calls["n"] == 1                # NOT retried
+    assert result["passed"] is True       # benefit of the doubt
+    assert result["skipped"] is True
+    assert "404" in result["error"]
 
 
 # ============ claim history (endpoint) ============

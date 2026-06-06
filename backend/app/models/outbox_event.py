@@ -22,6 +22,7 @@ class OutboxEventType(str, enum.Enum):
     CLAIM_COMPLETED = "claim_completed"
     POST_COMPLETED = "post_completed"
     POST_EXPIRED = "post_expired"
+    STREAK_MILESTONE = "streak_milestone"
     # Reserved — kept for backwards-compat with existing rows. Not wired today:
     # CREDITS_EARNED was a Django port leftover; CAMPAIGN_WINNER feature not
     # ported; TWEETSCOUT_FETCH is now an arq direct enqueue; EXTERNAL_API

@@ -55,6 +55,16 @@ async def expire_old_posts(ctx):
         return await maintenance.expire_old_posts(db)
 
 
+async def reset_broken_streaks(ctx):
+    async with SessionLocal() as db:
+        return await maintenance.reset_broken_streaks(db)
+
+
+async def decay_inactive_karma(ctx):
+    async with SessionLocal() as db:
+        return await maintenance.decay_inactive_karma(db)
+
+
 async def requeue_stuck_batches(ctx):
     """Sweep VerificationBatch rows stuck in pending/processing past the
     expected processing window and re-enqueue them through the arq pool.
@@ -81,6 +91,8 @@ class WorkerSettings:
         reset_daily_credits,
         expire_old_posts,
         requeue_stuck_batches,
+        reset_broken_streaks,
+        decay_inactive_karma,
     ]
     cron_jobs = [
         # drain the outbox every minute
@@ -98,4 +110,14 @@ class WorkerSettings:
         # automated — Django leaves it manual). Sweeps batches stuck in
         # pending/processing past the expected processing window.
         cron(requeue_stuck_batches, minute=set(range(0, 60, 5))),
+        # streak hygiene: zero current_streak for users who didn't engage
+        # yesterday OR today. Runs 5 min after the daily-credit reset so it
+        # doesn't fight for locks with reset_daily_credits.
+        cron(reset_broken_streaks, hour={0}, minute={5}),
+        # karma decay: deduct KARMA_DECAY_RATE * balance from users inactive
+        # past KARMA_DECAY_THRESHOLD_DAYS. Daily at 02:00 UTC — offset from
+        # the 00:00 reset_daily_credits and 03:00 cleanup_old_outbox_events
+        # to spread DB load. Compounds for free: day N+1 sees the already-
+        # decayed balance from day N.
+        cron(decay_inactive_karma, hour={2}, minute={0}),
     ]

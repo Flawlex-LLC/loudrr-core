@@ -130,14 +130,30 @@ def multiplier_for(score: float) -> Decimal:
     return _band(score)[2]
 
 
-def karma_for(base: Decimal, score: float) -> tuple[Decimal, Decimal]:
+def karma_for(
+    base: Decimal,
+    score: float,
+    streak_multiplier: Decimal | None = None,
+) -> tuple[Decimal, Decimal]:
     """Return (karma, multiplier) for a base amount at a given score.
 
-    karma = base × multiplier, banker's-rounded to 4 dp. This exact amount is
-    both deducted from escrow and credited to the engager — no inflation.
+    karma = base × tier_mul × streak_mul, banker's-rounded to 4 dp. This
+    exact amount is both deducted from escrow and credited to the engager —
+    no inflation. The returned multiplier is the *combined* tier × streak
+    multiplier (so callers can keep storing one number for the audit trail).
+
+    ``streak_multiplier`` defaults to 1.0 (no boost) so the many call sites
+    that don't care about streaks stay backward-compatible.
     """
     if not isinstance(base, Decimal):
         base = Decimal(str(base))
-    multiplier = multiplier_for(score)
-    karma = (base * multiplier).quantize(KARMA_QUANTIZE, rounding=ROUND_HALF_EVEN)
-    return karma, multiplier
+    tier_multiplier = multiplier_for(score)
+    if streak_multiplier is None:
+        streak_multiplier = Decimal("1")
+    elif not isinstance(streak_multiplier, Decimal):
+        streak_multiplier = Decimal(str(streak_multiplier))
+    combined = (tier_multiplier * streak_multiplier).quantize(
+        KARMA_QUANTIZE, rounding=ROUND_HALF_EVEN,
+    )
+    karma = (base * combined).quantize(KARMA_QUANTIZE, rounding=ROUND_HALF_EVEN)
+    return karma, combined

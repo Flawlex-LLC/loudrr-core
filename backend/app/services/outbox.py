@@ -158,6 +158,41 @@ class OutboxService:
              "telegram_id": telegram_id, "refund_amount": str(refund_amount)},
         )
 
+    @staticmethod
+    async def queue_streak_milestone(
+        db, *, user_id, telegram_id, streak, threshold, bonus,
+    ) -> OutboxEvent | None:
+        """Queue the 7/14/30-day milestone Telegram card.
+
+        Idempotency key ``streak_milestone:<user>:<threshold>`` so re-running a
+        batch (or a retried settle) cannot double-notify — returns the existing
+        row (None to the caller) instead of raising on the unique violation.
+        ``streak`` is the post-increment current_streak (==threshold today, but
+        parameterized so a future "freeze-skip" feature can still send a card
+        on the actual day).
+        """
+        idem = f"streak_milestone:{user_id}:{threshold}"
+        existing = (
+            await db.execute(
+                select(OutboxEvent).where(
+                    OutboxEvent.event_type == OutboxEventType.STREAK_MILESTONE.value,
+                    OutboxEvent.idempotency_key == idem,
+                ).limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return None
+        return await OutboxEventRepository(db).create(
+            event_type=OutboxEventType.STREAK_MILESTONE.value,
+            payload={
+                "user_id": str(user_id), "telegram_id": telegram_id,
+                "streak": int(streak), "threshold": int(threshold),
+                "bonus": str(bonus),
+            },
+            status=OutboxStatus.PENDING.value,
+            idempotency_key=idem,
+        )
+
 
 # ---- dispatch ----
 # Hardcoded fallbacks used if the SiteSetting row is missing or the admin's
@@ -207,6 +242,9 @@ _POST_COMPLETED_DEFAULT = (
 _POST_EXPIRED_DEFAULT = (
     "Your post expired and {refund_amount} karma was refunded to your balance."
 )
+_STREAK_MILESTONE_DEFAULT = (
+    "🔥 Day {streak} streak! +{bonus} bonus karma deposited."
+)
 
 
 # event_type → (SiteSetting key, hardcoded default). Drives _dispatch.
@@ -246,6 +284,9 @@ _TEMPLATE_BY_EVENT: dict[str, tuple[str, str]] = {
     ),
     OutboxEventType.POST_EXPIRED.value: (
         "TG_MSG_POST_EXPIRED", _POST_EXPIRED_DEFAULT,
+    ),
+    OutboxEventType.STREAK_MILESTONE.value: (
+        "TG_MSG_STREAK_MILESTONE", _STREAK_MILESTONE_DEFAULT,
     ),
 }
 
