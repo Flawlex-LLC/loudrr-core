@@ -4,7 +4,9 @@ from decimal import Decimal
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.base import Base
@@ -19,13 +21,88 @@ from app.services import site_settings
 TEST_DATABASE_URL = settings.database_url.rsplit("/", 1)[0] + "/loudrr_test"
 
 
+# Postgres ENUM types declared by SQLAlchemy ORM models. Base.metadata.
+# drop_all() drops TABLES but NOT ENUM types (CREATE TYPE is a separate DDL
+# verb that lives at the pg_catalog level). List EVERY native ENUM name
+# declared on the ORM here so the session-scoped reset can nuke them.
+# ADD a name here whenever you add a new ENUM column.
+_PG_ENUM_TYPES = ("transactiontype", "xp_transaction_type")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reset_test_schema_once():
+    """Run ONCE at pytest session start: nuke any tables + types left over
+    from a previous test run that was interrupted (Ctrl-C, crash, orphan
+    process holding a CREATE TYPE in an uncommitted tx). Without this, the
+    very first test's create_all hits "transactiontype already exists" or
+    deadlocks against the orphan backend.
+
+    Per-test async fixtures still drop_all + create_all to keep test
+    isolation — this fixture's only job is to guarantee a clean SLATE
+    before that loop starts, no matter what state the prior process left
+    the DB in.
+
+    The fixture is SYNC and spins up a private asyncio loop via
+    `asyncio.run()` exactly for this DDL. We use a private loop on purpose:
+    an async session-scoped fixture would share a session-wide loop with
+    every test, and asyncpg connections are loop-bound — that triggers
+    "attached to a different loop" runtime errors when function-scoped
+    tests run on their own loops. `asyncio.run()` builds a fresh loop, runs
+    the DDL, closes the loop — no shared state with the test loops.
+    """
+    import asyncio  # noqa: PLC0415 — local import keeps test-only deps out of module load
+
+    async def _do_reset():
+        from asyncpg import connect  # noqa: PLC0415
+
+        url_for_asyncpg = TEST_DATABASE_URL.replace("+asyncpg", "")
+        admin_url = url_for_asyncpg.rsplit("/", 1)[0] + "/postgres"
+        # 1. Terminate any orphan backends on loudrr_test from the
+        # maintenance `postgres` db (you can't kill backends on the DB
+        # you're connected to).
+        admin = await connect(admin_url)
+        try:
+            await admin.execute(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname='loudrr_test' AND pid <> pg_backend_pid()"
+            )
+        finally:
+            await admin.close()
+        # 2. Reset the test DB schema so per-test create_all has a known-
+        # empty starting state, no matter what prior runs left behind.
+        conn = await connect(url_for_asyncpg)
+        try:
+            await conn.execute("DROP SCHEMA IF EXISTS public CASCADE")
+            await conn.execute("CREATE SCHEMA public")
+            await conn.execute("GRANT ALL ON SCHEMA public TO loudrr")
+            await conn.execute("GRANT ALL ON SCHEMA public TO PUBLIC")
+        finally:
+            await conn.close()
+
+    asyncio.run(_do_reset())
+    yield
+    # session teardown — nothing to do; the next pytest run will reset again
+
+
 @pytest_asyncio.fixture
 async def db_session():
-    """One fresh, empty schema per test — total isolation."""
-    engine = create_async_engine(TEST_DATABASE_URL)
-    # BEFORE the test: drop anything left over, then build every table
+    """One fresh, empty schema per test — total isolation.
+
+    NullPool: every acquire opens a brand-new asyncpg connection, every
+    release closes it. The default pool keeps connections alive across
+    tests, and asyncpg caches pg_namespace / pg_type OIDs per connection —
+    so a pooled connection from test N would hold the OLD oids when test
+    N+1's CREATE TYPE / CREATE TABLE runs, leading to "transactiontype
+    already exists" against the stale OID. NullPool kills the cache by
+    killing the connection.
+    """
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    # BEFORE the test: drop tables, drop ENUM types (drop_all leaves them),
+    # then build every table fresh.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        for type_name in _PG_ENUM_TYPES:
+            await conn.execute(text(f"DROP TYPE IF EXISTS {type_name} CASCADE"))
         await conn.run_sync(Base.metadata.create_all)
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:
@@ -39,9 +116,11 @@ async def db_session():
         # THIS row is read fresh, not a value cached by an earlier test
         site_settings._cache.clear()
         yield session  # the test runs here, with this session
-    # AFTER the test: drop everything, close the connection pool
+    # AFTER the test: drop tables + ENUM types, close the connection pool
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        for type_name in _PG_ENUM_TYPES:
+            await conn.execute(text(f"DROP TYPE IF EXISTS {type_name} CASCADE"))
     await engine.dispose()
 
 
