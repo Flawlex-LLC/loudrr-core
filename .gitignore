@@ -29,3 +29,7 @@ backend/.coverage
 mypy_output.txt
 zap-scan-output.txt
 *zap-scan-output.txt
+
+# the coming-soon landing is its own git repo deployed independently
+# via Vercel from Flawlex-LLC/loudrr-core@landing — don't track it here
+coming-soon/
